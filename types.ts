@@ -63,3 +63,46 @@ export interface ConfigVersion {
   summary: string;
   content: string;
 }
+
+export interface UnifiedProfile {
+  content: string;
+  publicUrl: string;
+  lastUpdated: string;
+  size: string;
+}
+
+// --- User Management Types ---
+
+export interface UserDevice {
+  id: string;
+  name: string;
+  ip: string;
+  os: string;
+  appVersion: string;
+  lastSeen: string;
+}
+
+export interface TrafficStats {
+  upload: number; // bytes
+  download: number; // bytes
+  total: number; // bytes
+}
+
+export interface AccessLogSummary {
+  totalRequests: number;
+  successRate: number; // percentage
+  topAllowed: { domain: string; count: number }[];
+  topBlocked: { domain: string; count: number }[];
+}
+
+export interface User {
+  id: string;
+  username: string;
+  email: string;
+  status: 'active' | 'disabled' | 'expired';
+  traffic: TrafficStats;
+  devices: UserDevice[];
+  lastOnline: string;
+  logs: AccessLogSummary;
+  created: string;
+}

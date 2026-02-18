@@ -9,6 +9,9 @@ import { ProxiesPage } from './pages/Proxies';
 import { RoutingPage } from './pages/Routing';
 import { DnsHostsPage } from './pages/DnsHosts';
 import { PublishPage } from './pages/Publish';
+import { UnifiedProfilePage } from './pages/UnifiedProfile';
+import { UsersPage } from './pages/Users';
+import { UserDetailsPage } from './pages/UserDetails';
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -30,6 +33,9 @@ const App: React.FC = () => {
             <Route path="/proxies" element={<ProxiesPage />} />
             <Route path="/routing" element={<RoutingPage />} />
             <Route path="/dns-hosts" element={<DnsHostsPage />} />
+            <Route path="/users" element={<UsersPage />} />
+            <Route path="/users/:id" element={<UserDetailsPage />} />
+            <Route path="/profile" element={<UnifiedProfilePage />} />
             <Route path="/publish" element={<PublishPage />} />
           </Routes>
         </AppShell>

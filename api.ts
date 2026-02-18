@@ -1,7 +1,161 @@
 
-import { DomainRule, ProxyNode, RoutingRule, DnsUpstream, HostsEntry, ConfigVersion } from './types';
+import { DomainRule, ProxyNode, RoutingRule, DnsUpstream, HostsEntry, ConfigVersion, UnifiedProfile, User } from './types';
 
 const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+
+// Mock initial JSON content
+const INITIAL_PROFILE_JSON = `{
+  "log": {
+    "level": "info",
+    "timestamp": true
+  },
+  "dns": {
+    "servers": [
+      {
+        "tag": "google",
+        "address": "tls://8.8.8.8",
+        "strategy": "prefer_ipv4"
+      },
+      {
+        "tag": "local",
+        "address": "223.5.5.5",
+        "detour": "direct"
+      }
+    ],
+    "rules": [
+      { "outbound": "any", "server": "local" },
+      { "clash_mode": "Direct", "server": "local" },
+      { "clash_mode": "Global", "server": "google" },
+      { "geosite": "cn", "server": "local" },
+      { "geosite": "geolocation-!cn", "server": "google" }
+    ]
+  },
+  "inbounds": [
+    {
+      "type": "mixed",
+      "tag": "mixed-in",
+      "listen": "::",
+      "listen_port": 7890,
+      "sniff": true
+    }
+  ],
+  "outbounds": [
+    {
+      "type": "selector",
+      "tag": "proxy",
+      "outbounds": ["auto", "direct"]
+    },
+    {
+      "type": "urltest",
+      "tag": "auto",
+      "outbounds": ["hk-01", "sg-01"],
+      "url": "https://www.gstatic.com/generate_204",
+      "interval": "10m"
+    },
+    {
+      "type": "direct",
+      "tag": "direct"
+    }
+  ],
+  "route": {
+    "rules": [
+      { "protocol": "dns", "outbound": "dns-out" },
+      { "geosite": "cn", "geoip": "cn", "outbound": "direct" },
+      { "geosite": "category-ads-all", "outbound": "block" }
+    ],
+    "auto_detect_interface": true
+  }
+}`;
+
+let mockProfileData: UnifiedProfile = {
+  content: INITIAL_PROFILE_JSON,
+  publicUrl: "https://sail.beforeve.com/p/user-default-profile.json",
+  lastUpdated: "2023-10-27 15:30:00",
+  size: "2.4 KB"
+};
+
+const mockUsers: User[] = [
+  {
+    id: 'u1',
+    username: 'alice_dev',
+    email: 'alice@company.com',
+    status: 'active',
+    traffic: {
+      upload: 1024 * 1024 * 450, // 450 MB
+      download: 1024 * 1024 * 1024 * 5.2, // 5.2 GB
+      total: 1024 * 1024 * 1024 * 5.65
+    },
+    devices: [
+      { id: 'd1', name: 'MacBook Pro', ip: '192.168.1.101', os: 'macOS 14.2', appVersion: '1.8.0', lastSeen: '2 mins ago' },
+      { id: 'd2', name: 'iPhone 15', ip: '192.168.1.102', os: 'iOS 17.3', appVersion: '1.7.9', lastSeen: '4 hours ago' }
+    ],
+    lastOnline: '2 mins ago',
+    created: '2023-09-01',
+    logs: {
+      totalRequests: 14520,
+      successRate: 98.2,
+      topAllowed: [
+        { domain: 'github.com', count: 1240 },
+        { domain: 'google.com', count: 980 },
+        { domain: 'stackoverflow.com', count: 450 },
+        { domain: 'youtube.com', count: 320 }
+      ],
+      topBlocked: [
+        { domain: 'analytics.google.com', count: 210 },
+        { domain: 'doubleclick.net', count: 150 },
+        { domain: 'facebook.com', count: 45 }
+      ]
+    }
+  },
+  {
+    id: 'u2',
+    username: 'bob_sales',
+    email: 'bob@company.com',
+    status: 'active',
+    traffic: {
+      upload: 1024 * 1024 * 120, // 120 MB
+      download: 1024 * 1024 * 890, // 890 MB
+      total: 1024 * 1024 * 1010
+    },
+    devices: [
+      { id: 'd3', name: 'Windows Workstation', ip: '192.168.1.105', os: 'Windows 11', appVersion: '1.7.8', lastSeen: '1 day ago' }
+    ],
+    lastOnline: '1 day ago',
+    created: '2023-10-15',
+    logs: {
+      totalRequests: 2100,
+      successRate: 95.5,
+      topAllowed: [
+        { domain: 'salesforce.com', count: 800 },
+        { domain: 'linkedin.com', count: 400 }
+      ],
+      topBlocked: [
+        { domain: 'netflix.com', count: 50 },
+        { domain: 'tiktok.com', count: 20 }
+      ]
+    }
+  },
+  {
+    id: 'u3',
+    username: 'guest_01',
+    email: 'guest@temp.com',
+    status: 'expired',
+    traffic: {
+      upload: 1024 * 1024 * 10,
+      download: 1024 * 1024 * 50,
+      total: 1024 * 1024 * 60
+    },
+    devices: [],
+    lastOnline: '2 weeks ago',
+    created: '2023-10-01',
+    logs: {
+      totalRequests: 150,
+      successRate: 90.0,
+      topAllowed: [{ domain: 'google.com', count: 50 }],
+      topBlocked: []
+    }
+  }
+];
 
 export const mockApi = {
   getDomains: async (): Promise<DomainRule[]> => {
@@ -53,5 +207,31 @@ export const mockApi = {
       { id: 'v3', version: 'v1.2.4', timestamp: '2023-10-27 14:20', author: 'Admin', summary: 'Added Netflix rules', content: '{ "outbounds": [...] }' },
       { id: 'v2', version: 'v1.2.3', timestamp: '2023-10-26 10:15', author: 'Admin', summary: 'Initial setup', content: '{ "outbounds": [] }' },
     ];
+  },
+
+  getUnifiedProfile: async (): Promise<UnifiedProfile> => {
+    await sleep(400);
+    return { ...mockProfileData };
+  },
+
+  saveUnifiedProfile: async (content: string): Promise<UnifiedProfile> => {
+    await sleep(800);
+    mockProfileData = {
+      ...mockProfileData,
+      content,
+      lastUpdated: new Date().toLocaleString(),
+      size: (new Blob([content]).size / 1024).toFixed(1) + " KB"
+    };
+    return mockProfileData;
+  },
+
+  getUsers: async (): Promise<User[]> => {
+    await sleep(600);
+    return [...mockUsers];
+  },
+
+  getUser: async (id: string): Promise<User | undefined> => {
+    await sleep(400);
+    return mockUsers.find(u => u.id === id);
   }
 };

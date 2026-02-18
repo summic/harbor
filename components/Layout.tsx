@@ -10,7 +10,9 @@ import {
   Send, 
   Menu, 
   X,
-  ShieldCheck
+  ShieldCheck,
+  FileJson,
+  Users
 } from 'lucide-react';
 import { useAppStore } from '../store';
 
@@ -20,6 +22,8 @@ const navItems = [
   { path: '/proxies', label: 'Proxies', icon: Zap },
   { path: '/routing', label: 'Routing', icon: Shuffle },
   { path: '/dns-hosts', label: 'DNS & Hosts', icon: Settings2 },
+  { path: '/users', label: 'Users', icon: Users },
+  { path: '/profile', label: 'Unified Profile', icon: FileJson },
   { path: '/publish', label: 'Publish', icon: Send },
 ];
 
