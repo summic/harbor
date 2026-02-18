@@ -80,6 +80,7 @@ export interface UserDevice {
   os: string;
   appVersion: string;
   lastSeen: string;
+  location?: string;
 }
 
 export interface TrafficStats {

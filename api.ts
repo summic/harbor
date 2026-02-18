@@ -88,8 +88,8 @@ const mockUsers: User[] = [
       total: 1024 * 1024 * 1024 * 5.65
     },
     devices: [
-      { id: 'd1', name: 'MacBook Pro', ip: '192.168.1.101', os: 'macOS 14.2', appVersion: '1.8.0', lastSeen: '2 mins ago' },
-      { id: 'd2', name: 'iPhone 15', ip: '192.168.1.102', os: 'iOS 17.3', appVersion: '1.7.9', lastSeen: '4 hours ago' }
+      { id: 'd1', name: 'MacBook Pro', ip: '192.168.1.101', os: 'macOS 14.2', appVersion: '1.8.0', lastSeen: '2 mins ago', location: 'Hong Kong, CN' },
+      { id: 'd2', name: 'iPhone 15', ip: '192.168.1.102', os: 'iOS 17.3', appVersion: '1.7.9', lastSeen: '4 hours ago', location: 'Tokyo, JP' }
     ],
     lastOnline: '2 mins ago',
     created: '2023-09-01',
@@ -120,7 +120,7 @@ const mockUsers: User[] = [
       total: 1024 * 1024 * 1010
     },
     devices: [
-      { id: 'd3', name: 'Windows Workstation', ip: '192.168.1.105', os: 'Windows 11', appVersion: '1.7.8', lastSeen: '1 day ago' }
+      { id: 'd3', name: 'Windows Workstation', ip: '192.168.1.105', os: 'Windows 11', appVersion: '1.7.8', lastSeen: '1 day ago', location: 'New York, US' }
     ],
     lastOnline: '1 day ago',
     created: '2023-10-15',

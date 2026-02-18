@@ -191,6 +191,12 @@ export const UserDetailsPage: React.FC = () => {
                        <p className="text-xs text-slate-500 mt-0.5 truncate">{device.os} • {device.ip}</p>
                        <p className="text-[10px] text-slate-400 mt-1 flex items-center gap-1">
                          <Activity size={10} /> Last seen: {device.lastSeen}
+                         {device.location && (
+                           <>
+                             <span className="text-slate-300 mx-0.5">•</span>
+                             <span className="text-slate-500">{device.location}</span>
+                           </>
+                         )}
                        </p>
                     </div>
                   </div>
