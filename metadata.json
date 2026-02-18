@@ -1,0 +1,5 @@
+{
+  "name": "BoxMaster - sing-box Config Manager",
+  "description": "A high-performance, accessible management interface for sing-box configurations, featuring domain rules, proxy nodes, routing policies, and DNS/Hosts management.",
+  "requestFramePermissions": []
+}
