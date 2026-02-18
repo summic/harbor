@@ -9,7 +9,7 @@ import {
 import { mockApi } from '../api';
 import { SectionCard, StatusBadge, LoadingOverlay } from '../components/Common';
 
-// Helper to format bytes
+// --- Formatter ---
 const formatBytes = (bytes: number, decimals = 2) => {
   if (bytes === 0) return '0 B';
   const k = 1024;
@@ -78,7 +78,7 @@ export const UserDetailsPage: React.FC = () => {
         </div>
       </div>
 
-      {/* Traffic Stats */}
+      {/* Traffic Stats Cards */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
          <div className="p-6 bg-white border border-slate-200 rounded-xl shadow-sm flex flex-col justify-between relative overflow-hidden group">
             <div className="absolute right-0 top-0 p-32 bg-emerald-50 rounded-full -mr-16 -mt-16 opacity-50 group-hover:scale-110 transition-transform duration-500"></div>

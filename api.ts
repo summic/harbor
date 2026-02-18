@@ -67,9 +67,11 @@ const INITIAL_PROFILE_JSON = `{
   }
 }`;
 
+// Updated to a subscription-style URL structure
+// This implies a unique, secure token for the user 'alice_dev'
 let mockProfileData: UnifiedProfile = {
   content: INITIAL_PROFILE_JSON,
-  publicUrl: "https://sail.beforeve.com/p/user-default-profile.json",
+  publicUrl: "https://sub.beforeve.com/api/v1/client/subscribe?token=u1-alice-7f8a9d2b",
   lastUpdated: "2023-10-27 15:30:00",
   size: "2.4 KB"
 };

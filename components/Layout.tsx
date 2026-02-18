@@ -12,7 +12,10 @@ import {
   X,
   ShieldCheck,
   FileJson,
-  Users
+  Users,
+  ChevronDown,
+  LogOut,
+  Bell
 } from 'lucide-react';
 import { useAppStore } from '../store';
 
@@ -26,6 +29,14 @@ const navItems = [
   { path: '/profile', label: 'Unified Profile', icon: FileJson },
   { path: '/publish', label: 'Publish', icon: Send },
 ];
+
+// Mock logged-in user for display purposes
+const CURRENT_USER = {
+  name: 'Admin User',
+  email: 'admin@boxmaster.dev',
+  role: 'Administrator',
+  initials: 'AD'
+};
 
 export const AppShell: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { isSidebarOpen, toggleSidebar } = useAppStore();
@@ -66,13 +77,13 @@ export const AppShell: React.FC<{ children: React.ReactNode }> = ({ children }) 
         </nav>
 
         <div className="p-4 border-t border-slate-100 text-[10px] text-slate-400 font-mono text-center">
-          SING-BOX V1.8.0-RC4
+          BoxMaster Manager v2.0
         </div>
       </aside>
 
       {/* Main Content Area */}
       <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
-        <header className="h-16 bg-white border-b border-slate-200 flex items-center justify-between px-6 shrink-0 safe-pt">
+        <header className="h-16 bg-white border-b border-slate-200 flex items-center justify-between px-6 shrink-0 safe-pt z-20">
           <button 
             onClick={toggleSidebar} 
             className="p-2 -ml-2 text-slate-500 hover:bg-slate-50 rounded-md md:hidden"
@@ -81,13 +92,48 @@ export const AppShell: React.FC<{ children: React.ReactNode }> = ({ children }) 
             {isSidebarOpen ? <X size={20} /> : <Menu size={20} />}
           </button>
           
-          <div className="flex items-center space-x-4">
-            <div className="flex items-center px-3 py-1 bg-green-50 text-green-700 text-xs font-semibold rounded-full border border-green-200">
-              <span className="w-1.5 h-1.5 bg-green-500 rounded-full mr-1.5 animate-pulse"></span>
-              CORE RUNNING
+          <div className="flex-1 flex items-center justify-end gap-6">
+            <div className="hidden md:flex items-center gap-2 px-3 py-1 bg-emerald-50 text-emerald-700 text-xs font-semibold rounded-full border border-emerald-200">
+              <span className="w-1.5 h-1.5 bg-emerald-500 rounded-full animate-pulse"></span>
+              SYSTEM ONLINE
             </div>
-            <div className="h-4 w-px bg-slate-200"></div>
-            <span className="text-xs tabular-nums text-slate-500">Up: 12d 4h 23m</span>
+            
+            <div className="h-6 w-px bg-slate-200 hidden md:block"></div>
+
+            <button className="relative p-2 text-slate-400 hover:text-slate-600 transition-colors">
+              <Bell size={20} />
+              <span className="absolute top-1.5 right-1.5 w-2 h-2 bg-rose-500 rounded-full border border-white"></span>
+            </button>
+
+            {/* User Profile Dropdown Area */}
+            <div className="flex items-center gap-3 pl-2 border-l border-slate-100 md:border-none md:pl-0 cursor-pointer group relative">
+              <div className="text-right hidden sm:block">
+                <p className="text-sm font-semibold text-slate-800 leading-none">{CURRENT_USER.name}</p>
+                <p className="text-[10px] text-slate-500 font-medium mt-1">{CURRENT_USER.role}</p>
+              </div>
+              <div className="w-9 h-9 rounded-full bg-slate-900 text-white flex items-center justify-center font-bold text-sm shadow-md ring-2 ring-slate-100 group-hover:ring-blue-100 transition-all">
+                {CURRENT_USER.initials}
+              </div>
+              <ChevronDown size={14} className="text-slate-400 group-hover:text-slate-600 transition-colors" />
+              
+              {/* Dropdown Menu (Hover implementation for simplicity) */}
+              <div className="absolute top-full right-0 mt-2 w-48 bg-white rounded-lg shadow-xl border border-slate-100 py-1 invisible opacity-0 translate-y-2 group-hover:visible group-hover:opacity-100 group-hover:translate-y-0 transition-all duration-200 z-50">
+                 <div className="px-4 py-3 border-b border-slate-50 sm:hidden">
+                    <p className="text-sm font-semibold text-slate-800">{CURRENT_USER.name}</p>
+                    <p className="text-xs text-slate-500 truncate">{CURRENT_USER.email}</p>
+                 </div>
+                 <button className="w-full text-left px-4 py-2 text-sm text-slate-600 hover:bg-slate-50 hover:text-blue-600 transition-colors">
+                   Account Settings
+                 </button>
+                 <button className="w-full text-left px-4 py-2 text-sm text-slate-600 hover:bg-slate-50 hover:text-blue-600 transition-colors">
+                   API Keys
+                 </button>
+                 <div className="h-px bg-slate-100 my-1"></div>
+                 <button className="w-full text-left px-4 py-2 text-sm text-rose-600 hover:bg-rose-50 transition-colors flex items-center">
+                   <LogOut size={14} className="mr-2" /> Sign Out
+                 </button>
+              </div>
+            </div>
           </div>
         </header>
 
