@@ -57,11 +57,13 @@ export const UnifiedProfilePage: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
   const [subscriptionUrl, setSubscriptionUrl] = useState('');
+  const [fixedPanelStyle, setFixedPanelStyle] = useState<React.CSSProperties>({});
   
   // Refs for sync scrolling
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const preRef = useRef<HTMLPreElement>(null);
   const gutterRef = useRef<HTMLDivElement>(null);
+  const infoAnchorRef = useRef<HTMLDivElement>(null);
 
   // Initialize content
   useEffect(() => {
@@ -72,6 +74,31 @@ export const UnifiedProfilePage: React.FC = () => {
       setError(null);
     }
   }, [profile]);
+
+  // Keep right panel fixed while preserving original grid column position/width.
+  useEffect(() => {
+    const updateFixedPanelStyle = () => {
+      if (!infoAnchorRef.current) return;
+      if (window.innerWidth < 1024) {
+        setFixedPanelStyle({});
+        return;
+      }
+      const rect = infoAnchorRef.current.getBoundingClientRect();
+      setFixedPanelStyle({
+        position: 'fixed',
+        top: `${Math.max(16, Math.round(rect.top))}px`,
+        left: `${Math.round(rect.left)}px`,
+        width: `${Math.round(rect.width)}px`,
+        maxHeight: 'calc(100vh - 7rem)',
+      });
+    };
+
+    updateFixedPanelStyle();
+    window.addEventListener('resize', updateFixedPanelStyle);
+    return () => {
+      window.removeEventListener('resize', updateFixedPanelStyle);
+    };
+  }, []);
 
   // Save Mutation
   const saveMutation = useMutation({
@@ -294,8 +321,11 @@ export const UnifiedProfilePage: React.FC = () => {
         </div>
 
         {/* Info Column */}
-        <div className="lg:self-start">
-          <div className="space-y-6 lg:fixed lg:top-24 lg:right-6 lg:w-[22rem] max-h-[calc(100vh-7rem)] overflow-y-auto pr-1">
+        <div ref={infoAnchorRef} className="lg:self-start">
+          <div
+            className="space-y-6 max-h-[calc(100vh-7rem)] overflow-y-auto pr-1"
+            style={fixedPanelStyle}
+          >
           <SectionCard title="Remote Access" description="Use this URL to subscribe to this profile in your clients.">
              <div className="space-y-4">
                <div className="p-4 bg-slate-50 border border-slate-200 rounded-xl group relative">
