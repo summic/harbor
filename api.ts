@@ -175,6 +175,38 @@ let mockProfileData: UnifiedProfile = {
   lastUpdated: "2023-10-27 15:30:00",
   size: "2.4 KB"
 };
+const proxyLatencyCache = new Map<string, { latency: number; lastChecked: string }>();
+
+const latencyCacheKey = (node: ProxyNode) => `${node.name}|${node.address}|${node.port}`;
+
+const pseudoHash = (value: string): number => {
+  let hash = 0;
+  for (let i = 0; i < value.length; i += 1) {
+    hash = (hash << 5) - hash + value.charCodeAt(i);
+    hash |= 0;
+  }
+  return Math.abs(hash);
+};
+
+const withLatency = (nodes: ProxyNode[]): ProxyNode[] =>
+  nodes.map((node) => {
+    const cached = proxyLatencyCache.get(latencyCacheKey(node));
+    if (!cached) return node;
+    return {
+      ...node,
+      latency: cached.latency,
+      lastChecked: cached.lastChecked,
+    };
+  });
+
+const nowLabel = () => new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+
+const measureLatency = (node: ProxyNode): number => {
+  const seed = pseudoHash(latencyCacheKey(node) + String(Date.now()));
+  const base = 35 + (seed % 170);
+  const jitter = (seed % 21) - 10;
+  return Math.max(12, base + jitter);
+};
 
 const refreshUnifiedProfile = async (): Promise<UnifiedProfile> => {
   try {
@@ -491,7 +523,21 @@ export const mockApi = {
   getProxies: async (): Promise<ProxyNode[]> => {
     await sleep(220);
     const config = await loadConfig();
-    return toProxyNodes(config);
+    return withLatency(toProxyNodes(config));
+  },
+
+  checkProxiesLatency: async (): Promise<ProxyNode[]> => {
+    await sleep(500);
+    const config = await loadConfig();
+    const nodes = toProxyNodes(config);
+    const checkedAt = nowLabel();
+    for (const node of nodes) {
+      proxyLatencyCache.set(latencyCacheKey(node), {
+        latency: measureLatency(node),
+        lastChecked: checkedAt,
+      });
+    }
+    return withLatency(nodes);
   },
 
   getRouting: async (): Promise<RoutingRule[]> => {

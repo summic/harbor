@@ -1,13 +1,20 @@
 
 import React from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 // Added Shuffle to imports
 import { Plus, Wifi, RefreshCw, Zap, Server, Activity, ArrowRight, MoreHorizontal, Shuffle } from 'lucide-react';
 import { mockApi } from '../api';
 import { SectionCard, Skeleton, StatusBadge, LoadingOverlay } from '../components/Common';
 
 export const ProxiesPage: React.FC = () => {
+  const queryClient = useQueryClient();
   const { data: proxies, isLoading } = useQuery({ queryKey: ['proxies'], queryFn: mockApi.getProxies });
+  const checkLatencyMutation = useMutation({
+    mutationFn: mockApi.checkProxiesLatency,
+    onSuccess: (data) => {
+      queryClient.setQueryData(['proxies'], data);
+    },
+  });
   const totalNodes = proxies?.length ?? 0;
   const activeNodes = proxies?.filter((item) => item.enabled).length ?? 0;
   const latencyValues = (proxies ?? []).map((item) => item.latency).filter((v): v is number => typeof v === 'number');
@@ -23,8 +30,12 @@ export const ProxiesPage: React.FC = () => {
           <p className="text-slate-500">Manage outbound nodes and logical selection groups.</p>
         </div>
         <div className="flex items-center gap-2">
-           <button className="inline-flex items-center px-4 py-2 bg-white text-slate-700 text-sm font-semibold rounded-lg border border-slate-200 hover:bg-slate-50 active:scale-95 transition-all">
-            <RefreshCw size={14} className="mr-2" />
+           <button
+            onClick={() => checkLatencyMutation.mutate()}
+            disabled={isLoading || checkLatencyMutation.isPending || totalNodes === 0}
+            className="inline-flex items-center px-4 py-2 bg-white text-slate-700 text-sm font-semibold rounded-lg border border-slate-200 hover:bg-slate-50 active:scale-95 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+           >
+            <RefreshCw size={14} className={`mr-2 ${checkLatencyMutation.isPending ? 'animate-spin' : ''}`} />
             Check Latency
           </button>
           <button className="inline-flex items-center px-4 py-2 bg-blue-600 text-white text-sm font-semibold rounded-lg hover:bg-blue-700 active:scale-95 transition-all">
@@ -68,10 +79,13 @@ export const ProxiesPage: React.FC = () => {
                         </td>
                         <td className="px-6 py-4">
                           <div className="flex items-center text-xs tabular-nums">
-                            <Activity size={12} className={`mr-1 ${node.latency && node.latency < 50 ? 'text-emerald-500' : 'text-amber-500'}`} />
-                            <span className={node.latency && node.latency < 50 ? 'text-emerald-600 font-semibold' : 'text-slate-600'}>
+                            <Activity size={12} className={`mr-1 ${node.latency && node.latency < 80 ? 'text-emerald-500' : 'text-amber-500'}`} />
+                            <span className={node.latency && node.latency < 80 ? 'text-emerald-600 font-semibold' : 'text-slate-600'}>
                               {node.latency ? `${node.latency}ms` : '--'}
                             </span>
+                            {node.lastChecked ? (
+                              <span className="ml-2 text-[10px] text-slate-400">({node.lastChecked})</span>
+                            ) : null}
                           </div>
                         </td>
                         <td className="px-6 py-4">
