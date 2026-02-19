@@ -78,8 +78,24 @@ type StoredUserRow = {
   last_seen: string;
 };
 
-export type ClientConnectReportInput = {
-  userId: string;
+export type ClientDeviceReportInput = {
+  occurredAt?: string;
+  connected?: boolean;
+  networkType?: string;
+  device?: {
+    id: string;
+    name?: string;
+    model?: string;
+    osName?: string;
+    osVersion?: string;
+    appVersion?: string;
+    ip?: string;
+    location?: string;
+  };
+  metadata?: Record<string, unknown>;
+};
+
+export type ClientConnectionLogInput = {
   occurredAt?: string;
   connected?: boolean;
   target?: string;
@@ -894,12 +910,69 @@ export class ConfigStore {
     return updated;
   }
 
-  ingestClientConnectReport(input: ClientConnectReportInput) {
-    const userId = input.userId.trim();
+  ingestClientDeviceReport(userIdRaw: string, input: ClientDeviceReportInput) {
+    const userId = userIdRaw.trim();
     if (!userId) throw new Error('missing_user_id');
     const now = new Date().toLocaleString();
     const occurredAt = input.occurredAt?.trim() || now;
 
+    this.ensureUserExists(userId, now);
+    this.upsertClientDevice(
+      userId,
+      input.device,
+      input.networkType,
+      input.connected === true ? occurredAt : null,
+      input.metadata,
+      now,
+    );
+    return this.getUser(userId);
+  }
+
+  ingestClientConnectionLog(userIdRaw: string, input: ClientConnectionLogInput) {
+    const userId = userIdRaw.trim();
+    if (!userId) throw new Error('missing_user_id');
+    const now = new Date().toLocaleString();
+    const occurredAt = input.occurredAt?.trim() || now;
+
+    this.ensureUserExists(userId, now);
+    this.upsertClientDevice(
+      userId,
+      input.device,
+      input.networkType,
+      input.connected === true ? occurredAt : null,
+      input.metadata,
+      now,
+    );
+
+    this.db
+      .prepare(
+        `INSERT INTO client_connect_logs(
+          user_id, device_id, connected, target, latency_ms, error_message, network_type, ip,
+          request_count, success_count, blocked_count, upload_bytes, download_bytes, occurred_at, metadata_json
+        ) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .run(
+        userId,
+        input.device?.id?.trim() || null,
+        input.connected === true ? 1 : 0,
+        input.target?.trim() || null,
+        Number.isFinite(input.latencyMs) ? Number(input.latencyMs) : null,
+        input.error?.trim() || null,
+        input.networkType?.trim() || null,
+        input.device?.ip?.trim() || null,
+        Number.isFinite(input.requestCount) ? Number(input.requestCount) : 0,
+        Number.isFinite(input.successCount) ? Number(input.successCount) : 0,
+        Number.isFinite(input.blockedCount) ? Number(input.blockedCount) : 0,
+        Number.isFinite(input.uploadBytes) ? Number(input.uploadBytes) : 0,
+        Number.isFinite(input.downloadBytes) ? Number(input.downloadBytes) : 0,
+        occurredAt,
+        input.metadata ? JSON.stringify(input.metadata) : null,
+      );
+
+    return this.getUser(userId);
+  }
+
+  private ensureUserExists(userId: string, now: string) {
     const existing = this.db.prepare(`SELECT id FROM users WHERE id = ?`).get(userId) as { id: string } | undefined;
     if (!existing) {
       this.db
@@ -911,8 +984,27 @@ export class ConfigStore {
     } else {
       this.db.prepare(`UPDATE users SET last_seen = ? WHERE id = ?`).run(now, userId);
     }
+  }
 
-    const device = input.device;
+  private upsertClientDevice(
+    userId: string,
+    device:
+      | {
+          id: string;
+          name?: string;
+          model?: string;
+          osName?: string;
+          osVersion?: string;
+          appVersion?: string;
+          ip?: string;
+          location?: string;
+        }
+      | undefined,
+    networkType: string | undefined,
+    lastConnectedAt: string | null,
+    metadata: Record<string, unknown> | undefined,
+    now: string,
+  ) {
     if (device?.id?.trim()) {
       const deviceId = device.id.trim();
       const existingDevice = this.db
@@ -934,11 +1026,11 @@ export class ConfigStore {
             device.osVersion?.trim() || null,
             device.appVersion?.trim() || null,
             device.ip?.trim() || null,
-            input.networkType?.trim() || null,
+            networkType?.trim() || null,
             device.location?.trim() || null,
             now,
-            input.connected === true ? occurredAt : null,
-            input.metadata ? JSON.stringify(input.metadata) : null,
+            lastConnectedAt,
+            metadata ? JSON.stringify(metadata) : null,
             userId,
             deviceId,
           );
@@ -959,42 +1051,15 @@ export class ConfigStore {
             device.osVersion?.trim() || null,
             device.appVersion?.trim() || null,
             device.ip?.trim() || null,
-            input.networkType?.trim() || null,
+            networkType?.trim() || null,
             device.location?.trim() || null,
             now,
             now,
-            input.connected === true ? occurredAt : null,
-            input.metadata ? JSON.stringify(input.metadata) : null,
+            lastConnectedAt,
+            metadata ? JSON.stringify(metadata) : null,
           );
       }
     }
-
-    this.db
-      .prepare(
-        `INSERT INTO client_connect_logs(
-          user_id, device_id, connected, target, latency_ms, error_message, network_type, ip,
-          request_count, success_count, blocked_count, upload_bytes, download_bytes, occurred_at, metadata_json
-        ) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      )
-      .run(
-        userId,
-        device?.id?.trim() || null,
-        input.connected === true ? 1 : 0,
-        input.target?.trim() || null,
-        Number.isFinite(input.latencyMs) ? Number(input.latencyMs) : null,
-        input.error?.trim() || null,
-        input.networkType?.trim() || null,
-        device?.ip?.trim() || null,
-        Number.isFinite(input.requestCount) ? Number(input.requestCount) : 0,
-        Number.isFinite(input.successCount) ? Number(input.successCount) : 0,
-        Number.isFinite(input.blockedCount) ? Number(input.blockedCount) : 0,
-        Number.isFinite(input.uploadBytes) ? Number(input.uploadBytes) : 0,
-        Number.isFinite(input.downloadBytes) ? Number(input.downloadBytes) : 0,
-        occurredAt,
-        input.metadata ? JSON.stringify(input.metadata) : null,
-      );
-
-    return this.getUser(userId);
   }
 }
 

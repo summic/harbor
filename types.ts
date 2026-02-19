@@ -160,8 +160,15 @@ export interface ClientDeviceReport {
   location?: string;
 }
 
-export interface ClientConnectReport {
-  userId: string;
+export interface ClientDeviceReportPayload {
+  occurredAt?: string;
+  connected?: boolean;
+  networkType?: string;
+  device?: ClientDeviceReport;
+  metadata?: Record<string, unknown>;
+}
+
+export interface ClientConnectionReportPayload {
   occurredAt?: string;
   connected?: boolean;
   target?: string;

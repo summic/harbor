@@ -18,6 +18,7 @@ const ROLLBACK_PATH = '/api/v1/client/rollback';
 const AUTH_SYNC_USER_PATH = '/api/v1/auth/sync-user';
 const USERS_PATH = '/api/v1/users';
 const CLIENT_CONNECT_REPORT_PATH = '/api/v1/client/connect';
+const CLIENT_CONNECTIONS_REPORT_PATH = '/api/v1/client/connections';
 
 const STORE = new ConfigStore({
   dbPath: process.env.SAIL_DB_PATH || path.resolve(__dirname, '.local-data', 'sail.sqlite'),
@@ -57,6 +58,84 @@ const sendJson = (res: ServerResponse, statusCode: number, payload: unknown) => 
   res.end(JSON.stringify(payload, null, 2));
 };
 
+const sendProblem = (
+  res: ServerResponse,
+  status: number,
+  params: {
+    title: string;
+    detail: string;
+    instance?: string;
+    code?: string;
+    type?: string;
+    errors?: Array<{ field?: string; message: string }>;
+  },
+) => {
+  const {
+    title,
+    detail,
+    instance,
+    code,
+    type = `https://harbor.beforeve.com/problems/${code || 'internal-error'}`,
+    errors,
+  } = params;
+  res.statusCode = status;
+  res.setHeader('Content-Type', 'application/problem+json; charset=utf-8');
+  res.setHeader('Cache-Control', 'no-store');
+  res.end(
+    JSON.stringify(
+      {
+        type,
+        title,
+        status,
+        detail,
+        ...(instance ? { instance } : {}),
+        ...(code ? { code } : {}),
+        ...(errors?.length ? { errors } : {}),
+      },
+      null,
+      2,
+    ),
+  );
+};
+
+type AuthInfo = { sub: string };
+
+const TOKEN_SUB_CACHE_TTL_MS = 5 * 60 * 1000;
+const tokenSubCache = new Map<string, { sub: string; expiresAt: number }>();
+const USERINFO_URL =
+  process.env.SAIL_OIDC_USERINFO_URL ||
+  process.env.VITE_SSO_USERINFO_URL ||
+  'https://auth0.kylith.com/oauth2/userinfo';
+
+const extractBearerToken = (req: IncomingMessage): string | null => {
+  const raw = req.headers.authorization;
+  if (!raw) return null;
+  const [scheme, value] = raw.split(' ');
+  if (!scheme || !value || scheme.toLowerCase() !== 'bearer') return null;
+  const token = value.trim();
+  return token ? token : null;
+};
+
+const fetchAuthInfo = async (accessToken: string): Promise<AuthInfo | null> => {
+  const cached = tokenSubCache.get(accessToken);
+  if (cached && cached.expiresAt > Date.now()) {
+    return { sub: cached.sub };
+  }
+  const response = await fetch(USERINFO_URL, {
+    method: 'GET',
+    headers: {
+      Accept: 'application/json',
+      Authorization: `Bearer ${accessToken}`,
+    },
+  });
+  if (!response.ok) return null;
+  const payload = (await response.json()) as { sub?: string };
+  const sub = typeof payload.sub === 'string' ? payload.sub.trim() : '';
+  if (!sub) return null;
+  tokenSubCache.set(accessToken, { sub, expiresAt: Date.now() + TOKEN_SUB_CACHE_TTL_MS });
+  return { sub };
+};
+
 const measureTcpLatency = (host: string, port: number, timeoutMs: number): Promise<number | null> =>
   new Promise((resolve) => {
     const started = Date.now();
@@ -93,7 +172,12 @@ const subscriptionHandler = async (req: IncomingMessage, res: ServerResponse, ne
       const raw = await readBody(req);
       const payload = JSON.parse(raw) as { content?: string; publicUrl?: string };
       if (typeof payload.content !== 'string') {
-        sendJson(res, 400, { error: 'invalid_content' });
+        sendProblem(res, 400, {
+          title: 'Validation failed',
+          detail: 'content must be a string',
+          instance: url.pathname,
+          code: 'invalid_content',
+        });
         return;
       }
       const updated = STORE.saveUnifiedProfile(payload.content, payload.publicUrl);
@@ -104,7 +188,12 @@ const subscriptionHandler = async (req: IncomingMessage, res: ServerResponse, ne
       sendJson(res, 200, updated);
       return;
     } catch {
-      sendJson(res, 400, { error: 'invalid_request' });
+      sendProblem(res, 400, {
+        title: 'Malformed request',
+        detail: 'Request body is not valid JSON',
+        instance: url.pathname,
+        code: 'invalid_request',
+      });
       return;
     }
   }
@@ -133,14 +222,24 @@ const subscriptionHandler = async (req: IncomingMessage, res: ServerResponse, ne
         enabled?: boolean;
       };
       if (!payload?.scope || !payload?.module || !payload?.payload) {
-        sendJson(res, 400, { error: 'invalid_payload' });
+        sendProblem(res, 400, {
+          title: 'Validation failed',
+          detail: 'scope, module, and payload are required',
+          instance: url.pathname,
+          code: 'invalid_payload',
+        });
         return;
       }
       STORE.saveRule(payload);
       sendJson(res, 200, { success: true });
       return;
     } catch {
-      sendJson(res, 400, { error: 'invalid_request' });
+      sendProblem(res, 400, {
+        title: 'Malformed request',
+        detail: 'Request body is not valid JSON',
+        instance: url.pathname,
+        code: 'invalid_request',
+      });
       return;
     }
   }
@@ -148,7 +247,12 @@ const subscriptionHandler = async (req: IncomingMessage, res: ServerResponse, ne
   if (url.pathname === RULES_PATH && req.method === 'DELETE') {
     const id = Number(url.searchParams.get('id'));
     if (!Number.isFinite(id)) {
-      sendJson(res, 400, { error: 'invalid_id' });
+      sendProblem(res, 400, {
+        title: 'Validation failed',
+        detail: 'id must be a number',
+        instance: url.pathname,
+        code: 'invalid_id',
+      });
       return;
     }
     STORE.deleteRule(id);
@@ -161,13 +265,23 @@ const subscriptionHandler = async (req: IncomingMessage, res: ServerResponse, ne
       const raw = await readBody(req);
       const payload = JSON.parse(raw) as { target?: string; protocol?: string; port?: number };
       if (typeof payload.target !== 'string' || !payload.target.trim()) {
-        sendJson(res, 400, { error: 'invalid_target' });
+        sendProblem(res, 400, {
+          title: 'Validation failed',
+          detail: 'target is required',
+          instance: url.pathname,
+          code: 'invalid_target',
+        });
         return;
       }
       sendJson(res, 200, STORE.simulateTraffic(payload));
       return;
     } catch {
-      sendJson(res, 400, { error: 'invalid_request' });
+      sendProblem(res, 400, {
+        title: 'Malformed request',
+        detail: 'Request body is not valid JSON',
+        instance: url.pathname,
+        code: 'invalid_request',
+      });
       return;
     }
   }
@@ -196,7 +310,12 @@ const subscriptionHandler = async (req: IncomingMessage, res: ServerResponse, ne
       sendJson(res, 200, results);
       return;
     } catch {
-      sendJson(res, 400, { error: 'invalid_request' });
+      sendProblem(res, 400, {
+        title: 'Malformed request',
+        detail: 'Request body is not valid JSON',
+        instance: url.pathname,
+        code: 'invalid_request',
+      });
       return;
     }
   }
@@ -213,7 +332,12 @@ const subscriptionHandler = async (req: IncomingMessage, res: ServerResponse, ne
       sendJson(res, 200, STORE.publishCurrentProfile(payload.summary, payload.author));
       return;
     } catch {
-      sendJson(res, 400, { error: 'invalid_request' });
+      sendProblem(res, 400, {
+        title: 'Malformed request',
+        detail: 'Request body is not valid JSON',
+        instance: url.pathname,
+        code: 'invalid_request',
+      });
       return;
     }
   }
@@ -223,7 +347,12 @@ const subscriptionHandler = async (req: IncomingMessage, res: ServerResponse, ne
       const raw = await readBody(req);
       const payload = JSON.parse(raw) as { id?: string };
       if (!payload.id) {
-        sendJson(res, 400, { error: 'missing_id' });
+        sendProblem(res, 400, {
+          title: 'Validation failed',
+          detail: 'id is required',
+          instance: url.pathname,
+          code: 'missing_id',
+        });
         return;
       }
       const updated = STORE.rollbackVersion(payload.id);
@@ -232,7 +361,12 @@ const subscriptionHandler = async (req: IncomingMessage, res: ServerResponse, ne
       sendJson(res, 200, updated);
       return;
     } catch (error) {
-      sendJson(res, 400, { error: error instanceof Error ? error.message : 'invalid_request' });
+      sendProblem(res, 400, {
+        title: 'Rollback failed',
+        detail: error instanceof Error ? error.message : 'invalid_request',
+        instance: url.pathname,
+        code: 'rollback_failed',
+      });
       return;
     }
   }
@@ -248,7 +382,12 @@ const subscriptionHandler = async (req: IncomingMessage, res: ServerResponse, ne
         picture?: string;
       };
       if (!payload.sub || !payload.sub.trim()) {
-        sendJson(res, 400, { error: 'missing_sub' });
+        sendProblem(res, 400, {
+          title: 'Validation failed',
+          detail: 'sub is required',
+          instance: url.pathname,
+          code: 'missing_sub',
+        });
         return;
       }
       STORE.upsertOAuthUser({
@@ -261,7 +400,12 @@ const subscriptionHandler = async (req: IncomingMessage, res: ServerResponse, ne
       sendJson(res, 200, { success: true });
       return;
     } catch {
-      sendJson(res, 400, { error: 'invalid_request' });
+      sendProblem(res, 400, {
+        title: 'Malformed request',
+        detail: 'Request body is not valid JSON',
+        instance: url.pathname,
+        code: 'invalid_request',
+      });
       return;
     }
   }
@@ -273,9 +417,110 @@ const subscriptionHandler = async (req: IncomingMessage, res: ServerResponse, ne
 
   if (url.pathname === CLIENT_CONNECT_REPORT_PATH && req.method === 'POST') {
     try {
+      const accessToken = extractBearerToken(req);
+      if (!accessToken) {
+        sendProblem(res, 401, {
+          title: 'Authentication failed',
+          detail: 'Bearer token is required',
+          instance: url.pathname,
+          code: 'missing_bearer_token',
+        });
+        return;
+      }
+      const authInfo = await fetchAuthInfo(accessToken);
+      if (!authInfo?.sub) {
+        sendProblem(res, 401, {
+          title: 'Authentication failed',
+          detail: 'Invalid access token',
+          instance: url.pathname,
+          code: 'invalid_access_token',
+        });
+        return;
+      }
+
       const raw = await readBody(req);
       const payload = JSON.parse(raw) as {
-        userId?: string;
+        occurredAt?: string;
+        connected?: boolean;
+        networkType?: string;
+        device?: {
+          id?: string;
+          name?: string;
+          model?: string;
+          osName?: string;
+          osVersion?: string;
+          appVersion?: string;
+          ip?: string;
+          location?: string;
+        };
+        metadata?: Record<string, unknown>;
+      };
+      if (payload.device && (!payload.device.id || !payload.device.id.trim())) {
+        sendProblem(res, 400, {
+          title: 'Validation failed',
+          detail: 'device.id must be a non-empty string when device is provided',
+          instance: url.pathname,
+          code: 'invalid_device_id',
+        });
+        return;
+      }
+
+      const updated = STORE.ingestClientDeviceReport(authInfo.sub, {
+        occurredAt: payload.occurredAt,
+        connected: payload.connected,
+        networkType: payload.networkType,
+        device: payload.device?.id
+          ? {
+              id: payload.device.id,
+              name: payload.device.name,
+              model: payload.device.model,
+              osName: payload.device.osName,
+              osVersion: payload.device.osVersion,
+              appVersion: payload.device.appVersion,
+              ip: payload.device.ip,
+              location: payload.device.location,
+            }
+          : undefined,
+        metadata: payload.metadata,
+      });
+      sendJson(res, 200, { success: true, user: updated });
+      return;
+    } catch (error) {
+      sendProblem(res, 400, {
+        title: 'Connect report rejected',
+        detail: error instanceof Error ? error.message : 'invalid_request',
+        instance: url.pathname,
+        code: 'connect_report_invalid',
+      });
+      return;
+    }
+  }
+
+  if (url.pathname === CLIENT_CONNECTIONS_REPORT_PATH && req.method === 'POST') {
+    try {
+      const accessToken = extractBearerToken(req);
+      if (!accessToken) {
+        sendProblem(res, 401, {
+          title: 'Authentication failed',
+          detail: 'Bearer token is required',
+          instance: url.pathname,
+          code: 'missing_bearer_token',
+        });
+        return;
+      }
+      const authInfo = await fetchAuthInfo(accessToken);
+      if (!authInfo?.sub) {
+        sendProblem(res, 401, {
+          title: 'Authentication failed',
+          detail: 'Invalid access token',
+          instance: url.pathname,
+          code: 'invalid_access_token',
+        });
+        return;
+      }
+
+      const raw = await readBody(req);
+      const payload = JSON.parse(raw) as {
         occurredAt?: string;
         connected?: boolean;
         target?: string;
@@ -299,16 +544,27 @@ const subscriptionHandler = async (req: IncomingMessage, res: ServerResponse, ne
         };
         metadata?: Record<string, unknown>;
       };
-      if (!payload.userId || !payload.userId.trim()) {
-        sendJson(res, 400, { error: 'missing_user_id' });
+
+      if (!payload.target || !payload.target.trim()) {
+        sendProblem(res, 400, {
+          title: 'Validation failed',
+          detail: 'target is required',
+          instance: url.pathname,
+          code: 'missing_target',
+        });
         return;
       }
       if (payload.device && (!payload.device.id || !payload.device.id.trim())) {
-        sendJson(res, 400, { error: 'invalid_device_id' });
+        sendProblem(res, 400, {
+          title: 'Validation failed',
+          detail: 'device.id must be a non-empty string when device is provided',
+          instance: url.pathname,
+          code: 'invalid_device_id',
+        });
         return;
       }
-      const updated = STORE.ingestClientConnectReport({
-        userId: payload.userId,
+
+      const updated = STORE.ingestClientConnectionLog(authInfo.sub, {
         occurredAt: payload.occurredAt,
         connected: payload.connected,
         target: payload.target,
@@ -337,7 +593,12 @@ const subscriptionHandler = async (req: IncomingMessage, res: ServerResponse, ne
       sendJson(res, 200, { success: true, user: updated });
       return;
     } catch (error) {
-      sendJson(res, 400, { error: error instanceof Error ? error.message : 'invalid_request' });
+      sendProblem(res, 400, {
+        title: 'Connection log rejected',
+        detail: error instanceof Error ? error.message : 'invalid_request',
+        instance: url.pathname,
+        code: 'connection_log_invalid',
+      });
       return;
     }
   }
@@ -346,7 +607,12 @@ const subscriptionHandler = async (req: IncomingMessage, res: ServerResponse, ne
     const id = decodeURIComponent(url.pathname.slice(USERS_PATH.length + 1));
     const user = STORE.getUser(id);
     if (!user) {
-      sendJson(res, 404, { error: 'not_found' });
+      sendProblem(res, 404, {
+        title: 'Resource not found',
+        detail: 'User not found',
+        instance: url.pathname,
+        code: 'not_found',
+      });
       return;
     }
     sendJson(res, 200, user);
@@ -359,32 +625,61 @@ const subscriptionHandler = async (req: IncomingMessage, res: ServerResponse, ne
       const raw = await readBody(req);
       const payload = JSON.parse(raw) as { displayName?: string };
       if (!payload?.displayName || !payload.displayName.trim()) {
-        sendJson(res, 400, { error: 'missing_display_name' });
+        sendProblem(res, 400, {
+          title: 'Validation failed',
+          detail: 'displayName is required',
+          instance: url.pathname,
+          code: 'missing_display_name',
+        });
         return;
       }
       const updated = STORE.updateUserDisplayName(id, payload.displayName);
       sendJson(res, 200, updated);
       return;
     } catch (error) {
-      sendJson(res, 400, { error: error instanceof Error ? error.message : 'invalid_request' });
+      sendProblem(res, 400, {
+        title: 'Profile update failed',
+        detail: error instanceof Error ? error.message : 'invalid_request',
+        instance: url.pathname,
+        code: 'profile_update_failed',
+      });
       return;
     }
   }
 
   if (url.pathname !== SUBSCRIPTION_PATH) {
+    if (url.pathname.startsWith('/api/')) {
+      sendProblem(res, 404, {
+        title: 'Resource not found',
+        detail: 'API route not found',
+        instance: url.pathname,
+        code: 'not_found',
+      });
+      return;
+    }
     next();
     return;
   }
 
   const token = url.searchParams.get('token');
   if (!token) {
-    sendJson(res, 400, { error: 'missing_token' });
+    sendProblem(res, 400, {
+      title: 'Validation failed',
+      detail: 'token is required',
+      instance: url.pathname,
+      code: 'missing_token',
+    });
     return;
   }
 
   const profile = STORE.getSubscriptionProfile(token);
   if (!profile) {
-    sendJson(res, 401, { error: 'invalid_token' });
+    sendProblem(res, 401, {
+      title: 'Authentication failed',
+      detail: 'token is invalid',
+      instance: url.pathname,
+      code: 'invalid_token',
+    });
     return;
   }
   sendJson(res, 200, profile);

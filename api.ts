@@ -1,5 +1,5 @@
 
-import { DomainRule, ProxyNode, ProxyGroup, RoutingRule, DnsUpstream, HostsEntry, ConfigVersion, UnifiedProfile, User, ProtocolType, TrafficSimulationResult, ClientConnectReport } from './types';
+import { DomainRule, ProxyNode, ProxyGroup, RoutingRule, DnsUpstream, HostsEntry, ConfigVersion, UnifiedProfile, User, ProtocolType, TrafficSimulationResult, ClientDeviceReportPayload, ClientConnectionReportPayload } from './types';
 import { QualityObservability, normalizeObservabilityResponse } from './utils/quality';
 import { loadSession } from './auth';
 
@@ -17,6 +17,7 @@ const ROLLBACK_PATH = '/api/v1/client/rollback';
 const AUTH_SYNC_USER_PATH = '/api/v1/auth/sync-user';
 const USERS_PATH = '/api/v1/users';
 const CLIENT_CONNECT_REPORT_PATH = '/api/v1/client/connect';
+const CLIENT_CONNECTIONS_REPORT_PATH = '/api/v1/client/connections';
 
 const resolveSubscriptionUrl = () => {
   if (typeof window !== 'undefined' && window.location?.origin) {
@@ -1500,11 +1501,20 @@ export const mockApi = {
     }
   },
 
-  reportClientConnect: async (payload: ClientConnectReport): Promise<User | undefined> => {
-    if (!payload.userId?.trim()) {
-      throw new Error('missing_user_id');
-    }
+  reportClientConnect: async (payload: ClientDeviceReportPayload): Promise<User | undefined> => {
     const response = await fetchJson<{ success: boolean; user?: User }>(CLIENT_CONNECT_REPORT_PATH, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    return response.user;
+  },
+
+  reportClientConnections: async (payload: ClientConnectionReportPayload): Promise<User | undefined> => {
+    if (!payload.target?.trim()) {
+      throw new Error('missing_target');
+    }
+    const response = await fetchJson<{ success: boolean; user?: User }>(CLIENT_CONNECTIONS_REPORT_PATH, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
