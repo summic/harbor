@@ -8,7 +8,7 @@ test('right panel should stop near top when scrolling', async ({ page }) => {
     );
   });
 
-  await page.goto('/#/profile');
+  await page.goto('/profile');
   await expect(page.getByRole('heading', { name: 'Unified Profile' })).toBeVisible();
 
   const actionsTitle = page.getByText('Actions').first();

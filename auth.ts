@@ -1,7 +1,7 @@
 const STORAGE_KEY = 'kylith_sso_session_v1';
 const PKCE_VERIFIER_KEY = 'kylith_sso_pkce_verifier';
 const OAUTH_STATE_KEY = 'kylith_sso_state';
-const RETURN_HASH_KEY = 'kylith_sso_return_hash';
+const RETURN_PATH_KEY = 'kylith_sso_return_path';
 
 type Nullable<T> = T | null;
 
@@ -104,7 +104,7 @@ export const clearSession = () => {
   localStorage.removeItem(STORAGE_KEY);
   sessionStorage.removeItem(PKCE_VERIFIER_KEY);
   sessionStorage.removeItem(OAUTH_STATE_KEY);
-  sessionStorage.removeItem(RETURN_HASH_KEY);
+  sessionStorage.removeItem(RETURN_PATH_KEY);
 };
 
 const formBody = (values: Record<string, string>) => {
@@ -131,7 +131,8 @@ export const startLogin = async () => {
   const challenge = await sha256Base64Url(verifier);
   sessionStorage.setItem(PKCE_VERIFIER_KEY, verifier);
   sessionStorage.setItem(OAUTH_STATE_KEY, state);
-  sessionStorage.setItem(RETURN_HASH_KEY, window.location.hash || '#/');
+  const returnPath = `${window.location.pathname}${window.location.search}${window.location.hash}` || '/';
+  sessionStorage.setItem(RETURN_PATH_KEY, returnPath);
 
   const url = new URL(oidcConfig.authorizeUrl);
   url.searchParams.set('response_type', 'code');
@@ -237,11 +238,12 @@ export const handleAuthCallbackIfPresent = async (): Promise<Nullable<AuthSessio
   sessionStorage.removeItem(PKCE_VERIFIER_KEY);
   sessionStorage.removeItem(OAUTH_STATE_KEY);
 
-  const returnHash = sessionStorage.getItem(RETURN_HASH_KEY) || '#/';
-  sessionStorage.removeItem(RETURN_HASH_KEY);
+  const returnPath = sessionStorage.getItem(RETURN_PATH_KEY) || '/';
+  sessionStorage.removeItem(RETURN_PATH_KEY);
   cleanupAuthQuery();
-  if (window.location.hash !== returnHash) {
-    window.location.hash = returnHash;
+  const currentPath = `${window.location.pathname}${window.location.search}${window.location.hash}`;
+  if (currentPath !== returnPath) {
+    window.location.assign(returnPath);
   }
   return session;
 };
