@@ -1,6 +1,7 @@
 import path from 'path';
 import net from 'net';
 import type { IncomingMessage, ServerResponse } from 'http';
+import { execSync } from 'child_process';
 import { defineConfig, loadEnv } from 'vite';
 import react from '@vitejs/plugin-react';
 import { ConfigStore } from './dev-server/config-store';
@@ -319,7 +320,17 @@ const subscriptionHandler = async (req: IncomingMessage, res: ServerResponse, ne
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, '.', '');
   const appVersion = process.env.npm_package_version ?? '0.0.0';
-  const buildTime = new Date().toISOString();
+  const readGitValue = (command: string, fallback: string) => {
+    try {
+      return execSync(command, { cwd: __dirname, stdio: ['ignore', 'pipe', 'ignore'] })
+        .toString()
+        .trim();
+    } catch {
+      return fallback;
+    }
+  };
+  const buildTime = readGitValue('git log -1 --format=%cI', new Date().toISOString());
+  const gitSha = readGitValue('git rev-parse --short HEAD', 'local');
   return {
     server: {
       port: 5173,
@@ -342,6 +353,9 @@ export default defineConfig(({ mode }) => {
       'process.env.GEMINI_API_KEY': JSON.stringify(env.GEMINI_API_KEY),
       'process.env.APP_VERSION': JSON.stringify(appVersion),
       'process.env.BUILD_TIME': JSON.stringify(buildTime),
+      __APP_VERSION__: JSON.stringify(appVersion),
+      __LAST_COMMIT_TIME__: JSON.stringify(buildTime),
+      __GIT_SHA__: JSON.stringify(gitSha),
     },
     resolve: {
       alias: {

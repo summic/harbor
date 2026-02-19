@@ -61,7 +61,7 @@ export const AuthGate: React.FC<{ children: React.ReactNode }> = ({ children }) 
           <div className="flex flex-wrap items-center justify-center gap-x-3 gap-y-1">
             <span>{buildInfo.copyrightText}</span>
             <span>Version v{buildInfo.appVersion}</span>
-            <span>Last updated {buildInfo.buildTimeText}</span>
+            <span>Last updated {buildInfo.buildTimeText} (#{buildInfo.gitSha})</span>
           </div>
         </footer>
       </div>
