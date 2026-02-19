@@ -117,10 +117,10 @@ export const UserDetailsPage: React.FC = () => {
         {/* Left Column: Proxy Logs */}
         <div className="lg:col-span-2 space-y-6">
            <SectionCard title="Proxy Access Overview" actions={
-              <span className="text-xs font-mono bg-emerald-50 px-2 py-1 rounded text-emerald-700">Only outboundType = proxy</span>
+              <span className="text-xs font-mono bg-emerald-50 px-2 py-1 rounded text-emerald-700">Proxy metrics + direct top list</span>
            }>
              <div className="mb-4 rounded-lg border border-emerald-100 bg-emerald-50/60 px-4 py-3 text-xs text-emerald-800">
-               Metrics in this panel only include connections routed through proxy outbounds.
+               Request and traffic metrics are proxy-only. The direct list is shown separately for routing visibility.
              </div>
 
              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
@@ -138,7 +138,7 @@ export const UserDetailsPage: React.FC = () => {
                 </div>
              </div>
 
-             <div className="grid grid-cols-1 gap-6">
+             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                <div>
                   <h3 className="text-xs font-bold text-emerald-700 uppercase tracking-wider mb-3 flex items-center">
                     <Activity size={14} className="mr-1.5" /> Top Proxied Domains
@@ -151,6 +151,20 @@ export const UserDetailsPage: React.FC = () => {
                        </div>
                      ))}
                      {user.logs.topAllowed.length === 0 && <div className="p-6 text-center text-xs text-slate-400">No proxy domain data yet</div>}
+                  </div>
+               </div>
+               <div>
+                  <h3 className="text-xs font-bold text-sky-700 uppercase tracking-wider mb-3 flex items-center">
+                    <Activity size={14} className="mr-1.5" /> Top Direct Domains
+                  </h3>
+                  <div className="bg-white border border-slate-200 rounded-lg overflow-hidden">
+                     {user.logs.topDirect.map((item, idx) => (
+                       <div key={idx} className="flex items-center justify-between px-4 py-3 border-b border-slate-100 last:border-0 hover:bg-slate-50 transition-colors">
+                          <span className="text-sm font-medium text-slate-700">{item.domain}</span>
+                          <span className="text-xs font-mono text-slate-500 bg-slate-100 px-2 py-0.5 rounded-full">{item.count}</span>
+                       </div>
+                     ))}
+                     {user.logs.topDirect.length === 0 && <div className="p-6 text-center text-xs text-slate-400">No direct domain data yet</div>}
                   </div>
                </div>
              </div>

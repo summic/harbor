@@ -820,11 +820,24 @@ export class ConfigStore {
          LIMIT 5`,
       )
       .all(userId) as Array<{ target: string; count: number }>;
+    const topDirect = this.db
+      .prepare(
+        `SELECT target, COUNT(*) AS count
+         FROM client_connect_logs
+         WHERE user_id = ?
+           AND target IS NOT NULL AND target != ''
+           AND lower(COALESCE(outbound_type, json_extract(metadata_json, '$.outbound_type'), '')) = 'direct'
+         GROUP BY target
+         ORDER BY count DESC
+         LIMIT 5`,
+      )
+      .all(userId) as Array<{ target: string; count: number }>;
 
     return {
       totalRequests: effectiveTotal,
       successRate,
       topAllowed: topAllowed.map((item) => ({ domain: item.target, count: Number(item.count || 0) })),
+      topDirect: topDirect.map((item) => ({ domain: item.target, count: Number(item.count || 0) })),
       topBlocked: [],
     };
   }

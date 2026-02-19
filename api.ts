@@ -1074,6 +1074,7 @@ const mockUsers: User[] = [
         { domain: 'stackoverflow.com', count: 450 },
         { domain: 'youtube.com', count: 320 }
       ],
+      topDirect: [],
       topBlocked: [
         { domain: 'analytics.google.com', count: 210 },
         { domain: 'doubleclick.net', count: 150 },
@@ -1103,6 +1104,7 @@ const mockUsers: User[] = [
         { domain: 'salesforce.com', count: 800 },
         { domain: 'linkedin.com', count: 400 }
       ],
+      topDirect: [],
       topBlocked: [
         { domain: 'netflix.com', count: 50 },
         { domain: 'tiktok.com', count: 20 }
@@ -1126,6 +1128,7 @@ const mockUsers: User[] = [
       totalRequests: 150,
       successRate: 90.0,
       topAllowed: [{ domain: 'google.com', count: 50 }],
+      topDirect: [],
       topBlocked: []
     }
   }

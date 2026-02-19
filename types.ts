@@ -132,6 +132,7 @@ export interface AccessLogSummary {
   totalRequests: number;
   successRate: number; // percentage
   topAllowed: { domain: string; count: number }[];
+  topDirect: { domain: string; count: number }[];
   topBlocked: { domain: string; count: number }[];
 }
 
