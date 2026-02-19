@@ -216,8 +216,8 @@ export const AppShell: React.FC<{ children: React.ReactNode }> = ({ children }) 
           <footer className="max-w-7xl mx-auto pt-6 pb-4 text-[11px] text-slate-400 border-t border-slate-100 mt-4">
             <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
               <span>{buildInfo.copyrightText}</span>
-              <span>Version v{buildInfo.appVersion}</span>
-              <span>Last updated {buildInfo.buildTimeText} (#{buildInfo.gitSha})</span>
+              <span>v{buildInfo.appVersion}</span>
+              <span>{buildInfo.buildTimeText}</span>
             </div>
           </footer>
         </main>

@@ -12,5 +12,5 @@ export const buildInfo = {
   appVersion,
   buildTimeText: buildTimeRaw ? new Date(buildTimeRaw).toLocaleString() : '--',
   gitSha,
-  copyrightText: `© ${new Date().getFullYear()} Beforeve. All rights reserved.`,
+  copyrightText: `© ${new Date().getFullYear()} Beforeve`,
 };
