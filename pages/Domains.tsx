@@ -23,7 +23,6 @@ const RuleDrawer: React.FC<{
     value: '',
     group: '',
     action: 'PROXY',
-    priority: 10,
     enabled: true,
     note: ''
   });
@@ -36,7 +35,6 @@ const RuleDrawer: React.FC<{
         value: '',
         group: 'ProxyGroup',
         action: 'PROXY',
-        priority: 10,
         enabled: true,
         note: ''
       });
@@ -50,8 +48,9 @@ const RuleDrawer: React.FC<{
       {/* Backdrop */}
       <div className="fixed inset-0 bg-slate-900/20 backdrop-blur-sm z-40 transition-opacity" onClick={onClose} />
       
-      {/* Drawer Panel */}
-      <div className="fixed inset-y-0 right-0 w-full md:w-[480px] bg-white shadow-2xl z-50 transform transition-transform duration-300 ease-out flex flex-col">
+      {/* Modal Panel */}
+      <div className="fixed inset-0 z-50 p-4 md:p-6 flex items-center justify-center">
+      <div className="w-full max-w-2xl bg-white rounded-2xl shadow-2xl border border-slate-100 flex flex-col max-h-[90vh]">
         <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100 bg-slate-50/50">
           <div>
             <h2 className="text-lg font-bold text-slate-900">{isEdit ? 'Edit Domain Rule' : 'New Domain Rule'}</h2>
@@ -133,19 +132,8 @@ const RuleDrawer: React.FC<{
             )}
           </div>
 
-          {/* Priority & Note */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
-               <label className="block text-xs font-semibold text-slate-500 mb-1.5 uppercase">Priority</label>
-               <input 
-                  type="number"
-                  className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:bg-white focus:ring-2 focus:ring-blue-500/20 outline-none"
-                  value={formData.priority}
-                  onChange={e => setFormData({...formData, priority: parseInt(e.target.value) || 0})}
-                />
-                <p className="text-[10px] text-slate-400 mt-1">Higher number = higher priority.</p>
-            </div>
-             <div>
                <label className="block text-xs font-semibold text-slate-500 mb-1.5 uppercase">Status</label>
                <div className="flex items-center h-[38px]">
                  <label className="relative inline-flex items-center cursor-pointer">
@@ -157,7 +145,7 @@ const RuleDrawer: React.FC<{
                     />
                     <div className="w-11 h-6 bg-slate-200 peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-blue-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
                     <span className="ml-3 text-sm font-medium text-slate-700">{formData.enabled ? 'Enabled' : 'Disabled'}</span>
-                  </label>
+                </label>
                </div>
             </div>
           </div>
@@ -188,6 +176,7 @@ const RuleDrawer: React.FC<{
             {isEdit ? 'Save Changes' : 'Create Rule'}
           </button>
         </div>
+      </div>
       </div>
     </>
   );
