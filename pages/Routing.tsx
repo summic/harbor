@@ -1,12 +1,14 @@
 import React from 'react';
-import { useMutation, useQuery } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Plus, MoveUp, MoveDown, Trash2, Edit3, Network, Target, Shuffle, Search, Server, Route } from 'lucide-react';
 import { mockApi } from '../api';
 import { SectionCard, StatusBadge, LoadingOverlay } from '../components/Common';
+import { RoutingRule } from '../types';
 
 const protocolOptions = ['tcp', 'udp', 'dns', 'icmp', 'stun', 'dtls'];
 
 export const RoutingPage: React.FC = () => {
+  const queryClient = useQueryClient();
   const { data: rules, isLoading } = useQuery({ queryKey: ['routing'], queryFn: mockApi.getRouting });
   const [target, setTarget] = React.useState('connect-api-prod.kuainiu.chat');
   const [protocol, setProtocol] = React.useState('tcp');
@@ -15,6 +17,69 @@ export const RoutingPage: React.FC = () => {
   const simulateMutation = useMutation({
     mutationFn: mockApi.simulateTraffic,
   });
+  const saveMutation = useMutation({
+    mutationFn: mockApi.saveRoutingRule,
+    onSuccess: (next) => {
+      queryClient.setQueryData(['routing'], next);
+      queryClient.invalidateQueries({ queryKey: ['unifiedProfile'] });
+    },
+  });
+  const deleteMutation = useMutation({
+    mutationFn: mockApi.deleteRoutingRule,
+    onSuccess: (next) => {
+      queryClient.setQueryData(['routing'], next);
+      queryClient.invalidateQueries({ queryKey: ['unifiedProfile'] });
+    },
+  });
+  const moveMutation = useMutation({
+    mutationFn: mockApi.moveRoutingRule,
+    onSuccess: (next) => {
+      queryClient.setQueryData(['routing'], next);
+      queryClient.invalidateQueries({ queryKey: ['unifiedProfile'] });
+    },
+  });
+
+  const orderedRules = React.useMemo(
+    () => (rules ? [...rules].sort((a, b) => a.priority - b.priority) : []),
+    [rules],
+  );
+
+  const promptRulePayload = (initial?: RoutingRule): {
+    id?: string;
+    matchType: RoutingRule['matchType'];
+    matchExpr: string;
+    outbound: string;
+  } | null => {
+    const matchType = (window.prompt(
+      'Match type: domain / ip / geosite / geoip / port / process / rule_set / protocol / action / ip_private',
+      initial?.matchType || 'rule_set',
+    ) || '').trim() as RoutingRule['matchType'];
+    if (!matchType) return null;
+
+    const matchExpr = (window.prompt('Match expression', initial?.matchExpr || '') || '').trim();
+    const outbound = (window.prompt('Outbound (or action value when type=action)', initial?.outbound || 'proxy') || '').trim();
+    if (!matchExpr && matchType !== 'ip_private') return null;
+    if (!outbound) return null;
+
+    return {
+      id: initial?.id,
+      matchType,
+      matchExpr,
+      outbound,
+    };
+  };
+
+  const handleAdd = () => {
+    const payload = promptRulePayload();
+    if (!payload) return;
+    saveMutation.mutate(payload);
+  };
+
+  const handleEdit = (rule: RoutingRule) => {
+    const payload = promptRulePayload(rule);
+    if (!payload) return;
+    saveMutation.mutate(payload);
+  };
 
   const handleSimulate = () => {
     simulateMutation.mutate({
@@ -33,7 +98,10 @@ export const RoutingPage: React.FC = () => {
           <h1 className="text-2xl font-bold tracking-tight">Routing Policies</h1>
           <p className="text-slate-500">Define how traffic flows through different outbounds.</p>
         </div>
-        <button className="inline-flex items-center px-4 py-2 bg-blue-600 text-white text-sm font-semibold rounded-lg hover:bg-blue-700 active:scale-95 transition-all">
+        <button
+          onClick={handleAdd}
+          className="inline-flex items-center px-4 py-2 bg-blue-600 text-white text-sm font-semibold rounded-lg hover:bg-blue-700 active:scale-95 transition-all"
+        >
           <Plus size={16} className="mr-2" />
           Add Policy
         </button>
@@ -45,12 +113,24 @@ export const RoutingPage: React.FC = () => {
             <div className="relative overflow-hidden -mx-6 -my-6">
               {isLoading && <LoadingOverlay />}
               <div className="space-y-0.5 p-2">
-                {rules?.sort((a, b) => a.priority - b.priority).map((rule, idx) => (
+                {orderedRules.map((rule, idx) => (
                   <div key={rule.id} className="flex items-center p-3 bg-white border border-slate-100 rounded-lg hover:border-blue-200 hover:shadow-sm transition-all group">
                     <div className="flex flex-col items-center mr-4 text-slate-300">
-                      <button className="hover:text-blue-500 p-0.5"><MoveUp size={14} /></button>
+                      <button
+                        onClick={() => moveMutation.mutate({ id: rule.id, direction: 'up' })}
+                        disabled={idx === 0 || moveMutation.isPending}
+                        className="hover:text-blue-500 p-0.5 disabled:opacity-40"
+                      >
+                        <MoveUp size={14} />
+                      </button>
                       <span className="text-[10px] font-bold tabular-nums my-0.5">{idx + 1}</span>
-                      <button className="hover:text-blue-500 p-0.5"><MoveDown size={14} /></button>
+                      <button
+                        onClick={() => moveMutation.mutate({ id: rule.id, direction: 'down' })}
+                        disabled={idx === orderedRules.length - 1 || moveMutation.isPending}
+                        className="hover:text-blue-500 p-0.5 disabled:opacity-40"
+                      >
+                        <MoveDown size={14} />
+                      </button>
                     </div>
 
                     <div className="flex-1 min-w-0">
@@ -70,8 +150,21 @@ export const RoutingPage: React.FC = () => {
                     <div className="flex items-center gap-2 ml-4">
                       <StatusBadge active={rule.enabled} />
                       <div className="flex items-center opacity-0 group-hover:opacity-100 transition-opacity">
-                        <button className="p-2 text-slate-400 hover:text-blue-600"><Edit3 size={16} /></button>
-                        <button className="p-2 text-slate-400 hover:text-rose-600"><Trash2 size={16} /></button>
+                        <button
+                          onClick={() => handleEdit(rule)}
+                          className="p-2 text-slate-400 hover:text-blue-600"
+                        >
+                          <Edit3 size={16} />
+                        </button>
+                        <button
+                          onClick={() => {
+                            if (!window.confirm(`Delete routing policy ${rule.matchExpr}?`)) return;
+                            deleteMutation.mutate(rule.id);
+                          }}
+                          className="p-2 text-slate-400 hover:text-rose-600"
+                        >
+                          <Trash2 size={16} />
+                        </button>
                       </div>
                     </div>
                   </div>
