@@ -181,8 +181,7 @@ export const UnifiedProfilePage: React.FC = () => {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="sticky top-0 z-30 bg-slate-50/95 backdrop-blur border-b border-slate-200 pb-4">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pt-2">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold tracking-tight text-balance">Unified Profile</h1>
           <p className="text-slate-500 text-pretty">Edit the core JSON configuration directly and access it remotely.</p>
@@ -220,7 +219,6 @@ export const UnifiedProfilePage: React.FC = () => {
             )}
             Save Profile
           </button>
-        </div>
         </div>
       </div>
 
@@ -296,7 +294,7 @@ export const UnifiedProfilePage: React.FC = () => {
         </div>
 
         {/* Info Column */}
-        <div className="lg:sticky lg:top-6 lg:self-start">
+        <div className="lg:sticky lg:top-24 lg:self-start">
           <div className="space-y-6 max-h-[calc(100vh-8rem)] overflow-y-auto pr-1">
           <SectionCard title="Remote Access" description="Use this URL to subscribe to this profile in your clients.">
              <div className="space-y-4">
