@@ -60,6 +60,7 @@ export const AppShell: React.FC<{ children: React.ReactNode }> = ({ children }) 
     (user?.['https://kylith.com/claims/role'] as string | undefined) ||
     'Authenticated';
   const sub = (user?.sub as string | undefined) || '';
+  const avatarUrl = (user?.picture as string | undefined) || (user?.avatar_url as string | undefined) || '';
   const initials = displayName
     .split(/\s+/)
     .filter(Boolean)
@@ -138,8 +139,12 @@ export const AppShell: React.FC<{ children: React.ReactNode }> = ({ children }) 
                   {email || role}
                 </p>
               </div>
-              <div className="w-9 h-9 rounded-full bg-slate-900 text-white flex items-center justify-center font-bold text-sm shadow-md ring-2 ring-slate-100 group-hover:ring-blue-100 transition-all">
-                {initials}
+              <div className="w-9 h-9 rounded-full bg-slate-900 text-white flex items-center justify-center font-bold text-sm shadow-md ring-2 ring-slate-100 group-hover:ring-blue-100 transition-all overflow-hidden">
+                {avatarUrl ? (
+                  <img src={avatarUrl} alt={displayName} className="w-full h-full object-cover" />
+                ) : (
+                  initials
+                )}
               </div>
               <ChevronDown size={14} className="text-slate-400 group-hover:text-slate-600 transition-colors" />
               
