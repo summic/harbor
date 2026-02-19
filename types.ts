@@ -71,6 +71,35 @@ export interface UnifiedProfile {
   size: string;
 }
 
+export interface TrafficSimulationMatch {
+  index: number;
+  summary: string;
+  outbound?: string;
+  action?: string;
+}
+
+export interface TrafficSimulationResult {
+  input: {
+    target: string;
+    protocol: string;
+    port?: number;
+  };
+  normalized: {
+    domain?: string;
+    ip?: string;
+  };
+  dns: {
+    selectedServer: string;
+    matchedRule?: string;
+  };
+  route: {
+    finalOutbound: string;
+    matchedRules: TrafficSimulationMatch[];
+    actions: TrafficSimulationMatch[];
+    usedFinalFallback: boolean;
+  };
+}
+
 // --- User Management Types ---
 
 export interface UserDevice {

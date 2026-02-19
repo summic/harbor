@@ -1,5 +1,5 @@
 
-import { DomainRule, ProxyNode, RoutingRule, DnsUpstream, HostsEntry, ConfigVersion, UnifiedProfile, User, ProtocolType } from './types';
+import { DomainRule, ProxyNode, RoutingRule, DnsUpstream, HostsEntry, ConfigVersion, UnifiedProfile, User, ProtocolType, TrafficSimulationResult } from './types';
 import { QualityObservability, normalizeObservabilityResponse } from './utils/quality';
 import { loadSession } from './auth';
 
@@ -8,6 +8,7 @@ const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 const API_BASE = import.meta.env.VITE_API_BASE_URL ?? '';
 const QUALITY_MOCK_FALLBACK = import.meta.env.VITE_QUALITY_MOCK_FALLBACK !== 'false';
 const DEFAULT_SUBSCRIPTION_PATH = '/api/v1/client/subscribe?token=u1-alice-7f8a9d2b';
+const SIMULATE_TRAFFIC_PATH = '/api/v1/simulate/traffic';
 
 const resolveSubscriptionUrl = () => {
   if (typeof window !== 'undefined' && window.location?.origin) {
@@ -556,6 +557,19 @@ export const mockApi = {
     await sleep(180);
     const config = await loadConfig();
     return toHostsEntries(config);
+  },
+
+  simulateTraffic: async (payload: {
+    target: string;
+    protocol?: string;
+    port?: number;
+  }): Promise<TrafficSimulationResult> => {
+    await sleep(120);
+    return fetchJson<TrafficSimulationResult>(SIMULATE_TRAFFIC_PATH, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
   },
 
   getVersions: async (): Promise<ConfigVersion[]> => {
