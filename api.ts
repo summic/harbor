@@ -1402,7 +1402,24 @@ export const mockApi = {
     } catch {
       return mockUsers.find(u => u.id === id);
     }
-  }
+  },
+
+  updateCurrentUserDisplayName: async (displayName: string): Promise<User> => {
+    const session = loadSession();
+    const sub = session?.user?.sub;
+    const name = displayName.trim();
+    if (!sub) {
+      throw new Error('missing_user_sub');
+    }
+    if (!name) {
+      throw new Error('display_name_required');
+    }
+    return fetchJson<User>(`${USERS_PATH}/${encodeURIComponent(sub)}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ displayName: name }),
+    });
+  },
 };
 
 export const qualityApi = {

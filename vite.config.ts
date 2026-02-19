@@ -279,6 +279,24 @@ const subscriptionHandler = async (req: IncomingMessage, res: ServerResponse, ne
     return;
   }
 
+  if (url.pathname.startsWith(`${USERS_PATH}/`) && req.method === 'PATCH') {
+    try {
+      const id = decodeURIComponent(url.pathname.slice(USERS_PATH.length + 1));
+      const raw = await readBody(req);
+      const payload = JSON.parse(raw) as { displayName?: string };
+      if (!payload?.displayName || !payload.displayName.trim()) {
+        sendJson(res, 400, { error: 'missing_display_name' });
+        return;
+      }
+      const updated = STORE.updateUserDisplayName(id, payload.displayName);
+      sendJson(res, 200, updated);
+      return;
+    } catch (error) {
+      sendJson(res, 400, { error: error instanceof Error ? error.message : 'invalid_request' });
+      return;
+    }
+  }
+
   if (url.pathname !== SUBSCRIPTION_PATH) {
     next();
     return;

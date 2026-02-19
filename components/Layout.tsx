@@ -1,6 +1,6 @@
 
 import React from 'react';
-import { useLocation, Link } from 'react-router-dom';
+import { useLocation, Link, useNavigate } from 'react-router-dom';
 import { 
   LayoutDashboard, 
   Activity,
@@ -36,6 +36,7 @@ const navItems = [
 export const AppShell: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { isSidebarOpen, toggleSidebar } = useAppStore();
   const location = useLocation();
+  const navigate = useNavigate();
   const auth = useAuth();
   const isAdmin = auth.isAdmin;
   const user = auth.session?.user as Record<string, unknown> | undefined;
@@ -194,7 +195,10 @@ export const AppShell: React.FC<{ children: React.ReactNode }> = ({ children }) 
                    <p className="text-xs text-slate-700 truncate">{role}</p>
                    {sub ? <p className="text-[11px] text-slate-400 truncate mt-1">sub: {sub}</p> : null}
                  </div>
-                 <button className="w-full text-left px-4 py-2 text-sm text-slate-600 hover:bg-slate-50 hover:text-blue-600 transition-colors">
+                 <button
+                   onClick={() => navigate('/account')}
+                   className="w-full text-left px-4 py-2 text-sm text-slate-600 hover:bg-slate-50 hover:text-blue-600 transition-colors"
+                 >
                    Account Settings
                  </button>
                  <button className="w-full text-left px-4 py-2 text-sm text-slate-600 hover:bg-slate-50 hover:text-blue-600 transition-colors">

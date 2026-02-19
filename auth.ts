@@ -88,6 +88,20 @@ const saveSession = (session: AuthSession) => {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(session));
 };
 
+export const updateSessionUser = (patch: Partial<AuthUser>): AuthSession | null => {
+  const existing = loadSession();
+  if (!existing) return null;
+  const next: AuthSession = {
+    ...existing,
+    user: {
+      ...(existing.user ?? {}),
+      ...patch,
+    },
+  };
+  saveSession(next);
+  return next;
+};
+
 export const loadSession = (): Nullable<AuthSession> => {
   const raw = localStorage.getItem(STORAGE_KEY);
   if (!raw) return null;

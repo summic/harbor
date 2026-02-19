@@ -8,6 +8,7 @@ import {
   logout as oidcLogout,
   oidcConfig,
   startLogin,
+  updateSessionUser,
 } from './auth';
 import { mockApi } from './api';
 
@@ -21,6 +22,7 @@ type AuthContextValue = {
   ssoConfigured: boolean;
   login: () => Promise<void>;
   logout: () => void;
+  updateDisplayName: (displayName: string) => void;
 };
 
 const AuthContext = React.createContext<AuthContextValue | undefined>(undefined);
@@ -96,6 +98,24 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     oidcLogout();
   }, []);
 
+  const updateDisplayName = React.useCallback((displayName: string) => {
+    const trimmed = displayName.trim();
+    if (!trimmed) return;
+    const next = updateSessionUser({ name: trimmed, preferred_username: trimmed });
+    if (next) {
+      setSession(next);
+    } else if (session?.user) {
+      setSession({
+        ...session,
+        user: {
+          ...session.user,
+          name: trimmed,
+          preferred_username: trimmed,
+        },
+      });
+    }
+  }, [session]);
+
   const value: AuthContextValue = {
     loading,
     error,
@@ -106,6 +126,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     ssoConfigured,
     login,
     logout,
+    updateDisplayName,
   };
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

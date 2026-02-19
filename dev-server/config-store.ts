@@ -665,6 +665,44 @@ export class ConfigStore {
     if (!row) return undefined;
     return this.mapUser(row);
   }
+
+  updateUserDisplayName(id: string, displayName: string) {
+    const userId = id.trim();
+    const name = displayName.trim();
+    if (!userId) throw new Error('missing_user_id');
+    if (!name) throw new Error('missing_display_name');
+
+    const now = new Date().toLocaleString();
+    const existing = this.db
+      .prepare(
+        `SELECT id, username, display_name, email, avatar_url, status, created_at, last_seen
+         FROM users
+         WHERE id = ?`,
+      )
+      .get(userId) as StoredUserRow | undefined;
+
+    if (existing) {
+      const nextUsername = existing.username?.trim() || name;
+      this.db
+        .prepare(
+          `UPDATE users
+           SET username = ?, display_name = ?, last_seen = ?
+           WHERE id = ?`,
+        )
+        .run(nextUsername, name, now, userId);
+    } else {
+      this.db
+        .prepare(
+          `INSERT INTO users(id, username, display_name, email, avatar_url, status, created_at, last_seen)
+           VALUES(?, ?, ?, ?, ?, 'active', ?, ?)`,
+        )
+        .run(userId, name, name, null, null, now, now);
+    }
+
+    const updated = this.getUser(userId);
+    if (!updated) throw new Error('update_failed');
+    return updated;
+  }
 }
 
 type SimCtx = {

@@ -15,6 +15,7 @@ import { UnifiedProfilePage } from './pages/UnifiedProfile';
 import { UsersPage } from './pages/Users';
 import { UserDetailsPage } from './pages/UserDetails';
 import { QualityObservabilityPage } from './pages/QualityObservability';
+import { AccountSettingsPage } from './pages/AccountSettings';
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -42,6 +43,7 @@ const App: React.FC = () => {
             <AppShell>
               <Routes>
                 <Route path="/" element={<DashboardPage />} />
+                <Route path="/account" element={<AccountSettingsPage />} />
                 <Route path="/domains" element={<AdminRoute><DomainsPage /></AdminRoute>} />
                 <Route path="/proxies" element={<AdminRoute><ProxiesPage /></AdminRoute>} />
                 <Route path="/routing" element={<AdminRoute><RoutingPage /></AdminRoute>} />
