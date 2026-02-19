@@ -448,6 +448,137 @@ const toRoutingRules = (config: JsonObject): RoutingRule[] => {
   });
 };
 
+const ensureRouteSection = (config: JsonObject): JsonObject => {
+  const next = JSON.parse(JSON.stringify(config)) as JsonObject;
+  next.route = next.route ?? {};
+  next.route.rules = Array.isArray(next.route.rules) ? next.route.rules : [];
+  return next;
+};
+
+const splitExpr = (value: string): string[] =>
+  value
+    .split(',')
+    .map((item) => item.trim())
+    .filter(Boolean);
+
+const parseMatchExpr = (expr: string): { key?: string; value: string } => {
+  const parts = expr.split(':');
+  if (parts.length >= 2) {
+    const key = parts[0].trim();
+    const value = parts.slice(1).join(':').trim();
+    return { key, value };
+  }
+  return { value: expr.trim() };
+};
+
+const routingRuleToConfigRule = (rule: {
+  matchType: RoutingRule['matchType'];
+  matchExpr: string;
+  outbound: string;
+}): JsonObject => {
+  const { key, value } = parseMatchExpr(rule.matchExpr);
+  const expr = value || '';
+
+  const outbound = rule.outbound.trim();
+  if (rule.matchType === 'action') {
+    return { action: expr || outbound || 'sniff' };
+  }
+
+  if (rule.matchType === 'ip_private') {
+    return { ip_is_private: true, outbound };
+  }
+
+  const payload: JsonObject = { outbound };
+  const pick = (k: string, arr = false) => {
+    if (!expr) return;
+    if (arr) payload[k] = splitExpr(expr);
+    else payload[k] = expr;
+  };
+
+  switch (rule.matchType) {
+    case 'rule_set':
+      pick('rule_set', true);
+      break;
+    case 'protocol':
+      pick('protocol', true);
+      break;
+    case 'domain':
+      if (key === 'domain') pick('domain', true);
+      else if (key === 'domain_suffix') pick('domain_suffix', true);
+      else pick('domain_suffix', true);
+      break;
+    case 'ip':
+      pick('ip_cidr', true);
+      break;
+    case 'geosite':
+      pick('geosite', true);
+      break;
+    case 'geoip':
+      pick('geoip', true);
+      break;
+    case 'port':
+      payload.port = Number(expr);
+      break;
+    case 'process':
+      pick('process_name', true);
+      break;
+    default:
+      break;
+  }
+  return payload;
+};
+
+const upsertRoutingRuleInConfig = (config: JsonObject, input: {
+  id?: string;
+  matchType: RoutingRule['matchType'];
+  matchExpr: string;
+  outbound: string;
+}): JsonObject => {
+  const next = ensureRouteSection(config);
+  const list = next.route.rules as JsonObject[];
+  const payload = routingRuleToConfigRule(input);
+
+  if (input.id) {
+    const matched = /^route-(\d+)$/.exec(input.id);
+    if (matched) {
+      const index = Number(matched[1]) - 1;
+      if (index >= 0 && index < list.length) {
+        list[index] = payload;
+        return next;
+      }
+    }
+  }
+  list.push(payload);
+  return next;
+};
+
+const deleteRoutingRuleInConfig = (config: JsonObject, id: string): JsonObject => {
+  const next = ensureRouteSection(config);
+  const list = next.route.rules as JsonObject[];
+  const matched = /^route-(\d+)$/.exec(id);
+  if (!matched) return next;
+  const index = Number(matched[1]) - 1;
+  if (index >= 0 && index < list.length) {
+    list.splice(index, 1);
+  }
+  return next;
+};
+
+const moveRoutingRuleInConfig = (config: JsonObject, id: string, direction: 'up' | 'down'): JsonObject => {
+  const next = ensureRouteSection(config);
+  const list = next.route.rules as JsonObject[];
+  const matched = /^route-(\d+)$/.exec(id);
+  if (!matched) return next;
+  const index = Number(matched[1]) - 1;
+  const target = direction === 'up' ? index - 1 : index + 1;
+  if (index < 0 || index >= list.length || target < 0 || target >= list.length) {
+    return next;
+  }
+  const [item] = list.splice(index, 1);
+  list.splice(target, 0, item);
+  return next;
+};
+
 const toDnsServers = (config: JsonObject): DnsUpstream[] => {
   const dns = config.dns ?? {};
   const servers = Array.isArray(dns.servers) ? dns.servers : [];
@@ -808,6 +939,47 @@ export const mockApi = {
     await sleep(180);
     const config = await loadConfig();
     return toRoutingRules(config);
+  },
+
+  saveRoutingRule: async (payload: {
+    id?: string;
+    matchType: RoutingRule['matchType'];
+    matchExpr: string;
+    outbound: string;
+  }): Promise<RoutingRule[]> => {
+    await sleep(180);
+    const config = await loadConfig();
+    const nextConfig = upsertRoutingRuleInConfig(config, payload);
+    await mockApi.saveUnifiedProfile({
+      content: JSON.stringify(nextConfig, null, 2),
+      publicUrl: mockProfileData.publicUrl,
+    });
+    return toRoutingRules(nextConfig);
+  },
+
+  deleteRoutingRule: async (id: string): Promise<RoutingRule[]> => {
+    await sleep(160);
+    const config = await loadConfig();
+    const nextConfig = deleteRoutingRuleInConfig(config, id);
+    await mockApi.saveUnifiedProfile({
+      content: JSON.stringify(nextConfig, null, 2),
+      publicUrl: mockProfileData.publicUrl,
+    });
+    return toRoutingRules(nextConfig);
+  },
+
+  moveRoutingRule: async (payload: {
+    id: string;
+    direction: 'up' | 'down';
+  }): Promise<RoutingRule[]> => {
+    await sleep(140);
+    const config = await loadConfig();
+    const nextConfig = moveRoutingRuleInConfig(config, payload.id, payload.direction);
+    await mockApi.saveUnifiedProfile({
+      content: JSON.stringify(nextConfig, null, 2),
+      publicUrl: mockProfileData.publicUrl,
+    });
+    return toRoutingRules(nextConfig);
   },
 
   getDns: async (): Promise<DnsUpstream[]> => {
