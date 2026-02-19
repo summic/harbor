@@ -45,12 +45,13 @@ export const UnifiedProfilePage: React.FC = () => {
         return;
       }
       const rect = infoAnchorRef.current.getBoundingClientRect();
+      const top = Math.max(16, Math.round(rect.top));
       setFixedPanelStyle({
         position: 'fixed',
-        top: `${Math.max(16, Math.round(rect.top))}px`,
+        top: `${top}px`,
         left: `${Math.round(rect.left)}px`,
         width: `${Math.round(rect.width)}px`,
-        maxHeight: 'calc(100vh - 7rem)',
+        maxHeight: `calc(100vh - ${top + 16}px)`,
       });
     };
 
