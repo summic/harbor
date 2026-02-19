@@ -103,6 +103,30 @@ const stringifyExpr = (rule: JsonObject, key: string): string | null => {
   return null;
 };
 
+const domainRuleId = (group: string, type: DomainRule['type'], value: string) =>
+  `domain:${encodeURIComponent(group)}:${type}:${encodeURIComponent(value)}`;
+
+const domainRuleKeyToField = (type: DomainRule['type']) => {
+  switch (type) {
+    case 'exact':
+      return 'domain';
+    case 'suffix':
+      return 'domain_suffix';
+    case 'wildcard':
+      return 'domain_keyword';
+    case 'regex':
+      return 'domain_regex';
+    default:
+      return 'domain_suffix';
+  }
+};
+
+const domainActionToOutbound = (action: DomainRule['action']) => {
+  if (action === 'DIRECT') return 'direct';
+  if (action === 'BLOCK') return 'block';
+  return 'proxy';
+};
+
 
 // Mock initial JSON content
 const INITIAL_PROFILE_JSON = `{
@@ -263,7 +287,7 @@ const toDomainRules = (config: JsonObject): DomainRule[] => {
           if (typeof item !== 'string' || !item.trim()) continue;
           order += 1;
           result.push({
-            id: `domain-set-${group}-${order}`,
+            id: domainRuleId(group, mapping.type, item),
             type: mapping.type,
             value: item,
             group,
@@ -277,6 +301,84 @@ const toDomainRules = (config: JsonObject): DomainRule[] => {
   }
 
   return result;
+};
+
+const upsertDomainInConfig = (config: JsonObject, rule: DomainRule): JsonObject => {
+  const next = JSON.parse(JSON.stringify(config)) as JsonObject;
+  next.route = next.route ?? {};
+  next.route.rule_set = Array.isArray(next.route.rule_set) ? next.route.rule_set : [];
+  next.route.rules = Array.isArray(next.route.rules) ? next.route.rules : [];
+
+  const ruleSets = next.route.rule_set as JsonObject[];
+  let targetSet = ruleSets.find((set) => set?.type === 'inline' && set?.tag === rule.group);
+  if (!targetSet) {
+    targetSet = { type: 'inline', tag: rule.group, rules: [] };
+    ruleSets.push(targetSet);
+  }
+  targetSet.rules = Array.isArray(targetSet.rules) ? targetSet.rules : [];
+
+  const field = domainRuleKeyToField(rule.type);
+  const rules = targetSet.rules as JsonObject[];
+  let updated = false;
+  for (const item of rules) {
+    const values = Array.isArray(item[field]) ? item[field] : typeof item[field] === 'string' ? [item[field]] : [];
+    if (values.includes(rule.value)) {
+      item[field] = values.map((v: string) => (v === rule.value ? rule.value : v));
+      updated = true;
+      break;
+    }
+  }
+  if (!updated) {
+    rules.push({ [field]: [rule.value] });
+  }
+
+  const outbound = domainActionToOutbound(rule.action);
+  const routeRules = next.route.rules as JsonObject[];
+  const mapped = routeRules.find((item) => Array.isArray(item?.rule_set) && item.rule_set.includes(rule.group));
+  if (mapped) {
+    mapped.outbound = outbound;
+  } else {
+    routeRules.push({ rule_set: [rule.group], outbound });
+  }
+
+  return next;
+};
+
+const deleteDomainInConfig = (config: JsonObject, ruleId: string): JsonObject => {
+  const next = JSON.parse(JSON.stringify(config)) as JsonObject;
+  const parsed = /^domain:([^:]+):([^:]+):(.+)$/.exec(ruleId);
+  if (!parsed) return next;
+  const group = decodeURIComponent(parsed[1]);
+  const type = parsed[2] as DomainRule['type'];
+  const value = decodeURIComponent(parsed[3]);
+  const field = domainRuleKeyToField(type);
+
+  next.route = next.route ?? {};
+  next.route.rule_set = Array.isArray(next.route.rule_set) ? next.route.rule_set : [];
+  const ruleSets = next.route.rule_set as JsonObject[];
+  const targetSet = ruleSets.find((set) => set?.type === 'inline' && set?.tag === group);
+  if (!targetSet || !Array.isArray(targetSet.rules)) return next;
+
+  targetSet.rules = (targetSet.rules as JsonObject[])
+    .map((item) => {
+      const values = Array.isArray(item[field]) ? item[field] : typeof item[field] === 'string' ? [item[field]] : [];
+      const filtered = values.filter((entry: string) => entry !== value);
+      if (values.length > 0) {
+        if (filtered.length === 0) {
+          const clone = { ...item };
+          delete clone[field];
+          return clone;
+        }
+        return { ...item, [field]: filtered };
+      }
+      return item;
+    })
+    .filter((item) => {
+      const keys = ['domain', 'domain_suffix', 'domain_keyword', 'domain_regex', 'ip_cidr'];
+      return keys.some((k) => Array.isArray(item[k]) && item[k].length > 0);
+    });
+
+  return next;
 };
 
 const toProxyNodes = (config: JsonObject): ProxyNode[] => {
@@ -519,6 +621,49 @@ export const mockApi = {
     await sleep(200);
     const config = await loadConfig();
     return toDomainRules(config);
+  },
+
+  saveDomainRule: async (payload: Partial<DomainRule> & { id?: string }): Promise<DomainRule[]> => {
+    await sleep(180);
+    const config = await loadConfig();
+    const current = toDomainRules(config);
+    const existing = payload.id ? current.find((item) => item.id === payload.id) : undefined;
+    const nextRule: DomainRule = {
+      id: payload.id || domainRuleId(payload.group || 'custom', (payload.type as DomainRule['type']) || 'suffix', payload.value || ''),
+      type: (payload.type as DomainRule['type']) || existing?.type || 'suffix',
+      value: payload.value || existing?.value || '',
+      group: payload.group || existing?.group || 'custom',
+      action: (payload.action as DomainRule['action']) || existing?.action || 'PROXY',
+      priority: Number.isFinite(payload.priority) ? Number(payload.priority) : existing?.priority || 10,
+      enabled: payload.enabled ?? existing?.enabled ?? true,
+      note: payload.note ?? existing?.note,
+    };
+    if (!nextRule.value.trim()) {
+      throw new Error('domain value is required');
+    }
+
+    let nextConfig = config;
+    if (existing && existing.value !== nextRule.value) {
+      nextConfig = deleteDomainInConfig(nextConfig, existing.id);
+    }
+    nextConfig = upsertDomainInConfig(nextConfig, nextRule);
+
+    await mockApi.saveUnifiedProfile({
+      content: JSON.stringify(nextConfig, null, 2),
+      publicUrl: mockProfileData.publicUrl,
+    });
+    return toDomainRules(nextConfig);
+  },
+
+  deleteDomainRule: async (id: string): Promise<DomainRule[]> => {
+    await sleep(160);
+    const config = await loadConfig();
+    const nextConfig = deleteDomainInConfig(config, id);
+    await mockApi.saveUnifiedProfile({
+      content: JSON.stringify(nextConfig, null, 2),
+      publicUrl: mockProfileData.publicUrl,
+    });
+    return toDomainRules(nextConfig);
   },
 
   getProxies: async (): Promise<ProxyNode[]> => {

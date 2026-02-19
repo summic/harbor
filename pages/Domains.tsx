@@ -234,6 +234,25 @@ const DeleteDialog: React.FC<{
 export const DomainsPage: React.FC = () => {
   const queryClient = useQueryClient();
   const { data: rules, isLoading } = useQuery({ queryKey: ['domains'], queryFn: mockApi.getDomains });
+  const saveMutation = useMutation({
+    mutationFn: mockApi.saveDomainRule,
+    onSuccess: (next) => {
+      queryClient.setQueryData(['domains'], next);
+      queryClient.invalidateQueries({ queryKey: ['routing'] });
+      queryClient.invalidateQueries({ queryKey: ['unifiedProfile'] });
+      setIsDrawerOpen(false);
+      setEditingRule(null);
+    },
+  });
+  const deleteMutation = useMutation({
+    mutationFn: mockApi.deleteDomainRule,
+    onSuccess: (next) => {
+      queryClient.setQueryData(['domains'], next);
+      queryClient.invalidateQueries({ queryKey: ['routing'] });
+      queryClient.invalidateQueries({ queryKey: ['unifiedProfile'] });
+      setDeleteTarget(null);
+    },
+  });
   
   // UI States
   const [search, setSearch] = useState('');
@@ -266,19 +285,15 @@ export const DomainsPage: React.FC = () => {
   };
 
   const handleSave = (data: Partial<DomainRule>) => {
-    // In a real app, useMutation here. 
-    // For now, we just close the drawer to simulate success.
-    console.log("Saving rule:", data);
-    setIsDrawerOpen(false);
-    
-    // Simulate optimistic update or refetch
-    // queryClient.invalidateQueries(['domains']);
+    saveMutation.mutate({
+      ...data,
+      id: editingRule?.id,
+    });
   };
 
   const handleDeleteConfirm = () => {
-    console.log("Deleting rule id:", deleteTarget);
-    setDeleteTarget(null);
-    // queryClient.invalidateQueries(['domains']);
+    if (!deleteTarget) return;
+    deleteMutation.mutate(deleteTarget);
   };
 
   const runSimulation = () => {
