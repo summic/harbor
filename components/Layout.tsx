@@ -155,13 +155,6 @@ export const AppShell: React.FC<{ children: React.ReactNode }> = ({ children }) 
             <div />
           )}
           <div className="flex-1 flex items-center justify-end gap-6">
-            <div className="hidden md:flex items-center gap-2 px-3 py-1 bg-emerald-50 text-emerald-700 text-xs font-semibold rounded-full border border-emerald-200">
-              <span className="w-1.5 h-1.5 bg-emerald-500 rounded-full animate-pulse"></span>
-              SYSTEM ONLINE
-            </div>
-            
-            <div className="h-6 w-px bg-slate-200 hidden md:block"></div>
-
             <button className="relative p-2 text-slate-400 hover:text-slate-600 transition-colors">
               <Bell size={20} />
               <span className="absolute top-1.5 right-1.5 w-2 h-2 bg-rose-500 rounded-full border border-white"></span>
