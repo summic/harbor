@@ -148,3 +148,31 @@ export interface User {
   logs: AccessLogSummary;
   created: string;
 }
+
+export interface ClientDeviceReport {
+  id: string;
+  name?: string;
+  model?: string;
+  osName?: string;
+  osVersion?: string;
+  appVersion?: string;
+  ip?: string;
+  location?: string;
+}
+
+export interface ClientConnectReport {
+  userId: string;
+  occurredAt?: string;
+  connected?: boolean;
+  target?: string;
+  latencyMs?: number;
+  error?: string;
+  networkType?: string;
+  requestCount?: number;
+  successCount?: number;
+  blockedCount?: number;
+  uploadBytes?: number;
+  downloadBytes?: number;
+  device?: ClientDeviceReport;
+  metadata?: Record<string, unknown>;
+}

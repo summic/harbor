@@ -78,6 +78,32 @@ type StoredUserRow = {
   last_seen: string;
 };
 
+export type ClientConnectReportInput = {
+  userId: string;
+  occurredAt?: string;
+  connected?: boolean;
+  target?: string;
+  latencyMs?: number;
+  error?: string;
+  networkType?: string;
+  requestCount?: number;
+  successCount?: number;
+  blockedCount?: number;
+  uploadBytes?: number;
+  downloadBytes?: number;
+  device?: {
+    id: string;
+    name?: string;
+    model?: string;
+    osName?: string;
+    osVersion?: string;
+    appVersion?: string;
+    ip?: string;
+    location?: string;
+  };
+  metadata?: Record<string, unknown>;
+};
+
 export class ConfigStore {
   private db: CompatibleDb;
   private readonly storePath: string;
@@ -165,7 +191,57 @@ export class ConfigStore {
   }
 
   private runMigrations() {
+    this.migrateClientConnectTelemetryV1();
     this.migrateImportSingboxConfigFromFile();
+  }
+
+  private migrateClientConnectTelemetryV1() {
+    const migrationId = '20260220_client_connect_telemetry_v1';
+    if (this.isMigrationApplied(migrationId)) return;
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS client_devices (
+        user_id TEXT NOT NULL,
+        device_id TEXT NOT NULL,
+        device_name TEXT,
+        device_model TEXT,
+        os_name TEXT,
+        os_version TEXT,
+        app_version TEXT,
+        ip TEXT,
+        network_type TEXT,
+        location TEXT,
+        first_seen TEXT NOT NULL,
+        last_seen TEXT NOT NULL,
+        last_connected_at TEXT,
+        extra_json TEXT,
+        PRIMARY KEY (user_id, device_id)
+      );
+      CREATE TABLE IF NOT EXISTS client_connect_logs (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id TEXT NOT NULL,
+        device_id TEXT,
+        connected INTEGER NOT NULL DEFAULT 0,
+        target TEXT,
+        latency_ms INTEGER,
+        error_message TEXT,
+        network_type TEXT,
+        ip TEXT,
+        request_count INTEGER NOT NULL DEFAULT 0,
+        success_count INTEGER NOT NULL DEFAULT 0,
+        blocked_count INTEGER NOT NULL DEFAULT 0,
+        upload_bytes INTEGER NOT NULL DEFAULT 0,
+        download_bytes INTEGER NOT NULL DEFAULT 0,
+        occurred_at TEXT NOT NULL,
+        metadata_json TEXT
+      );
+      CREATE INDEX IF NOT EXISTS idx_client_connect_logs_user_time
+        ON client_connect_logs(user_id, occurred_at DESC);
+      CREATE INDEX IF NOT EXISTS idx_client_connect_logs_user_target
+        ON client_connect_logs(user_id, target);
+      CREATE INDEX IF NOT EXISTS idx_client_devices_user_last_seen
+        ON client_devices(user_id, last_seen DESC);
+    `);
+    this.markMigrationApplied(migrationId);
   }
 
   private migrateImportSingboxConfigFromFile() {
@@ -622,7 +698,126 @@ export class ConfigStore {
     }
   }
 
+  private getUserDevices(userId: string) {
+    const rows = this.db
+      .prepare(
+        `SELECT device_id, device_name, device_model, os_name, os_version, app_version, ip, location, last_seen
+         FROM client_devices
+         WHERE user_id = ?
+         ORDER BY last_seen DESC`,
+      )
+      .all(userId) as Array<{
+      device_id: string;
+      device_name: string | null;
+      device_model: string | null;
+      os_name: string | null;
+      os_version: string | null;
+      app_version: string | null;
+      ip: string | null;
+      location: string | null;
+      last_seen: string;
+    }>;
+    return rows.map((row) => {
+      const osName = row.os_name?.trim() || 'Unknown OS';
+      const osVersion = row.os_version?.trim();
+      return {
+        id: row.device_id,
+        name: row.device_name?.trim() || row.device_model?.trim() || row.device_id,
+        ip: row.ip?.trim() || '0.0.0.0',
+        os: osVersion ? `${osName} ${osVersion}` : osName,
+        appVersion: row.app_version?.trim() || 'unknown',
+        lastSeen: row.last_seen,
+        location: row.location?.trim() || undefined,
+      };
+    });
+  }
+
+  private getUserTraffic(userId: string) {
+    const row = this.db
+      .prepare(
+        `SELECT
+           COALESCE(SUM(upload_bytes), 0) AS upload,
+           COALESCE(SUM(download_bytes), 0) AS download
+         FROM client_connect_logs
+         WHERE user_id = ?`,
+      )
+      .get(userId) as { upload: number; download: number } | undefined;
+    const upload = Number(row?.upload ?? 0);
+    const download = Number(row?.download ?? 0);
+    return {
+      upload,
+      download,
+      total: upload + download,
+    };
+  }
+
+  private getUserLogSummary(userId: string) {
+    const aggregate = this.db
+      .prepare(
+        `SELECT
+           COALESCE(SUM(request_count), 0) AS total_requests,
+           COALESCE(SUM(success_count), 0) AS success_count,
+           COALESCE(SUM(blocked_count), 0) AS blocked_count
+         FROM client_connect_logs
+         WHERE user_id = ?`,
+      )
+      .get(userId) as
+      | {
+          total_requests: number;
+          success_count: number;
+          blocked_count: number;
+        }
+      | undefined;
+    const totalRequests = Number(aggregate?.total_requests ?? 0);
+    const successCount = Number(aggregate?.success_count ?? 0);
+    const blockedCount = Number(aggregate?.blocked_count ?? 0);
+    const inferredTotal = totalRequests > 0 ? totalRequests : successCount + blockedCount;
+    const effectiveTotal = inferredTotal > 0 ? inferredTotal : 0;
+    const successRate =
+      effectiveTotal > 0 ? Number(((successCount / effectiveTotal) * 100).toFixed(1)) : 100;
+
+    const topAllowed = this.db
+      .prepare(
+        `SELECT target, SUM(success_count) AS count
+         FROM client_connect_logs
+         WHERE user_id = ? AND target IS NOT NULL AND target != '' AND success_count > 0
+         GROUP BY target
+         ORDER BY count DESC
+         LIMIT 5`,
+      )
+      .all(userId) as Array<{ target: string; count: number }>;
+    const topBlocked = this.db
+      .prepare(
+        `SELECT
+           target,
+           SUM(
+             CASE
+               WHEN blocked_count > 0 THEN blocked_count
+               WHEN connected = 0 THEN 1
+               ELSE 0
+             END
+           ) AS count
+         FROM client_connect_logs
+         WHERE user_id = ? AND target IS NOT NULL AND target != ''
+         GROUP BY target
+         HAVING count > 0
+         ORDER BY count DESC
+         LIMIT 5`,
+      )
+      .all(userId) as Array<{ target: string; count: number }>;
+
+    return {
+      totalRequests: effectiveTotal,
+      successRate,
+      topAllowed: topAllowed.map((item) => ({ domain: item.target, count: Number(item.count || 0) })),
+      topBlocked: topBlocked.map((item) => ({ domain: item.target, count: Number(item.count || 0) })),
+    };
+  }
+
   private mapUser(row: StoredUserRow) {
+    const traffic = this.getUserTraffic(row.id);
+    const devices = this.getUserDevices(row.id);
+    const logs = this.getUserLogSummary(row.id);
     return {
       id: row.id,
       username: row.username || row.display_name || row.email || row.id,
@@ -630,16 +825,11 @@ export class ConfigStore {
       email: row.email || '',
       avatarUrl: row.avatar_url || undefined,
       status: row.status || 'active',
-      traffic: { upload: 0, download: 0, total: 0 },
-      devices: [],
+      traffic,
+      devices,
       lastOnline: row.last_seen,
       created: row.created_at,
-      logs: {
-        totalRequests: 0,
-        successRate: 100,
-        topAllowed: [],
-        topBlocked: [],
-      },
+      logs,
     };
   }
 
@@ -702,6 +892,109 @@ export class ConfigStore {
     const updated = this.getUser(userId);
     if (!updated) throw new Error('update_failed');
     return updated;
+  }
+
+  ingestClientConnectReport(input: ClientConnectReportInput) {
+    const userId = input.userId.trim();
+    if (!userId) throw new Error('missing_user_id');
+    const now = new Date().toLocaleString();
+    const occurredAt = input.occurredAt?.trim() || now;
+
+    const existing = this.db.prepare(`SELECT id FROM users WHERE id = ?`).get(userId) as { id: string } | undefined;
+    if (!existing) {
+      this.db
+        .prepare(
+          `INSERT INTO users(id, username, display_name, email, avatar_url, status, created_at, last_seen)
+           VALUES(?, ?, ?, ?, ?, 'active', ?, ?)`,
+        )
+        .run(userId, userId, userId, null, null, now, now);
+    } else {
+      this.db.prepare(`UPDATE users SET last_seen = ? WHERE id = ?`).run(now, userId);
+    }
+
+    const device = input.device;
+    if (device?.id?.trim()) {
+      const deviceId = device.id.trim();
+      const existingDevice = this.db
+        .prepare(`SELECT user_id FROM client_devices WHERE user_id = ? AND device_id = ?`)
+        .get(userId, deviceId) as { user_id: string } | undefined;
+      if (existingDevice) {
+        this.db
+          .prepare(
+            `UPDATE client_devices
+             SET device_name = ?, device_model = ?, os_name = ?, os_version = ?, app_version = ?,
+                 ip = ?, network_type = ?, location = ?, last_seen = ?, last_connected_at = ?,
+                 extra_json = ?
+             WHERE user_id = ? AND device_id = ?`,
+          )
+          .run(
+            device.name?.trim() || null,
+            device.model?.trim() || null,
+            device.osName?.trim() || null,
+            device.osVersion?.trim() || null,
+            device.appVersion?.trim() || null,
+            device.ip?.trim() || null,
+            input.networkType?.trim() || null,
+            device.location?.trim() || null,
+            now,
+            input.connected === true ? occurredAt : null,
+            input.metadata ? JSON.stringify(input.metadata) : null,
+            userId,
+            deviceId,
+          );
+      } else {
+        this.db
+          .prepare(
+            `INSERT INTO client_devices(
+              user_id, device_id, device_name, device_model, os_name, os_version, app_version,
+              ip, network_type, location, first_seen, last_seen, last_connected_at, extra_json
+            ) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          )
+          .run(
+            userId,
+            deviceId,
+            device.name?.trim() || null,
+            device.model?.trim() || null,
+            device.osName?.trim() || null,
+            device.osVersion?.trim() || null,
+            device.appVersion?.trim() || null,
+            device.ip?.trim() || null,
+            input.networkType?.trim() || null,
+            device.location?.trim() || null,
+            now,
+            now,
+            input.connected === true ? occurredAt : null,
+            input.metadata ? JSON.stringify(input.metadata) : null,
+          );
+      }
+    }
+
+    this.db
+      .prepare(
+        `INSERT INTO client_connect_logs(
+          user_id, device_id, connected, target, latency_ms, error_message, network_type, ip,
+          request_count, success_count, blocked_count, upload_bytes, download_bytes, occurred_at, metadata_json
+        ) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .run(
+        userId,
+        device?.id?.trim() || null,
+        input.connected === true ? 1 : 0,
+        input.target?.trim() || null,
+        Number.isFinite(input.latencyMs) ? Number(input.latencyMs) : null,
+        input.error?.trim() || null,
+        input.networkType?.trim() || null,
+        device?.ip?.trim() || null,
+        Number.isFinite(input.requestCount) ? Number(input.requestCount) : 0,
+        Number.isFinite(input.successCount) ? Number(input.successCount) : 0,
+        Number.isFinite(input.blockedCount) ? Number(input.blockedCount) : 0,
+        Number.isFinite(input.uploadBytes) ? Number(input.uploadBytes) : 0,
+        Number.isFinite(input.downloadBytes) ? Number(input.downloadBytes) : 0,
+        occurredAt,
+        input.metadata ? JSON.stringify(input.metadata) : null,
+      );
+
+    return this.getUser(userId);
   }
 }
 
