@@ -2,6 +2,7 @@ import path from 'path';
 import net from 'net';
 import type { IncomingMessage, ServerResponse } from 'http';
 import { execSync } from 'child_process';
+import { readFileSync } from 'fs';
 import { defineConfig, loadEnv } from 'vite';
 import react from '@vitejs/plugin-react';
 import { ConfigStore } from './dev-server/config-store';
@@ -319,7 +320,16 @@ const subscriptionHandler = async (req: IncomingMessage, res: ServerResponse, ne
 
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, '.', '');
-  const appVersion = process.env.npm_package_version ?? '0.0.0';
+  const readPackageVersion = () => {
+    try {
+      const pkgRaw = readFileSync(path.resolve(__dirname, 'package.json'), 'utf8');
+      const pkg = JSON.parse(pkgRaw) as { version?: string };
+      return pkg.version || '0.0.0';
+    } catch {
+      return process.env.npm_package_version ?? '0.0.0';
+    }
+  };
+  const appVersion = readPackageVersion();
   const readGitValue = (command: string, fallback: string) => {
     try {
       return execSync(command, { cwd: __dirname, stdio: ['ignore', 'pipe', 'ignore'] })
