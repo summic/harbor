@@ -125,6 +125,9 @@ export const AppShell: React.FC<{ children: React.ReactNode }> = ({ children }) 
                 <path d="M60 42l14-2" strokeWidth="3" strokeLinecap="round" />
                 <path d="M36 42l-14-2" strokeWidth="3" strokeLinecap="round" />
               </svg>
+              <div className="absolute bottom-3 left-24 text-[11px] tracking-[0.25em] text-slate-300/45 select-none">
+                Sail
+              </div>
             </div>
           </aside>
         </>
