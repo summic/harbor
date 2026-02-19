@@ -49,16 +49,22 @@ export const UnifiedProfilePage: React.FC = () => {
       setFixedPanelStyle({
         position: 'fixed',
         top: `${top}px`,
-        left: `${Math.round(rect.left)}px`,
-        width: `${Math.round(rect.width)}px`,
+        left: `${rect.left}px`,
+        width: `${rect.width}px`,
         maxHeight: `calc(100vh - ${top + 16}px)`,
+        boxSizing: 'border-box',
       });
     };
 
     updateFixedPanelStyle();
     window.addEventListener('resize', updateFixedPanelStyle);
+    const observer = new ResizeObserver(() => updateFixedPanelStyle());
+    if (infoAnchorRef.current) {
+      observer.observe(infoAnchorRef.current);
+    }
     return () => {
       window.removeEventListener('resize', updateFixedPanelStyle);
+      observer.disconnect();
     };
   }, []);
 
@@ -195,7 +201,7 @@ export const UnifiedProfilePage: React.FC = () => {
         {/* Info Column */}
         <div ref={infoAnchorRef} className="lg:self-start">
           <div
-            className="space-y-6 max-h-[calc(100vh-7rem)] overflow-y-auto pr-1"
+            className="space-y-6 max-h-[calc(100vh-7rem)] overflow-y-auto"
             style={fixedPanelStyle}
           >
           <SectionCard title="Actions">
