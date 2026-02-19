@@ -294,7 +294,8 @@ export const UnifiedProfilePage: React.FC = () => {
         </div>
 
         {/* Info Column */}
-        <div className="space-y-6">
+        <div className="lg:sticky lg:top-6 lg:self-start">
+          <div className="space-y-6 max-h-[calc(100vh-8rem)] overflow-y-auto pr-1">
           <SectionCard title="Remote Access" description="Use this URL to subscribe to this profile in your clients.">
              <div className="space-y-4">
                <div className="p-4 bg-slate-50 border border-slate-200 rounded-xl group relative">
@@ -320,10 +321,6 @@ export const UnifiedProfilePage: React.FC = () => {
                  </button>
                </div>
 
-               <p className="text-xs text-slate-500">
-                 此 URL 仅用于客户端订阅拉取；后台发布该配置，不从客户端反向加载。
-               </p>
-               
                <div className="flex gap-2">
                  <a 
                    href={subscriptionUrl || undefined} 
@@ -365,6 +362,7 @@ export const UnifiedProfilePage: React.FC = () => {
             <p className="opacity-80 text-xs leading-relaxed">
               This editor modifies the raw JSON configuration. Use <code>Ctrl/Cmd + S</code> logic isn't bound, but please validate your JSON before saving to avoid client errors.
             </p>
+          </div>
           </div>
         </div>
       </div>
