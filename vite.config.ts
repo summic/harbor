@@ -17,9 +17,11 @@ const AUTH_SYNC_USER_PATH = '/api/v1/auth/sync-user';
 const USERS_PATH = '/api/v1/users';
 
 const STORE = new ConfigStore({
-  dbPath: path.resolve(__dirname, '.local-data', 'sail.sqlite'),
-  legacyProfilePath: path.resolve(__dirname, '.local-data', 'unified-profile.json'),
-  importProfilePath: path.resolve(__dirname, '..', 'singbox-config.json'),
+  dbPath: process.env.SAIL_DB_PATH || path.resolve(__dirname, '.local-data', 'sail.sqlite'),
+  legacyProfilePath:
+    process.env.SAIL_PROFILE_STORE_PATH || path.resolve(__dirname, '.local-data', 'unified-profile.json'),
+  importProfilePath:
+    process.env.SAIL_IMPORT_PROFILE_PATH || path.resolve(__dirname, '..', 'singbox-config.json'),
   seedProfile: {
     log: { level: 'info', timestamp: true },
     dns: { final: 'dns_direct', strategy: 'prefer_ipv4', servers: [], rules: [] },
