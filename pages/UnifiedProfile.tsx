@@ -56,7 +56,6 @@ export const UnifiedProfilePage: React.FC = () => {
   const [isDirty, setIsDirty] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
-  const [subscriptionUrl, setSubscriptionUrl] = useState('');
   
   // Refs for sync scrolling
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -67,7 +66,6 @@ export const UnifiedProfilePage: React.FC = () => {
   useEffect(() => {
     if (profile) {
       setJsonContent(profile.content);
-      setSubscriptionUrl(profile.publicUrl || '');
       setIsDirty(false);
       setError(null);
     }
@@ -80,7 +78,6 @@ export const UnifiedProfilePage: React.FC = () => {
       queryClient.setQueryData(['unifiedProfile'], data);
       setIsDirty(false);
       setError(null);
-      setSubscriptionUrl(data.publicUrl || '');
     }
   });
 
@@ -123,10 +120,7 @@ export const UnifiedProfilePage: React.FC = () => {
 
   const handleSave = () => {
     if (error) return; 
-    saveMutation.mutate({
-      content: jsonContent,
-      publicUrl: subscriptionUrl
-    });
+    saveMutation.mutate(jsonContent);
   };
 
   const handleFormat = () => {
@@ -142,20 +136,11 @@ export const UnifiedProfilePage: React.FC = () => {
   };
 
   const handleCopyUrl = () => {
-    if (subscriptionUrl) {
-      navigator.clipboard.writeText(subscriptionUrl);
+    if (profile?.publicUrl) {
+      navigator.clipboard.writeText(profile.publicUrl);
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     }
-  };
-
-  const handleDownload = () => {
-    const blob = new Blob([jsonContent], { type: 'application/json;charset=utf-8' });
-    const link = document.createElement('a');
-    link.href = URL.createObjectURL(blob);
-    link.download = 'profile.json';
-    link.click();
-    URL.revokeObjectURL(link.href);
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -302,15 +287,9 @@ export const UnifiedProfilePage: React.FC = () => {
                    <Globe size={12} />
                    Public Subscription URL
                  </div>
-                 <input
-                   value={subscriptionUrl}
-                   onChange={(e) => {
-                     setSubscriptionUrl(e.target.value);
-                     setIsDirty(true);
-                   }}
-                   placeholder="https://beforeve.com/api/v1/client/subscribe?token=..."
-                   className="w-full font-mono text-sm text-slate-700 bg-white border border-slate-200 rounded-md px-2.5 py-2 pr-9 focus:outline-none focus:ring-2 focus:ring-blue-200"
-                 />
+                 <div className="font-mono text-sm text-slate-700 break-all pr-8">
+                   {profile?.publicUrl || 'Loading...'}
+                 </div>
                  <button 
                    onClick={handleCopyUrl}
                    className="absolute top-3 right-3 p-1.5 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded transition-colors"
@@ -319,24 +298,17 @@ export const UnifiedProfilePage: React.FC = () => {
                    {copied ? <Check size={16} className="text-emerald-500" /> : <Copy size={16} />}
                  </button>
                </div>
-
-               <p className="text-xs text-slate-500">
-                 此 URL 仅用于客户端订阅拉取；后台发布该配置，不从客户端反向加载。
-               </p>
                
                <div className="flex gap-2">
                  <a 
-                   href={subscriptionUrl || undefined} 
+                   href={profile?.publicUrl} 
                    target="_blank" 
                    rel="noreferrer"
-                   className={`flex-1 flex items-center justify-center gap-2 px-4 py-2 border border-slate-200 rounded-lg text-sm font-semibold text-slate-600 hover:bg-slate-50 transition-colors ${!subscriptionUrl ? 'pointer-events-none opacity-50' : ''}`}
+                   className={`flex-1 flex items-center justify-center gap-2 px-4 py-2 border border-slate-200 rounded-lg text-sm font-semibold text-slate-600 hover:bg-slate-50 transition-colors ${!profile?.publicUrl ? 'pointer-events-none opacity-50' : ''}`}
                  >
                    <ExternalLink size={16} /> Open
                  </a>
-                 <button
-                   onClick={handleDownload}
-                   className="flex-1 flex items-center justify-center gap-2 px-4 py-2 border border-slate-200 rounded-lg text-sm font-semibold text-slate-600 hover:bg-slate-50 transition-colors"
-                 >
+                 <button className="flex-1 flex items-center justify-center gap-2 px-4 py-2 border border-slate-200 rounded-lg text-sm font-semibold text-slate-600 hover:bg-slate-50 transition-colors">
                    <Download size={16} /> Download
                  </button>
                </div>

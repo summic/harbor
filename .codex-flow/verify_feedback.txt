@@ -1,2 +1,0 @@
-- `npm test` fails because `vitest` is not found on PATH (`sh: vitest: command not found`). Tests cannot run until dependencies are installed (e.g., `npm install`) or the CI environment provides `node_modules`. (test log evidence)
-- Dependency change adds `vitest` but the lockfile is untracked; if CI uses `npm ci`, it will fail without a committed lock update. Files: `package.json:20`, `package-lock.json`.

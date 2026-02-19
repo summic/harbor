@@ -12,7 +12,6 @@ import { PublishPage } from './pages/Publish';
 import { UnifiedProfilePage } from './pages/UnifiedProfile';
 import { UsersPage } from './pages/Users';
 import { UserDetailsPage } from './pages/UserDetails';
-import { QualityObservabilityPage } from './pages/QualityObservability';
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -38,7 +37,6 @@ const App: React.FC = () => {
             <Route path="/users/:id" element={<UserDetailsPage />} />
             <Route path="/profile" element={<UnifiedProfilePage />} />
             <Route path="/publish" element={<PublishPage />} />
-            <Route path="/quality" element={<QualityObservabilityPage />} />
           </Routes>
         </AppShell>
       </Router>

@@ -1,32 +1,7 @@
 
 import { DomainRule, ProxyNode, RoutingRule, DnsUpstream, HostsEntry, ConfigVersion, UnifiedProfile, User } from './types';
-import { QualityObservability, normalizeObservabilityResponse } from './utils/quality';
 
 const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
-
-const API_BASE = import.meta.env.VITE_API_BASE_URL ?? '';
-const QUALITY_MOCK_FALLBACK = import.meta.env.VITE_QUALITY_MOCK_FALLBACK !== 'false';
-const DEFAULT_SUBSCRIPTION_PATH = '/api/v1/client/subscribe?token=u1-alice-7f8a9d2b';
-
-const resolveSubscriptionUrl = () => {
-  if (typeof window !== 'undefined' && window.location?.origin) {
-    return `${window.location.origin}${DEFAULT_SUBSCRIPTION_PATH}`;
-  }
-  return `https://beforeve.com${DEFAULT_SUBSCRIPTION_PATH}`;
-};
-
-const fetchJson = async <T>(path: string, init?: RequestInit): Promise<T> => {
-  const response = await fetch(`${API_BASE}${path}`, {
-    headers: { Accept: 'application/json', ...(init?.headers ?? {}) },
-    ...init,
-  });
-  if (!response.ok) {
-    const message = await response.text();
-    throw new Error(message || `Request failed with ${response.status}`);
-  }
-  return response.json() as Promise<T>;
-};
-
 
 // Mock initial JSON content
 const INITIAL_PROFILE_JSON = `{
@@ -96,37 +71,9 @@ const INITIAL_PROFILE_JSON = `{
 // This implies a unique, secure token for the user 'alice_dev'
 let mockProfileData: UnifiedProfile = {
   content: INITIAL_PROFILE_JSON,
-  publicUrl: resolveSubscriptionUrl(),
+  publicUrl: "https://sub.beforeve.com/api/v1/client/subscribe?token=u1-alice-7f8a9d2b",
   lastUpdated: "2023-10-27 15:30:00",
   size: "2.4 KB"
-};
-
-const mockQualityObservabilityPayload = {
-  window: '24h',
-  updatedAt: new Date().toISOString(),
-  stability: {
-    points: Array.from({ length: 24 }).map((_, idx) => ({
-      timestamp: new Date(Date.now() - (23 - idx) * 60 * 60 * 1000).toISOString(),
-      total: 800 + Math.floor(Math.random() * 300),
-      successRate: 97 + Math.random() * 2.5,
-      errorRate: 0.3 + Math.random() * 1.2,
-      p95LatencyMs: 120 + Math.floor(Math.random() * 120),
-    })),
-    totalRequests: 24000,
-    avgSuccessRate: 98.4,
-  },
-  topDomains: [
-    { domain: 'api.beforeve.com', count: 4321, category: 'key' },
-    { domain: 'chat.beforeve.com', count: 3210, category: 'key' },
-    { domain: 'cdn.beforeve.com', count: 2890, category: 'key' },
-    { domain: 'updates.beforeve.com', count: 1880, category: 'key' },
-  ],
-  failureReasons: [
-    { code: 'DNS_TIMEOUT', count: 38, ratio: 0.22 },
-    { code: 'CONNECT_TIMEOUT', count: 29, ratio: 0.17 },
-    { code: 'TLS_HANDSHAKE', count: 18, ratio: 0.10 },
-    { code: 'RATE_LIMITED', count: 11, ratio: 0.06 },
-  ],
 };
 
 const mockUsers: User[] = [
@@ -265,36 +212,19 @@ export const mockApi = {
   },
 
   getUnifiedProfile: async (): Promise<UnifiedProfile> => {
-    await sleep(200);
-    try {
-      const remote = await fetchJson<UnifiedProfile>('/api/v1/client/profile');
-      mockProfileData = { ...remote };
-      return remote;
-    } catch {
-      return { ...mockProfileData };
-    }
+    await sleep(400);
+    return { ...mockProfileData };
   },
 
-  saveUnifiedProfile: async (payload: { content: string; publicUrl?: string }): Promise<UnifiedProfile> => {
-    await sleep(300);
-    try {
-      const remote = await fetchJson<UnifiedProfile>('/api/v1/client/profile', {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
-      });
-      mockProfileData = { ...remote };
-      return remote;
-    } catch {
-      mockProfileData = {
-        ...mockProfileData,
-        content: payload.content,
-        publicUrl: payload.publicUrl?.trim() || mockProfileData.publicUrl,
-        lastUpdated: new Date().toLocaleString(),
-        size: (new Blob([payload.content]).size / 1024).toFixed(1) + " KB"
-      };
-      return mockProfileData;
-    }
+  saveUnifiedProfile: async (content: string): Promise<UnifiedProfile> => {
+    await sleep(800);
+    mockProfileData = {
+      ...mockProfileData,
+      content,
+      lastUpdated: new Date().toLocaleString(),
+      size: (new Blob([content]).size / 1024).toFixed(1) + " KB"
+    };
+    return mockProfileData;
   },
 
   getUsers: async (): Promise<User[]> => {
@@ -306,25 +236,4 @@ export const mockApi = {
     await sleep(400);
     return mockUsers.find(u => u.id === id);
   }
-};
-
-export const qualityApi = {
-  getObservability: async (params: { window?: string; topN?: number; bucket?: string } = {}): Promise<QualityObservability> => {
-    const search = new URLSearchParams();
-    if (params.window) search.set('window', params.window);
-    if (params.topN) search.set('topN', String(params.topN));
-    if (params.bucket) search.set('bucket', params.bucket);
-    const query = search.toString();
-
-    try {
-      const payload = await fetchJson<unknown>(`/api/quality/observability${query ? `?${query}` : ''}`);
-      return normalizeObservabilityResponse(payload);
-    } catch (error) {
-      if (QUALITY_MOCK_FALLBACK) {
-        console.warn('[qualityApi] falling back to mock observability payload:', error);
-        return normalizeObservabilityResponse(mockQualityObservabilityPayload);
-      }
-      throw error;
-    }
-  },
 };
