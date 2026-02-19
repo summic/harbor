@@ -108,7 +108,7 @@ export const UnifiedProfilePage: React.FC = () => {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 min-h-[500px]">
+      <div className="grid grid-cols-1 lg:grid-cols-3 lg:items-start gap-6 min-h-[500px]">
         {/* Editor Column */}
         <div className="lg:col-span-2 flex flex-col">
           <div className="min-h-[500px] bg-slate-900 rounded-xl overflow-hidden shadow-2xl flex flex-col relative border border-slate-800">
@@ -164,8 +164,8 @@ export const UnifiedProfilePage: React.FC = () => {
         </div>
 
         {/* Info Column */}
-        <div>
-          <div className="space-y-6 lg:sticky lg:top-6 max-h-[calc(100vh-3rem)] overflow-y-auto">
+        <div className="lg:sticky lg:top-6">
+          <div className="space-y-6 max-h-[calc(100vh-3rem)] overflow-y-auto">
           <SectionCard title="Actions">
             <div className="space-y-3">
               {isDirty ? (
