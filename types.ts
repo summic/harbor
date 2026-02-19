@@ -138,7 +138,9 @@ export interface AccessLogSummary {
 export interface User {
   id: string;
   username: string;
+  displayName?: string;
   email: string;
+  avatarUrl?: string;
   status: 'active' | 'disabled' | 'expired';
   traffic: TrafficStats;
   devices: UserDevice[];

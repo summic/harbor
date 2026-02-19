@@ -24,7 +24,7 @@ export const UsersPage: React.FC = () => {
   const [search, setSearch] = useState('');
 
   const filteredUsers = users?.filter(u => 
-    u.username.toLowerCase().includes(search.toLowerCase()) || 
+    (u.displayName || u.username).toLowerCase().includes(search.toLowerCase()) || 
     u.email.toLowerCase().includes(search.toLowerCase())
   );
 
@@ -84,11 +84,15 @@ export const UsersPage: React.FC = () => {
                   <td className="px-6 py-4">
                     <div className="flex items-center">
                       <div className="w-8 h-8 rounded-full bg-blue-100 text-blue-600 flex items-center justify-center font-bold mr-3">
-                        {user.username.charAt(0).toUpperCase()}
+                        {user.avatarUrl ? (
+                          <img src={user.avatarUrl} alt={user.displayName || user.username} className="w-full h-full object-cover rounded-full" />
+                        ) : (
+                          (user.displayName || user.username).charAt(0).toUpperCase()
+                        )}
                       </div>
                       <div>
-                        <div className="font-semibold text-slate-900">{user.username}</div>
-                        <div className="text-xs text-slate-500">{user.email}</div>
+                        <div className="font-semibold text-slate-900">{user.displayName || user.email || user.username}</div>
+                        <div className="text-xs text-slate-500">{user.email || user.username}</div>
                       </div>
                     </div>
                   </td>

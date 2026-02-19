@@ -14,6 +14,8 @@ const PROXY_LATENCY_PATH = '/api/v1/proxies/latency';
 const VERSIONS_PATH = '/api/v1/client/versions';
 const PUBLISH_PATH = '/api/v1/client/publish';
 const ROLLBACK_PATH = '/api/v1/client/rollback';
+const AUTH_SYNC_USER_PATH = '/api/v1/auth/sync-user';
+const USERS_PATH = '/api/v1/users';
 
 const resolveSubscriptionUrl = () => {
   if (typeof window !== 'undefined' && window.location?.origin) {
@@ -1053,6 +1055,22 @@ const mockUsers: User[] = [
 ];
 
 export const mockApi = {
+  syncCurrentUserFromSession: async (): Promise<void> => {
+    const session = loadSession();
+    const user = session?.user;
+    if (!user?.sub) return;
+    await fetchJson<{ success: boolean }>(AUTH_SYNC_USER_PATH, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        sub: user.sub,
+        name: typeof user.name === 'string' ? user.name : undefined,
+        email: typeof user.email === 'string' ? user.email : undefined,
+        preferred_username: typeof user.preferred_username === 'string' ? user.preferred_username : undefined,
+        picture: typeof (user as any).picture === 'string' ? (user as any).picture : undefined,
+      }),
+    });
+  },
   getDomains: async (): Promise<DomainRule[]> => {
     await sleep(200);
     const config = await loadConfig();
@@ -1369,13 +1387,21 @@ export const mockApi = {
   },
 
   getUsers: async (): Promise<User[]> => {
-    await sleep(600);
-    return [...mockUsers];
+    await sleep(240);
+    try {
+      return await fetchJson<User[]>(USERS_PATH);
+    } catch {
+      return [...mockUsers];
+    }
   },
 
   getUser: async (id: string): Promise<User | undefined> => {
-    await sleep(400);
-    return mockUsers.find(u => u.id === id);
+    await sleep(180);
+    try {
+      return await fetchJson<User>(`${USERS_PATH}/${encodeURIComponent(id)}`);
+    } catch {
+      return mockUsers.find(u => u.id === id);
+    }
   }
 };
 

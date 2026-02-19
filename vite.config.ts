@@ -13,6 +13,8 @@ const PROXY_LATENCY_PATH = '/api/v1/proxies/latency';
 const VERSIONS_PATH = '/api/v1/client/versions';
 const PUBLISH_PATH = '/api/v1/client/publish';
 const ROLLBACK_PATH = '/api/v1/client/rollback';
+const AUTH_SYNC_USER_PATH = '/api/v1/auth/sync-user';
+const USERS_PATH = '/api/v1/users';
 
 const STORE = new ConfigStore({
   dbPath: path.resolve(__dirname, '.local-data', 'sail.sqlite'),
@@ -228,6 +230,51 @@ const subscriptionHandler = async (req: IncomingMessage, res: ServerResponse, ne
       sendJson(res, 400, { error: error instanceof Error ? error.message : 'invalid_request' });
       return;
     }
+  }
+
+  if (url.pathname === AUTH_SYNC_USER_PATH && req.method === 'POST') {
+    try {
+      const raw = await readBody(req);
+      const payload = JSON.parse(raw) as {
+        sub?: string;
+        name?: string;
+        email?: string;
+        preferred_username?: string;
+        picture?: string;
+      };
+      if (!payload.sub || !payload.sub.trim()) {
+        sendJson(res, 400, { error: 'missing_sub' });
+        return;
+      }
+      STORE.upsertOAuthUser({
+        sub: payload.sub,
+        name: payload.name,
+        email: payload.email,
+        preferred_username: payload.preferred_username,
+        picture: payload.picture,
+      });
+      sendJson(res, 200, { success: true });
+      return;
+    } catch {
+      sendJson(res, 400, { error: 'invalid_request' });
+      return;
+    }
+  }
+
+  if (url.pathname === USERS_PATH && req.method === 'GET') {
+    sendJson(res, 200, STORE.listUsers());
+    return;
+  }
+
+  if (url.pathname.startsWith(`${USERS_PATH}/`) && req.method === 'GET') {
+    const id = decodeURIComponent(url.pathname.slice(USERS_PATH.length + 1));
+    const user = STORE.getUser(id);
+    if (!user) {
+      sendJson(res, 404, { error: 'not_found' });
+      return;
+    }
+    sendJson(res, 200, user);
+    return;
   }
 
   if (url.pathname !== SUBSCRIPTION_PATH) {

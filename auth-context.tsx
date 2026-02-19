@@ -9,6 +9,7 @@ import {
   oidcConfig,
   startLogin,
 } from './auth';
+import { mockApi } from './api';
 
 type AuthContextValue = {
   loading: boolean;
@@ -52,6 +53,17 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         const callbackSession = await handleAuthCallbackIfPresent();
         if (!cancelled && callbackSession) {
           setSession(callbackSession);
+          try {
+            await mockApi.syncCurrentUserFromSession();
+          } catch {
+            // keep auth flow resilient
+          }
+        } else if (!cancelled && (callbackSession || existing)) {
+          try {
+            await mockApi.syncCurrentUserFromSession();
+          } catch {
+            // keep auth flow resilient
+          }
         }
       } catch (e) {
         if (!cancelled) {
@@ -102,4 +114,3 @@ export const useAuth = () => {
   }
   return ctx;
 };
-

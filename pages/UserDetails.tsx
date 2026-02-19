@@ -53,11 +53,15 @@ export const UserDetailsPage: React.FC = () => {
         <div className="flex flex-col md:flex-row md:items-start justify-between gap-6">
           <div className="flex items-start gap-4">
             <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-blue-100 to-indigo-100 text-blue-600 flex items-center justify-center text-2xl font-bold shadow-inner">
-              {user.username.charAt(0).toUpperCase()}
+              {user.avatarUrl ? (
+                <img src={user.avatarUrl} alt={user.displayName || user.username} className="w-full h-full object-cover rounded-2xl" />
+              ) : (
+                (user.displayName || user.username).charAt(0).toUpperCase()
+              )}
             </div>
             <div>
               <h1 className="text-3xl font-bold tracking-tight text-slate-900 flex items-center gap-3">
-                {user.username}
+                {user.displayName || user.email || user.username}
                 <StatusBadge active={user.status === 'active'} activeLabel="Active" inactiveLabel={user.status} />
               </h1>
               <div className="flex flex-wrap items-center gap-x-6 gap-y-2 mt-2 text-sm text-slate-500">

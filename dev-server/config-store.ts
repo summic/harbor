@@ -67,6 +67,17 @@ export type SimulationInput = {
   port?: number;
 };
 
+type StoredUserRow = {
+  id: string;
+  username: string;
+  display_name: string | null;
+  email: string | null;
+  avatar_url: string | null;
+  status: 'active' | 'disabled' | 'expired';
+  created_at: string;
+  last_seen: string;
+};
+
 export class ConfigStore {
   private db: CompatibleDb;
   private readonly storePath: string;
@@ -123,6 +134,25 @@ export class ConfigStore {
         applied_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
       );
     `);
+    this.ensureUsersSchema();
+  }
+
+  private ensureUsersSchema() {
+    const columns = this.db.prepare(`PRAGMA table_info(users)`).all() as Array<{ name: string }>;
+    const names = new Set(columns.map((item) => item.name));
+    const alter = (sql: string, name: string) => {
+      if (!names.has(name)) this.db.exec(sql);
+    };
+    alter(`ALTER TABLE users ADD COLUMN display_name TEXT`, 'display_name');
+    alter(`ALTER TABLE users ADD COLUMN email TEXT`, 'email');
+    alter(`ALTER TABLE users ADD COLUMN avatar_url TEXT`, 'avatar_url');
+    alter(`ALTER TABLE users ADD COLUMN status TEXT NOT NULL DEFAULT 'active'`, 'status');
+    alter(`ALTER TABLE users ADD COLUMN created_at TEXT`, 'created_at');
+    alter(`ALTER TABLE users ADD COLUMN last_seen TEXT`, 'last_seen');
+    const now = new Date().toLocaleString();
+    this.db.prepare(`UPDATE users SET status = 'active' WHERE status IS NULL OR status = ''`).run();
+    this.db.prepare(`UPDATE users SET created_at = ? WHERE created_at IS NULL OR created_at = ''`).run(now);
+    this.db.prepare(`UPDATE users SET last_seen = ? WHERE last_seen IS NULL OR last_seen = ''`).run(now);
   }
 
   private isMigrationApplied(id: string): boolean {
@@ -213,7 +243,13 @@ export class ConfigStore {
     const seeded = this.getState('seeded_v1');
     if (seeded === '1') return;
 
-    this.db.prepare(`INSERT OR IGNORE INTO users(id, username) VALUES(?, ?)`).run(DEFAULT_USER_ID, 'alice');
+    const ts = new Date().toLocaleString();
+    this.db
+      .prepare(
+        `INSERT OR IGNORE INTO users(id, username, display_name, email, status, created_at, last_seen)
+         VALUES(?, ?, ?, ?, 'active', ?, ?)`,
+      )
+      .run(DEFAULT_USER_ID, 'alice', 'Alice', 'alice@example.com', ts, ts);
     const legacy = this.readLegacyProfile(seedProfile);
     this.replaceGlobalProfile(legacy.profile, legacy.lastUpdated);
     if (this.listVersions().length === 0) {
@@ -546,6 +582,88 @@ export class ConfigStore {
   simulateTraffic(input: SimulationInput) {
     const profile = this.compileProfile(DEFAULT_USER_ID);
     return simulateTrafficInternal(profile, input);
+  }
+
+  upsertOAuthUser(input: {
+    sub: string;
+    name?: string;
+    email?: string;
+    preferred_username?: string;
+    picture?: string;
+  }) {
+    const sub = input.sub.trim();
+    if (!sub) throw new Error('missing sub');
+    const displayName =
+      input.name?.trim() ||
+      input.preferred_username?.trim() ||
+      input.email?.trim() ||
+      sub;
+    const username =
+      input.preferred_username?.trim() ||
+      input.email?.split('@')[0]?.trim() ||
+      displayName;
+    const now = new Date().toLocaleString();
+    const existing = this.db.prepare(`SELECT id FROM users WHERE id = ?`).get(sub) as { id: string } | undefined;
+    if (existing) {
+      this.db
+        .prepare(
+          `UPDATE users
+           SET username = ?, display_name = ?, email = ?, avatar_url = ?, status = 'active', last_seen = ?
+           WHERE id = ?`,
+        )
+        .run(username, displayName, input.email?.trim() || null, input.picture?.trim() || null, now, sub);
+    } else {
+      this.db
+        .prepare(
+          `INSERT INTO users(id, username, display_name, email, avatar_url, status, created_at, last_seen)
+           VALUES(?, ?, ?, ?, ?, 'active', ?, ?)`,
+        )
+        .run(sub, username, displayName, input.email?.trim() || null, input.picture?.trim() || null, now, now);
+    }
+  }
+
+  private mapUser(row: StoredUserRow) {
+    return {
+      id: row.id,
+      username: row.username || row.display_name || row.email || row.id,
+      displayName: row.display_name || undefined,
+      email: row.email || '',
+      avatarUrl: row.avatar_url || undefined,
+      status: row.status || 'active',
+      traffic: { upload: 0, download: 0, total: 0 },
+      devices: [],
+      lastOnline: row.last_seen,
+      created: row.created_at,
+      logs: {
+        totalRequests: 0,
+        successRate: 100,
+        topAllowed: [],
+        topBlocked: [],
+      },
+    };
+  }
+
+  listUsers() {
+    const rows = this.db
+      .prepare(
+        `SELECT id, username, display_name, email, avatar_url, status, created_at, last_seen
+         FROM users
+         ORDER BY last_seen DESC`,
+      )
+      .all() as StoredUserRow[];
+    return rows.map((row) => this.mapUser(row));
+  }
+
+  getUser(id: string) {
+    const row = this.db
+      .prepare(
+        `SELECT id, username, display_name, email, avatar_url, status, created_at, last_seen
+         FROM users
+         WHERE id = ?`,
+      )
+      .get(id) as StoredUserRow | undefined;
+    if (!row) return undefined;
+    return this.mapUser(row);
   }
 }
 
