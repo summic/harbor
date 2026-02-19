@@ -6,6 +6,7 @@ import { loadSession } from './auth';
 const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL ?? '';
+const RULES_PATH = '/api/v1/rules';
 const QUALITY_MOCK_FALLBACK = import.meta.env.VITE_QUALITY_MOCK_FALLBACK !== 'false';
 const DEFAULT_SUBSCRIPTION_PATH = '/api/v1/client/subscribe?token=u1-alice-7f8a9d2b';
 const SIMULATE_TRAFFIC_PATH = '/api/v1/simulate/traffic';
@@ -39,6 +40,16 @@ const fetchJson = async <T>(path: string, init?: RequestInit): Promise<T> => {
 };
 
 type JsonObject = Record<string, any>;
+type RuleEntryItem = {
+  id: number;
+  scope: 'global' | 'user';
+  user_id?: string | null;
+  module: string;
+  rule_key?: string | null;
+  priority: number;
+  enabled: boolean;
+  payload: JsonObject;
+};
 
 const parseJsonObject = (content: string): JsonObject => {
   try {
@@ -259,18 +270,67 @@ const measureLatency = (node: ProxyNode): number => {
 };
 
 const refreshUnifiedProfile = async (): Promise<UnifiedProfile> => {
-  try {
-    const remote = await fetchJson<UnifiedProfile>('/api/v1/client/profile');
-    mockProfileData = { ...remote };
-    return { ...remote };
-  } catch {
-    return { ...mockProfileData };
-  }
+  const remote = await fetchJson<UnifiedProfile>('/api/v1/client/profile');
+  mockProfileData = { ...remote };
+  return { ...remote };
 };
 
 const loadConfig = async (): Promise<JsonObject> => {
   const profile = await refreshUnifiedProfile();
   return parseJsonObject(profile.content);
+};
+
+const listModuleRules = async (module: string): Promise<RuleEntryItem[]> => {
+  const query = `?scope=global&module=${encodeURIComponent(module)}`;
+  const data = await fetchJson<{ items: RuleEntryItem[] }>(`${RULES_PATH}${query}`);
+  return Array.isArray(data.items) ? data.items : [];
+};
+
+const deleteRuleEntry = async (id: number): Promise<void> => {
+  await fetchJson<{ success: boolean }>(`${RULES_PATH}?id=${id}`, { method: 'DELETE' });
+};
+
+const upsertRuleEntry = async (payload: {
+  scope: 'global';
+  module: string;
+  payload: JsonObject;
+  rule_key?: string;
+  priority?: number;
+}): Promise<void> => {
+  await fetchJson<{ success: boolean }>(RULES_PATH, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+};
+
+const replaceModuleRows = async (
+  module: string,
+  rows: JsonObject[],
+  tagKey?: string,
+): Promise<void> => {
+  const existing = await listModuleRules(module);
+  for (const row of existing) {
+    await deleteRuleEntry(row.id);
+  }
+  for (let index = 0; index < rows.length; index += 1) {
+    const payload = rows[index];
+    const ruleKey =
+      tagKey && typeof payload?.[tagKey] === 'string'
+        ? String(payload[tagKey])
+        : undefined;
+    await upsertRuleEntry({
+      scope: 'global',
+      module,
+      payload,
+      rule_key: ruleKey,
+      priority: index,
+    });
+  }
+};
+
+const replaceMetaRow = async (module: string, payload: JsonObject): Promise<void> => {
+  await replaceModuleRows(module, [payload]);
 };
 
 const collectRouteSetOutbounds = (config: JsonObject): Map<string, string> => {
@@ -1024,22 +1084,20 @@ export const mockApi = {
     }
     nextConfig = upsertDomainInConfig(nextConfig, nextRule);
 
-    await mockApi.saveUnifiedProfile({
-      content: JSON.stringify(nextConfig, null, 2),
-      publicUrl: mockProfileData.publicUrl,
-    });
-    return toDomainRules(nextConfig);
+    await replaceModuleRows('route.rule_set', Array.isArray(nextConfig.route?.rule_set) ? nextConfig.route.rule_set : [], 'tag');
+    await replaceModuleRows('route.rules', Array.isArray(nextConfig.route?.rules) ? nextConfig.route.rules : []);
+    const synced = await loadConfig();
+    return toDomainRules(synced);
   },
 
   deleteDomainRule: async (id: string): Promise<DomainRule[]> => {
     await sleep(160);
     const config = await loadConfig();
     const nextConfig = deleteDomainInConfig(config, id);
-    await mockApi.saveUnifiedProfile({
-      content: JSON.stringify(nextConfig, null, 2),
-      publicUrl: mockProfileData.publicUrl,
-    });
-    return toDomainRules(nextConfig);
+    await replaceModuleRows('route.rule_set', Array.isArray(nextConfig.route?.rule_set) ? nextConfig.route.rule_set : [], 'tag');
+    await replaceModuleRows('route.rules', Array.isArray(nextConfig.route?.rules) ? nextConfig.route.rules : []);
+    const synced = await loadConfig();
+    return toDomainRules(synced);
   },
 
   getProxies: async (): Promise<ProxyNode[]> => {
@@ -1067,22 +1125,18 @@ export const mockApi = {
     }
     const config = await loadConfig();
     const nextConfig = upsertProxyInConfig(config, payload);
-    await mockApi.saveUnifiedProfile({
-      content: JSON.stringify(nextConfig, null, 2),
-      publicUrl: mockProfileData.publicUrl,
-    });
-    return withLatency(toProxyNodes(nextConfig));
+    await replaceModuleRows('outbounds', Array.isArray(nextConfig.outbounds) ? nextConfig.outbounds : [], 'tag');
+    const synced = await loadConfig();
+    return withLatency(toProxyNodes(synced));
   },
 
   deleteProxyNode: async (id: string): Promise<ProxyNode[]> => {
     await sleep(150);
     const config = await loadConfig();
     const nextConfig = deleteProxyInConfig(config, id);
-    await mockApi.saveUnifiedProfile({
-      content: JSON.stringify(nextConfig, null, 2),
-      publicUrl: mockProfileData.publicUrl,
-    });
-    return withLatency(toProxyNodes(nextConfig));
+    await replaceModuleRows('outbounds', Array.isArray(nextConfig.outbounds) ? nextConfig.outbounds : [], 'tag');
+    const synced = await loadConfig();
+    return withLatency(toProxyNodes(synced));
   },
 
   checkProxiesLatency: async (): Promise<ProxyNode[]> => {
@@ -1137,22 +1191,18 @@ export const mockApi = {
     await sleep(180);
     const config = await loadConfig();
     const nextConfig = upsertRoutingRuleInConfig(config, payload);
-    await mockApi.saveUnifiedProfile({
-      content: JSON.stringify(nextConfig, null, 2),
-      publicUrl: mockProfileData.publicUrl,
-    });
-    return toRoutingRules(nextConfig);
+    await replaceModuleRows('route.rules', Array.isArray(nextConfig.route?.rules) ? nextConfig.route.rules : []);
+    const synced = await loadConfig();
+    return toRoutingRules(synced);
   },
 
   deleteRoutingRule: async (id: string): Promise<RoutingRule[]> => {
     await sleep(160);
     const config = await loadConfig();
     const nextConfig = deleteRoutingRuleInConfig(config, id);
-    await mockApi.saveUnifiedProfile({
-      content: JSON.stringify(nextConfig, null, 2),
-      publicUrl: mockProfileData.publicUrl,
-    });
-    return toRoutingRules(nextConfig);
+    await replaceModuleRows('route.rules', Array.isArray(nextConfig.route?.rules) ? nextConfig.route.rules : []);
+    const synced = await loadConfig();
+    return toRoutingRules(synced);
   },
 
   moveRoutingRule: async (payload: {
@@ -1162,11 +1212,9 @@ export const mockApi = {
     await sleep(140);
     const config = await loadConfig();
     const nextConfig = moveRoutingRuleInConfig(config, payload.id, payload.direction);
-    await mockApi.saveUnifiedProfile({
-      content: JSON.stringify(nextConfig, null, 2),
-      publicUrl: mockProfileData.publicUrl,
-    });
-    return toRoutingRules(nextConfig);
+    await replaceModuleRows('route.rules', Array.isArray(nextConfig.route?.rules) ? nextConfig.route.rules : []);
+    const synced = await loadConfig();
+    return toRoutingRules(synced);
   },
 
   getDns: async (): Promise<DnsUpstream[]> => {
@@ -1186,22 +1234,29 @@ export const mockApi = {
     await sleep(180);
     const config = await loadConfig();
     const nextConfig = upsertDnsServerInConfig(config, payload);
-    await mockApi.saveUnifiedProfile({
-      content: JSON.stringify(nextConfig, null, 2),
-      publicUrl: mockProfileData.publicUrl,
+    await replaceModuleRows('dns.servers', Array.isArray(nextConfig.dns?.servers) ? nextConfig.dns.servers : [], 'tag');
+    await replaceMetaRow('meta.dns', {
+      final: nextConfig.dns?.final ?? 'dns_direct',
+      independent_cache: nextConfig.dns?.independent_cache ?? false,
+      strategy: nextConfig.dns?.strategy ?? 'prefer_ipv4',
     });
-    return toDnsServers(nextConfig);
+    const synced = await loadConfig();
+    return toDnsServers(synced);
   },
 
   deleteDnsServer: async (id: string): Promise<DnsUpstream[]> => {
     await sleep(140);
     const config = await loadConfig();
     const nextConfig = deleteDnsServerInConfig(config, id);
-    await mockApi.saveUnifiedProfile({
-      content: JSON.stringify(nextConfig, null, 2),
-      publicUrl: mockProfileData.publicUrl,
+    await replaceModuleRows('dns.servers', Array.isArray(nextConfig.dns?.servers) ? nextConfig.dns.servers : [], 'tag');
+    await replaceModuleRows('dns.rules', Array.isArray(nextConfig.dns?.rules) ? nextConfig.dns.rules : []);
+    await replaceMetaRow('meta.dns', {
+      final: nextConfig.dns?.final ?? 'dns_direct',
+      independent_cache: nextConfig.dns?.independent_cache ?? false,
+      strategy: nextConfig.dns?.strategy ?? 'prefer_ipv4',
     });
-    return toDnsServers(nextConfig);
+    const synced = await loadConfig();
+    return toDnsServers(synced);
   },
 
   getHosts: async (): Promise<HostsEntry[]> => {
@@ -1221,22 +1276,18 @@ export const mockApi = {
     }
     const config = await loadConfig();
     const nextConfig = upsertHostInConfig(config, payload);
-    await mockApi.saveUnifiedProfile({
-      content: JSON.stringify(nextConfig, null, 2),
-      publicUrl: mockProfileData.publicUrl,
-    });
-    return toHostsEntries(nextConfig);
+    await replaceModuleRows('dns.servers', Array.isArray(nextConfig.dns?.servers) ? nextConfig.dns.servers : [], 'tag');
+    const synced = await loadConfig();
+    return toHostsEntries(synced);
   },
 
   deleteHostEntry: async (id: string): Promise<HostsEntry[]> => {
     await sleep(130);
     const config = await loadConfig();
     const nextConfig = deleteHostInConfig(config, id);
-    await mockApi.saveUnifiedProfile({
-      content: JSON.stringify(nextConfig, null, 2),
-      publicUrl: mockProfileData.publicUrl,
-    });
-    return toHostsEntries(nextConfig);
+    await replaceModuleRows('dns.servers', Array.isArray(nextConfig.dns?.servers) ? nextConfig.dns.servers : [], 'tag');
+    const synced = await loadConfig();
+    return toHostsEntries(synced);
   },
 
   batchImportHosts: async (text: string): Promise<HostsEntry[]> => {
@@ -1258,11 +1309,9 @@ export const mockApi = {
     for (const item of parsed) {
       nextConfig = upsertHostInConfig(nextConfig, item);
     }
-    await mockApi.saveUnifiedProfile({
-      content: JSON.stringify(nextConfig, null, 2),
-      publicUrl: mockProfileData.publicUrl,
-    });
-    return toHostsEntries(nextConfig);
+    await replaceModuleRows('dns.servers', Array.isArray(nextConfig.dns?.servers) ? nextConfig.dns.servers : [], 'tag');
+    const synced = await loadConfig();
+    return toHostsEntries(synced);
   },
 
   simulateTraffic: async (payload: {
@@ -1310,24 +1359,13 @@ export const mockApi = {
 
   saveUnifiedProfile: async (payload: { content: string; publicUrl?: string }): Promise<UnifiedProfile> => {
     await sleep(300);
-    try {
-      const remote = await fetchJson<UnifiedProfile>('/api/v1/client/profile', {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
-      });
-      mockProfileData = { ...remote };
-      return remote;
-    } catch {
-      mockProfileData = {
-        ...mockProfileData,
-        content: payload.content,
-        publicUrl: payload.publicUrl?.trim() || mockProfileData.publicUrl,
-        lastUpdated: new Date().toLocaleString(),
-        size: (new Blob([payload.content]).size / 1024).toFixed(1) + " KB"
-      };
-      return mockProfileData;
-    }
+    const remote = await fetchJson<UnifiedProfile>('/api/v1/client/profile', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    mockProfileData = { ...remote };
+    return remote;
   },
 
   getUsers: async (): Promise<User[]> => {
