@@ -111,7 +111,7 @@ export const UnifiedProfilePage: React.FC = () => {
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 min-h-[500px]">
         {/* Editor Column */}
         <div className="lg:col-span-2 flex flex-col">
-          <div className="h-[calc(100vh-14rem)] min-h-[500px] bg-slate-900 rounded-xl overflow-hidden shadow-2xl flex flex-col relative border border-slate-800">
+          <div className="min-h-[500px] bg-slate-900 rounded-xl overflow-hidden shadow-2xl flex flex-col relative border border-slate-800">
             {isLoading && <LoadingOverlay />}
             
             {/* Editor Toolbar */}
@@ -137,20 +137,20 @@ export const UnifiedProfilePage: React.FC = () => {
             </div>
 
             {/* Code Editor Area */}
-            <div className="flex-1 overflow-hidden">
+            <div className="overflow-hidden">
               <CodeMirror
                 value={jsonContent}
                 onChange={handleJsonChange}
                 extensions={[json()]}
                 theme="dark"
+                height="auto"
                 basicSetup={{
                   lineNumbers: true,
                   highlightActiveLine: true,
                   foldGutter: true,
                   bracketMatching: true,
                 }}
-                className="h-full text-sm"
-                style={{ height: '100%' }}
+                className="text-sm"
               />
             </div>
             
