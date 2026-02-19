@@ -454,6 +454,7 @@ const toDnsServers = (config: JsonObject): DnsUpstream[] => {
   return servers.map((server, index) => {
     const normalizedType = normalizeDnsType(server);
     const name = String(server?.tag ?? `dns-${index + 1}`);
+    const tag = String(server?.tag ?? `dns-${index + 1}`);
     let address = 'system';
     if (normalizedType === 'hosts') {
       const count = server?.predefined && typeof server.predefined === 'object'
@@ -468,7 +469,7 @@ const toDnsServers = (config: JsonObject): DnsUpstream[] => {
     }
 
     return {
-      id: `dns-${index + 1}`,
+      id: `dns:${encodeURIComponent(tag)}`,
       name,
       type: normalizedType,
       address,
@@ -493,7 +494,7 @@ const toHostsEntries = (config: JsonObject): HostsEntry[] => {
     for (const [hostname, ip] of Object.entries(predefined)) {
       id += 1;
       result.push({
-        id: `host-${id}`,
+        id: `host:${encodeURIComponent(String(server?.tag ?? 'hosts'))}:${encodeURIComponent(hostname)}`,
         hostname,
         ip: String(ip),
         group: String(server?.tag ?? 'hosts'),
@@ -503,6 +504,123 @@ const toHostsEntries = (config: JsonObject): HostsEntry[] => {
   }
 
   return result;
+};
+
+const ensureDnsSection = (config: JsonObject): JsonObject => {
+  const next = JSON.parse(JSON.stringify(config)) as JsonObject;
+  next.dns = next.dns ?? {};
+  next.dns.servers = Array.isArray(next.dns.servers) ? next.dns.servers : [];
+  next.dns.rules = Array.isArray(next.dns.rules) ? next.dns.rules : [];
+  return next;
+};
+
+const upsertDnsServerInConfig = (config: JsonObject, server: {
+  name: string;
+  type: DnsUpstream['type'];
+  address: string;
+  detour?: string;
+  strategy?: DnsUpstream['strategy'];
+}): JsonObject => {
+  const next = ensureDnsSection(config);
+  const tag = server.name.trim();
+  const list = next.dns.servers as JsonObject[];
+  const index = list.findIndex((item) => String(item?.tag ?? '') === tag);
+
+  let payload: JsonObject;
+  if (server.type === 'hosts') {
+    const existing = index >= 0 ? list[index] : {};
+    payload = {
+      type: 'hosts',
+      tag,
+      predefined: existing.predefined && typeof existing.predefined === 'object' ? existing.predefined : {},
+    };
+  } else if (server.type === 'local') {
+    payload = { type: 'local', tag };
+  } else if (server.type === 'dot' || server.type === 'tls') {
+    const [host, portRaw] = server.address.split(':');
+    payload = {
+      type: 'tls',
+      tag,
+      server: host,
+      ...(portRaw && Number.isFinite(Number(portRaw)) ? { server_port: Number(portRaw) } : {}),
+      ...(server.detour ? { detour: server.detour } : {}),
+    };
+  } else if (server.type === 'doh') {
+    payload = {
+      type: 'https',
+      tag,
+      server: server.address,
+      ...(server.detour ? { detour: server.detour } : {}),
+    };
+  } else {
+    payload = {
+      type: 'udp',
+      tag,
+      server: server.address,
+      ...(server.detour ? { detour: server.detour } : {}),
+    };
+  }
+
+  if (index >= 0) {
+    list[index] = payload;
+  } else {
+    list.push(payload);
+  }
+
+  if (server.strategy) {
+    next.dns.strategy = server.strategy;
+  }
+  return next;
+};
+
+const deleteDnsServerInConfig = (config: JsonObject, id: string): JsonObject => {
+  const next = ensureDnsSection(config);
+  const match = /^dns:(.+)$/.exec(id);
+  if (!match) return next;
+  const tag = decodeURIComponent(match[1]);
+  next.dns.servers = (next.dns.servers as JsonObject[]).filter((item) => String(item?.tag ?? '') !== tag);
+  next.dns.rules = (next.dns.rules as JsonObject[]).filter((rule) => {
+    if (typeof rule?.server !== 'string') return true;
+    return rule.server !== tag;
+  });
+  if (next.dns.final === tag) {
+    delete next.dns.final;
+  }
+  return next;
+};
+
+const upsertHostInConfig = (config: JsonObject, host: {
+  hostname: string;
+  ip: string;
+  group?: string;
+}): JsonObject => {
+  const next = ensureDnsSection(config);
+  const group = (host.group || 'dns_hosts').trim();
+  const servers = next.dns.servers as JsonObject[];
+  let target = servers.find((item) => String(item?.type ?? '').toLowerCase() === 'hosts' && String(item?.tag ?? '') === group);
+  if (!target) {
+    target = { type: 'hosts', tag: group, predefined: {} };
+    servers.unshift(target);
+  }
+  const predefined = target.predefined && typeof target.predefined === 'object' ? target.predefined : {};
+  target.predefined = {
+    ...predefined,
+    [host.hostname.trim()]: host.ip.trim(),
+  };
+  return next;
+};
+
+const deleteHostInConfig = (config: JsonObject, id: string): JsonObject => {
+  const next = ensureDnsSection(config);
+  const match = /^host:([^:]+):(.+)$/.exec(id);
+  if (!match) return next;
+  const group = decodeURIComponent(match[1]);
+  const hostname = decodeURIComponent(match[2]);
+  const servers = next.dns.servers as JsonObject[];
+  const target = servers.find((item) => String(item?.type ?? '').toLowerCase() === 'hosts' && String(item?.tag ?? '') === group);
+  if (!target || !target.predefined || typeof target.predefined !== 'object') return next;
+  delete target.predefined[hostname];
+  return next;
 };
 
 const mockQualityObservabilityPayload = {
@@ -698,10 +816,94 @@ export const mockApi = {
     return toDnsServers(config);
   },
 
+  saveDnsServer: async (payload: {
+    id?: string;
+    name: string;
+    type: DnsUpstream['type'];
+    address: string;
+    detour?: string;
+    strategy?: DnsUpstream['strategy'];
+  }): Promise<DnsUpstream[]> => {
+    await sleep(180);
+    const config = await loadConfig();
+    const nextConfig = upsertDnsServerInConfig(config, payload);
+    await mockApi.saveUnifiedProfile({
+      content: JSON.stringify(nextConfig, null, 2),
+      publicUrl: mockProfileData.publicUrl,
+    });
+    return toDnsServers(nextConfig);
+  },
+
+  deleteDnsServer: async (id: string): Promise<DnsUpstream[]> => {
+    await sleep(140);
+    const config = await loadConfig();
+    const nextConfig = deleteDnsServerInConfig(config, id);
+    await mockApi.saveUnifiedProfile({
+      content: JSON.stringify(nextConfig, null, 2),
+      publicUrl: mockProfileData.publicUrl,
+    });
+    return toDnsServers(nextConfig);
+  },
+
   getHosts: async (): Promise<HostsEntry[]> => {
     await sleep(180);
     const config = await loadConfig();
     return toHostsEntries(config);
+  },
+
+  saveHostEntry: async (payload: {
+    hostname: string;
+    ip: string;
+    group?: string;
+  }): Promise<HostsEntry[]> => {
+    await sleep(150);
+    if (!payload.hostname.trim() || !payload.ip.trim()) {
+      throw new Error('hostname and ip are required');
+    }
+    const config = await loadConfig();
+    const nextConfig = upsertHostInConfig(config, payload);
+    await mockApi.saveUnifiedProfile({
+      content: JSON.stringify(nextConfig, null, 2),
+      publicUrl: mockProfileData.publicUrl,
+    });
+    return toHostsEntries(nextConfig);
+  },
+
+  deleteHostEntry: async (id: string): Promise<HostsEntry[]> => {
+    await sleep(130);
+    const config = await loadConfig();
+    const nextConfig = deleteHostInConfig(config, id);
+    await mockApi.saveUnifiedProfile({
+      content: JSON.stringify(nextConfig, null, 2),
+      publicUrl: mockProfileData.publicUrl,
+    });
+    return toHostsEntries(nextConfig);
+  },
+
+  batchImportHosts: async (text: string): Promise<HostsEntry[]> => {
+    await sleep(160);
+    const lines = text
+      .split('\n')
+      .map((line) => line.trim())
+      .filter(Boolean);
+    const parsed = lines
+      .map((line) => line.split(/\s+/))
+      .filter((parts) => parts.length >= 2)
+      .map((parts) => ({ ip: parts[0], hostname: parts[1], group: 'dns_hosts' }));
+
+    if (parsed.length === 0) {
+      throw new Error('no valid host entries');
+    }
+
+    let nextConfig = await loadConfig();
+    for (const item of parsed) {
+      nextConfig = upsertHostInConfig(nextConfig, item);
+    }
+    await mockApi.saveUnifiedProfile({
+      content: JSON.stringify(nextConfig, null, 2),
+      publicUrl: mockProfileData.publicUrl,
+    });
+    return toHostsEntries(nextConfig);
   },
 
   simulateTraffic: async (payload: {
