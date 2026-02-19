@@ -11,7 +11,7 @@ import {
   Send, 
   Menu, 
   X,
-  ShieldCheck,
+  Anchor,
   FileJson,
   Users,
   ChevronDown,
@@ -81,8 +81,11 @@ export const AppShell: React.FC<{ children: React.ReactNode }> = ({ children }) 
           `}
           >
             <div className="flex h-16 items-center px-6 border-b border-slate-100">
-              <ShieldCheck className="h-6 w-6 text-blue-600 mr-2" />
-              <span className="font-bold text-lg tracking-tight">BoxMaster</span>
+              <Anchor className="h-6 w-6 text-blue-600 mr-2" />
+              <div className="leading-tight">
+                <div className="font-bold text-lg tracking-tight">Harbor</div>
+                <div className="text-[10px] text-slate-500 font-medium">for Sail</div>
+              </div>
             </div>
 
             <nav className="flex-1 overflow-y-auto p-4 space-y-1">
@@ -108,7 +111,7 @@ export const AppShell: React.FC<{ children: React.ReactNode }> = ({ children }) 
             </nav>
 
             <div className="p-4 border-t border-slate-100 text-[10px] text-slate-400 font-mono text-center">
-              BoxMaster Manager v2.0
+              Harbor Console for Sail
             </div>
           </aside>
         </>
