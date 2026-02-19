@@ -106,7 +106,7 @@ jobs:
           server {
               listen 8091;
               listen [::]:8091;
-              server_name _;
+              server_name harbor.beforeve.com;
 
               disable_symlinks off;
               root /var/www/sail/current;

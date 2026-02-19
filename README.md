@@ -53,7 +53,7 @@ This app supports OIDC Authorization Code + PKCE for Kylith SSO.
 ### Optional runtime env vars
 
 - `VITE_SSO_SCOPE=openid profile email`
-- `VITE_SSO_REDIRECT_URI=https://sail.beforeve.com/auth/callback`
+- `VITE_SSO_REDIRECT_URI=https://harbor.beforeve.com/auth/callback`
 - `VITE_SSO_USERINFO_URL=https://<kylith-sso>/oauth2/userinfo`
 - `VITE_SSO_LOGOUT_URL=https://<kylith-sso>/oauth2/logout`
 
