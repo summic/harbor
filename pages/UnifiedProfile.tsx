@@ -181,7 +181,8 @@ export const UnifiedProfilePage: React.FC = () => {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+      <div className="sticky top-0 z-30 bg-slate-50/95 backdrop-blur border-b border-slate-200 pb-4">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pt-2">
         <div>
           <h1 className="text-2xl font-bold tracking-tight text-balance">Unified Profile</h1>
           <p className="text-slate-500 text-pretty">Edit the core JSON configuration directly and access it remotely.</p>
@@ -219,6 +220,7 @@ export const UnifiedProfilePage: React.FC = () => {
             )}
             Save Profile
           </button>
+        </div>
         </div>
       </div>
 
