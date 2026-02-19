@@ -44,13 +44,12 @@ const RuleDrawer: React.FC<{
   if (!isOpen) return null;
 
   return (
-    <>
-      {/* Backdrop */}
-      <div className="fixed inset-0 bg-slate-900/20 backdrop-blur-sm z-40 transition-opacity" onClick={onClose} />
-      
-      {/* Modal Panel */}
-      <div className="fixed inset-0 z-50 p-4 md:p-6 flex items-center justify-center">
-      <div className="w-full max-w-2xl bg-white rounded-2xl shadow-2xl border border-slate-100 flex flex-col max-h-[90vh]">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 md:p-6">
+      <div
+        className="absolute inset-0 bg-slate-900/35 backdrop-blur-sm"
+        onClick={onClose}
+      />
+      <div className="relative w-full max-w-2xl bg-white rounded-2xl shadow-2xl border border-slate-100 flex flex-col max-h-[90vh] animate-fade-in">
         <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100 bg-slate-50/50">
           <div>
             <h2 className="text-lg font-bold text-slate-900">{isEdit ? 'Edit Domain Rule' : 'New Domain Rule'}</h2>
@@ -177,8 +176,7 @@ const RuleDrawer: React.FC<{
           </button>
         </div>
       </div>
-      </div>
-    </>
+    </div>
   );
 };
 
