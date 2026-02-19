@@ -619,7 +619,7 @@ const subscriptionHandler = async (req: IncomingMessage, res: ServerResponse, ne
         return;
       }
 
-      const updated = STORE.ingestClientConnectionLog(authInfo.sub, {
+      STORE.ingestClientConnectionLog(authInfo.sub, {
         occurredAt: payload.occurredAt,
         connected: payload.connected,
         target: payload.target,
@@ -645,7 +645,7 @@ const subscriptionHandler = async (req: IncomingMessage, res: ServerResponse, ne
           : undefined,
         metadata: payload.metadata,
       });
-      sendJson(res, 200, { success: true, user: updated });
+      sendJson(res, 200, { success: true, received: true });
       return;
     } catch (error) {
       sendProblem(res, 400, {
