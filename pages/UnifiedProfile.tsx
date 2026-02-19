@@ -164,7 +164,7 @@ export const UnifiedProfilePage: React.FC = () => {
         </div>
 
         {/* Info Column */}
-        <div className="lg:self-start">
+        <div>
           <div className="space-y-6 lg:sticky lg:top-6 max-h-[calc(100vh-3rem)] overflow-y-auto">
           <SectionCard title="Actions">
             <div className="space-y-3">
