@@ -40,7 +40,7 @@ const trim = (v: string | undefined) => (v ?? '').trim();
 const redirectUriDefault = () => `${window.location.origin}${window.location.pathname}`;
 
 export const oidcConfig: OidcConfig = {
-  enabled: trim(import.meta.env.VITE_SSO_ENABLED) !== 'false',
+  enabled: trim(import.meta.env.VITE_SSO_ENABLED) === 'true',
   clientId: trim(import.meta.env.VITE_SSO_CLIENT_ID),
   scope: trim(import.meta.env.VITE_SSO_SCOPE) || 'openid profile email',
   authorizeUrl: trim(import.meta.env.VITE_SSO_AUTHORIZE_URL),
@@ -238,4 +238,3 @@ export const logout = () => {
   }
   window.location.assign(url.toString());
 };
-
