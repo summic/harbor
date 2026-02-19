@@ -71,14 +71,22 @@ export class ConfigStore {
   private db: CompatibleDb;
   private readonly storePath: string;
   private readonly dbPath: string;
+  private readonly importProfilePath?: string;
 
-  constructor(opts: { dbPath: string; legacyProfilePath: string; seedProfile: Record<string, unknown> }) {
+  constructor(opts: {
+    dbPath: string;
+    legacyProfilePath: string;
+    seedProfile: Record<string, unknown>;
+    importProfilePath?: string;
+  }) {
     this.storePath = opts.legacyProfilePath;
     this.dbPath = opts.dbPath;
+    this.importProfilePath = opts.importProfilePath;
     fs.mkdirSync(path.dirname(this.dbPath), { recursive: true });
     this.db = createDatabase(this.dbPath);
     this.initSchema();
     this.seedIfNeeded(opts.seedProfile);
+    this.runMigrations();
   }
 
   private initSchema() {
@@ -110,7 +118,49 @@ export class ConfigStore {
         summary TEXT NOT NULL,
         content TEXT NOT NULL
       );
+      CREATE TABLE IF NOT EXISTS schema_migrations (
+        id TEXT PRIMARY KEY,
+        applied_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+      );
     `);
+  }
+
+  private isMigrationApplied(id: string): boolean {
+    const row = this.db.prepare(`SELECT id FROM schema_migrations WHERE id = ?`).get(id) as { id: string } | undefined;
+    return !!row;
+  }
+
+  private markMigrationApplied(id: string) {
+    this.db.prepare(`INSERT OR IGNORE INTO schema_migrations(id) VALUES(?)`).run(id);
+  }
+
+  private runMigrations() {
+    this.migrateImportSingboxConfigFromFile();
+  }
+
+  private migrateImportSingboxConfigFromFile() {
+    const migrationId = '20260219_import_singbox_config_json';
+    if (this.isMigrationApplied(migrationId)) return;
+    if (!this.importProfilePath || !fs.existsSync(this.importProfilePath)) return;
+
+    try {
+      const raw = fs.readFileSync(this.importProfilePath, 'utf-8');
+      const parsed = JSON.parse(raw) as Record<string, unknown>;
+      if (!parsed || typeof parsed !== 'object') return;
+
+      const timestamp = new Date().toLocaleString();
+      this.replaceGlobalProfile(parsed, timestamp);
+      this.appendRevision(
+        `Migration import from ${path.basename(this.importProfilePath)}`,
+        'migration',
+        parsed,
+        timestamp,
+      );
+      this.setState('last_updated', timestamp);
+      this.markMigrationApplied(migrationId);
+    } catch (error) {
+      console.warn('[config-store] migration failed:', migrationId, error);
+    }
   }
 
   private setState(key: string, value: string) {

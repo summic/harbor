@@ -17,6 +17,7 @@ const ROLLBACK_PATH = '/api/v1/client/rollback';
 const STORE = new ConfigStore({
   dbPath: path.resolve(__dirname, '.local-data', 'sail.sqlite'),
   legacyProfilePath: path.resolve(__dirname, '.local-data', 'unified-profile.json'),
+  importProfilePath: path.resolve(__dirname, '..', 'singbox-config.json'),
   seedProfile: {
     log: { level: 'info', timestamp: true },
     dns: { final: 'dns_direct', strategy: 'prefer_ipv4', servers: [], rules: [] },
