@@ -113,13 +113,11 @@ export const AppShell: React.FC<{ children: React.ReactNode }> = ({ children }) 
             <div className="h-14 border-t border-slate-100" />
 
             <div className="pointer-events-none absolute bottom-1 left-1">
-              <div className="absolute -top-6 left-7 h-12 w-12 rounded-full bg-amber-300/25 blur-xl" />
-              <div className="absolute -top-3 left-12 h-8 w-14 rounded-full bg-orange-200/20 blur-lg" />
               <svg viewBox="0 0 96 96" className="h-28 w-28 fill-none stroke-slate-300/40" aria-hidden="true">
                 <path d="M34 86h28" strokeWidth="3" strokeLinecap="round" />
                 <path d="M40 86l5-38h6l5 38" strokeWidth="3" strokeLinejoin="round" />
                 <path d="M41 48h14l-2-8h-10z" strokeWidth="3" strokeLinejoin="round" />
-                <path d="M42 40h12v-8H42z" strokeWidth="3" strokeLinejoin="round" />
+                <path d="M42 40h12v-8H42z" strokeWidth="2.5" strokeLinejoin="round" className="stroke-amber-300/70 fill-amber-200/20" />
                 <path d="M48 32v-8" strokeWidth="3" strokeLinecap="round" />
                 <path d="M48 18l4 2-4 2-4-2z" strokeWidth="3" strokeLinejoin="round" />
                 <path d="M58 34l10-4" strokeWidth="3" strokeLinecap="round" />
