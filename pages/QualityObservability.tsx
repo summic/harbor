@@ -1,0 +1,246 @@
+import React, { useMemo } from 'react';
+import { useQuery } from '@tanstack/react-query';
+import { Activity, AlertTriangle, TrendingDown, TrendingUp, Globe, ShieldAlert } from 'lucide-react';
+import { SectionCard, EmptyState, LoadingOverlay } from '../components/Common';
+import { qualityApi } from '../api';
+import {
+  QualityFailureReason,
+  QualityStabilityPoint,
+  QualityTopDomain,
+  standardizeFailureReason,
+} from '../utils/quality';
+
+const formatPercent = (value: number, digits = 1) => `${value.toFixed(digits)}%`;
+const formatCount = (value: number) => value.toLocaleString();
+
+const StabilityChart: React.FC<{ points: QualityStabilityPoint[] }> = ({ points }) => {
+  if (points.length < 2) {
+    return (
+      <div className="h-48 flex items-center justify-center text-sm text-slate-400">
+        Not enough samples for trend rendering.
+      </div>
+    );
+  }
+
+  const max = 100;
+  const min = 0;
+  const range = max - min || 1;
+  const toPoint = (value: number, index: number) => {
+    const x = (index / (points.length - 1)) * 100;
+    const normalized = (value - min) / range;
+    const y = 100 - normalized * 100;
+    return `${x},${y}`;
+  };
+
+  const linePoints = points.map((point, idx) => toPoint(point.successRate, idx)).join(' ');
+  const areaPoints = `0,100 ${linePoints} 100,100`;
+
+  return (
+    <svg viewBox="0 0 100 100" className="w-full h-48" preserveAspectRatio="none">
+      <line x1="0" y1="25" x2="100" y2="25" stroke="#e2e8f0" strokeWidth="0.6" />
+      <line x1="0" y1="50" x2="100" y2="50" stroke="#e2e8f0" strokeWidth="0.6" />
+      <line x1="0" y1="75" x2="100" y2="75" stroke="#e2e8f0" strokeWidth="0.6" />
+      <polygon points={areaPoints} fill="url(#stabilityGradient)" opacity="0.25" />
+      <polyline
+        points={linePoints}
+        fill="none"
+        stroke="#0f172a"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      <defs>
+        <linearGradient id="stabilityGradient" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stopColor="#38bdf8" />
+          <stop offset="100%" stopColor="#38bdf8" stopOpacity="0" />
+        </linearGradient>
+      </defs>
+    </svg>
+  );
+};
+
+const TopDomainsTable: React.FC<{ domains: QualityTopDomain[] }> = ({ domains }) => {
+  const total = domains.reduce((sum, item) => sum + item.count, 0);
+
+  return (
+    <div className="border border-slate-200 rounded-xl overflow-hidden">
+      {domains.map((item, index) => {
+        const ratio = total > 0 ? (item.count / total) * 100 : 0;
+        return (
+          <div
+            key={`${item.domain}-${index}`}
+            className="grid grid-cols-12 gap-4 px-4 py-3 border-b border-slate-100 last:border-b-0 items-center"
+          >
+            <div className="col-span-1 text-xs font-mono text-slate-400">#{index + 1}</div>
+            <div className="col-span-6 text-sm font-semibold text-slate-800 truncate">{item.domain}</div>
+            <div className="col-span-3 text-xs text-slate-500">{formatCount(item.count)} req</div>
+            <div className="col-span-2 text-xs text-slate-500 text-right">{formatPercent(ratio)}</div>
+          </div>
+        );
+      })}
+    </div>
+  );
+};
+
+const FailureReasonsTable: React.FC<{ reasons: QualityFailureReason[] }> = ({ reasons }) => {
+  const total = reasons.reduce((sum, item) => sum + item.count, 0);
+
+  return (
+    <div className="space-y-3">
+      {reasons.map((reason, index) => {
+        const standardized = standardizeFailureReason(reason.code);
+        const rawRatio = reason.ratio ?? (total > 0 ? reason.count / total : 0);
+        const normalizedRatio = rawRatio > 1 ? rawRatio / 100 : rawRatio;
+        return (
+          <div
+            key={`${reason.code}-${index}`}
+            className="border border-slate-200 rounded-xl px-4 py-3 flex flex-col gap-2"
+          >
+            <div className="flex items-center justify-between gap-4">
+              <div>
+                <p className="text-sm font-semibold text-slate-900">{standardized.label}</p>
+                <p className="text-xs text-slate-500">{standardized.description}</p>
+              </div>
+              <div className="text-right">
+                <p className="text-sm font-bold text-slate-900">{formatCount(reason.count)}</p>
+                <p className="text-xs text-slate-500">{formatPercent(normalizedRatio * 100)}</p>
+              </div>
+            </div>
+            <div className="text-[10px] uppercase tracking-wider font-mono text-slate-400">
+              Standard Code: {standardized.code}
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+};
+
+export const QualityObservabilityPage: React.FC = () => {
+  const { data, isLoading, isError, error } = useQuery({
+    queryKey: ['quality-observability', '24h', 10],
+    queryFn: () => qualityApi.getObservability({ window: '24h', topN: 10, bucket: '1h' }),
+  });
+
+  const summary = useMemo(() => {
+    const points = data?.stability.points ?? [];
+    const totalRequests = data?.stability.totalRequests ?? points.reduce((sum, point) => sum + point.total, 0);
+    const avgSuccessRate = data?.stability.avgSuccessRate ?? (points.length ? points.reduce((sum, point) => sum + point.successRate, 0) / points.length : 0);
+    const minSuccessRate = points.length ? Math.min(...points.map(point => point.successRate)) : 0;
+    const lastSample = points[points.length - 1];
+    return {
+      totalRequests,
+      avgSuccessRate,
+      minSuccessRate,
+      lastSuccessRate: lastSample?.successRate ?? 0,
+      updatedAt: data?.updatedAt ? new Date(data.updatedAt).toLocaleString() : '—',
+    };
+  }, [data]);
+
+  if (isLoading) {
+    return (
+      <div className="relative h-96">
+        <LoadingOverlay />
+      </div>
+    );
+  }
+
+  if (isError) {
+    return (
+      <EmptyState
+        title="Unable to load quality observability"
+        description={(error as Error).message || 'Please check the backend service and try again.'}
+        icon={<AlertTriangle size={24} />}
+      />
+    );
+  }
+
+  return (
+    <div className="space-y-8 animate-fade-in">
+      <div className="flex flex-col gap-3">
+        <div className="flex items-center gap-2 text-sm text-slate-500">
+          <ShieldAlert size={16} className="text-blue-600" /> Sail 服务质量体系 · 24h 观测
+        </div>
+        <h1 className="text-3xl font-bold text-slate-900">Quality Observability</h1>
+        <p className="text-sm text-slate-500 max-w-2xl">
+          Real-time stability, key domains, and standardized failure reasons from the production backend.
+        </p>
+      </div>
+
+      <SectionCard
+        title="24h Stability Overview"
+        description="Success rate trend for the last 24 hours (1h bucket)."
+        actions={<span className="text-xs text-slate-500">Updated: {summary.updatedAt}</span>}
+      >
+        {data?.stability.points.length ? (
+          <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
+            <div className="lg:col-span-3">
+              <StabilityChart points={data.stability.points} />
+            </div>
+            <div className="space-y-4">
+              <div className="p-4 rounded-xl bg-slate-900 text-white">
+                <div className="flex items-center gap-2 text-xs uppercase tracking-wider text-slate-300">
+                  <Activity size={14} /> Avg Success
+                </div>
+                <div className="text-2xl font-bold mt-2">{formatPercent(summary.avgSuccessRate)}</div>
+              </div>
+              <div className="p-4 rounded-xl bg-emerald-50 border border-emerald-100">
+                <div className="flex items-center gap-2 text-xs uppercase tracking-wider text-emerald-700">
+                  <TrendingUp size={14} /> Latest Hour
+                </div>
+                <div className="text-2xl font-bold text-emerald-700 mt-2">{formatPercent(summary.lastSuccessRate)}</div>
+              </div>
+              <div className="p-4 rounded-xl bg-amber-50 border border-amber-100">
+                <div className="flex items-center gap-2 text-xs uppercase tracking-wider text-amber-700">
+                  <TrendingDown size={14} /> Min Success
+                </div>
+                <div className="text-2xl font-bold text-amber-700 mt-2">{formatPercent(summary.minSuccessRate)}</div>
+              </div>
+              <div className="p-4 rounded-xl bg-slate-50 border border-slate-200">
+                <div className="text-xs uppercase tracking-wider text-slate-500">Total Requests</div>
+                <div className="text-xl font-bold text-slate-900 mt-2">{formatCount(summary.totalRequests)}</div>
+              </div>
+            </div>
+          </div>
+        ) : (
+          <EmptyState
+            title="No stability samples"
+            description="Backend did not return stability data for the last 24 hours."
+          />
+        )}
+      </SectionCard>
+
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <SectionCard
+          title="关键域名 TopN"
+          description="Top domains by request volume during the last 24 hours."
+          actions={<Globe size={16} className="text-slate-400" />}
+        >
+          {data?.topDomains.length ? (
+            <TopDomainsTable domains={data.topDomains} />
+          ) : (
+            <EmptyState
+              title="No key domains"
+              description="Backend did not return TopN domain data yet."
+            />
+          )}
+        </SectionCard>
+
+        <SectionCard
+          title="失败原因标准化展示"
+          description="Failure reasons normalized to a standard taxonomy."
+          actions={<AlertTriangle size={16} className="text-slate-400" />}
+        >
+          {data?.failureReasons.length ? (
+            <FailureReasonsTable reasons={data.failureReasons} />
+          ) : (
+            <EmptyState
+              title="No failure reasons"
+              description="Backend did not return failure breakdown data yet."
+            />
+          )}
+        </SectionCard>
+      </div>
+    </div>
+  );
+};
