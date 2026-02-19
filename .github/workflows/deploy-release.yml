@@ -30,6 +30,15 @@ jobs:
         run: npm ci
 
       - name: Build
+        env:
+          VITE_SSO_ENABLED: ${{ secrets.VITE_SSO_ENABLED }}
+          VITE_SSO_CLIENT_ID: ${{ secrets.VITE_SSO_CLIENT_ID }}
+          VITE_SSO_AUTHORIZE_URL: ${{ secrets.VITE_SSO_AUTHORIZE_URL }}
+          VITE_SSO_TOKEN_URL: ${{ secrets.VITE_SSO_TOKEN_URL }}
+          VITE_SSO_SCOPE: ${{ secrets.VITE_SSO_SCOPE }}
+          VITE_SSO_REDIRECT_URI: ${{ secrets.VITE_SSO_REDIRECT_URI }}
+          VITE_SSO_USERINFO_URL: ${{ secrets.VITE_SSO_USERINFO_URL }}
+          VITE_SSO_LOGOUT_URL: ${{ secrets.VITE_SSO_LOGOUT_URL }}
         run: npm run build
 
       - name: Setup SSH

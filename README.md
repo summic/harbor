@@ -33,6 +33,10 @@ This repository deploys automatically when code is pushed to the `release` branc
 - `SAIL_HOST` (example: `129.226.191.81`)
 - `SAIL_USER` (example: `ubuntu`)
 - `SAIL_SSH_PRIVATE_KEY` (private key content for SSH login)
+- `VITE_SSO_ENABLED`
+- `VITE_SSO_CLIENT_ID`
+- `VITE_SSO_AUTHORIZE_URL`
+- `VITE_SSO_TOKEN_URL`
 
 ## Kylith SSO
 
