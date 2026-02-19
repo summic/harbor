@@ -144,4 +144,14 @@ jobs:
         run: |
           set -euo pipefail
           ssh "${SAIL_USER}@${SAIL_HOST}" "curl -fsS http://127.0.0.1:8091/ >/dev/null"
-          ssh "${SAIL_USER}@${SAIL_HOST}" "curl -fsS http://127.0.0.1:8091/api/v1/client/profile >/dev/null"
+          ssh "${SAIL_USER}@${SAIL_HOST}" "bash -s" <<'EOF'
+          set -euo pipefail
+          for i in $(seq 1 20); do
+            if curl -fsS http://127.0.0.1:8091/api/v1/health >/dev/null; then
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "health check failed: /api/v1/health did not become ready in time" >&2
+          exit 1
+          EOF

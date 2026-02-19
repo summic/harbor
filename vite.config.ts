@@ -19,6 +19,7 @@ const AUTH_SYNC_USER_PATH = '/api/v1/auth/sync-user';
 const USERS_PATH = '/api/v1/users';
 const CLIENT_CONNECT_REPORT_PATH = '/api/v1/client/connect';
 const CLIENT_CONNECTIONS_REPORT_PATH = '/api/v1/client/connections';
+const HEALTH_PATH = '/api/v1/health';
 
 const STORE = new ConfigStore({
   dbPath: process.env.SAIL_DB_PATH || path.resolve(__dirname, '.local-data', 'sail.sqlite'),
@@ -216,6 +217,15 @@ const subscriptionHandler = async (req: IncomingMessage, res: ServerResponse, ne
   }
 
   const url = new URL(req.url, 'http://localhost');
+
+  if (url.pathname === HEALTH_PATH && req.method === 'GET') {
+    sendJson(res, 200, {
+      ok: true,
+      service: 'harbor',
+      time: new Date().toISOString(),
+    });
+    return;
+  }
 
   if (url.pathname === PROFILE_PATH && req.method === 'GET') {
     sendJson(res, 200, STORE.getUnifiedProfile(getOrigin(req)));
