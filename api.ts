@@ -528,6 +528,12 @@ const decodeProxyTagFromId = (id: string): string | null => {
   return decodeURIComponent(matched[1]);
 };
 
+const decodeGroupTagFromId = (id: string): string | null => {
+  const matched = /^group:(.+)$/.exec(id);
+  if (!matched) return null;
+  return decodeURIComponent(matched[1]);
+};
+
 const upsertProxyInConfig = (config: JsonObject, payload: {
   id?: string;
   name: string;
@@ -592,6 +598,75 @@ const deleteProxyInConfig = (config: JsonObject, id: string): JsonObject => {
     if (!Array.isArray(outbound?.outbounds)) continue;
     outbound.outbounds = outbound.outbounds.filter((item: unknown) => item !== tag);
   }
+  return next;
+};
+
+const upsertProxyGroupInConfig = (
+  config: JsonObject,
+  payload: {
+    id?: string;
+    name: string;
+    type: ProxyGroup['type'];
+    outbounds: string[];
+    defaultOutbound?: string;
+    url?: string;
+    interval?: string;
+  },
+): JsonObject => {
+  const next = ensureOutboundSection(config);
+  const outbounds = next.outbounds as JsonObject[];
+  const targetTag = payload.id ? decodeGroupTagFromId(payload.id) : null;
+  const existingIndex = targetTag
+    ? outbounds.findIndex((item) => String(item?.tag ?? '') === targetTag)
+    : -1;
+
+  const nextTag = payload.name.trim();
+  const base = existingIndex >= 0 ? outbounds[existingIndex] : {};
+  const type = payload.type === 'manual' ? 'selector' : payload.type;
+  const members = Array.from(
+    new Set(payload.outbounds.map((item) => item.trim()).filter(Boolean)),
+  );
+  const nextPayload: JsonObject = {
+    ...base,
+    tag: nextTag,
+    type,
+    outbounds: members,
+    interrupt_exist_connections: false,
+  };
+
+  if (type === 'selector') {
+    if (payload.defaultOutbound?.trim()) {
+      nextPayload.default = payload.defaultOutbound.trim();
+    } else {
+      delete nextPayload.default;
+    }
+    delete nextPayload.url;
+    delete nextPayload.interval;
+    delete nextPayload.tolerance;
+    delete nextPayload.idle_timeout;
+  } else {
+    if (payload.url?.trim()) {
+      nextPayload.url = payload.url.trim();
+    }
+    if (payload.interval?.trim()) {
+      nextPayload.interval = payload.interval.trim();
+    }
+    if (type === 'urltest') {
+      nextPayload.tolerance = Number(nextPayload.tolerance ?? 80);
+      nextPayload.idle_timeout = String(nextPayload.idle_timeout ?? '30m');
+    } else {
+      delete nextPayload.tolerance;
+      delete nextPayload.idle_timeout;
+    }
+    delete nextPayload.default;
+  }
+
+  if (existingIndex >= 0) {
+    outbounds[existingIndex] = nextPayload;
+  } else {
+    outbounds.push(nextPayload);
+  }
+
   return next;
 };
 
@@ -1128,6 +1203,26 @@ export const mockApi = {
     await sleep(180);
     const config = await loadConfig();
     return toProxyGroups(config);
+  },
+
+  saveProxyGroup: async (payload: {
+    id?: string;
+    name: string;
+    type: ProxyGroup['type'];
+    outbounds: string[];
+    defaultOutbound?: string;
+    url?: string;
+    interval?: string;
+  }): Promise<ProxyGroup[]> => {
+    await sleep(180);
+    if (!payload.name.trim()) {
+      throw new Error('group name is required');
+    }
+    const config = await loadConfig();
+    const nextConfig = upsertProxyGroupInConfig(config, payload);
+    await replaceModuleRows('outbounds', Array.isArray(nextConfig.outbounds) ? nextConfig.outbounds : [], 'tag');
+    const synced = await loadConfig();
+    return toProxyGroups(synced);
   },
 
   saveProxyNode: async (payload: {
