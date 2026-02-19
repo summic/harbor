@@ -123,6 +123,15 @@ const parseJwtPayload = (token: string): Record<string, unknown> | null => {
   }
 };
 
+const isTrustedIssuer = (issuer: string): boolean => {
+  try {
+    const host = new URL(issuer).hostname.toLowerCase();
+    return host === 'auth0.kylith.com' || host === 'id.kylith.com' || host.endsWith('.kylith.com');
+  } catch {
+    return false;
+  }
+};
+
 const buildUserInfoCandidates = (accessToken: string): string[] => {
   const candidates = [...ENV_USERINFO_URLS, ...DEFAULT_USERINFO_URLS];
   const payload = parseJwtPayload(accessToken);
@@ -167,6 +176,17 @@ const fetchAuthInfo = async (accessToken: string): Promise<AuthInfo | null> => {
     } catch {
       continue;
     }
+  }
+  // Compatibility fallback: some issued access tokens may not be accepted by userinfo,
+  // but still carry sub/iss claims we can use for telemetry attribution.
+  const jwtPayload = parseJwtPayload(accessToken);
+  const sub = typeof jwtPayload?.sub === 'string' ? jwtPayload.sub.trim() : '';
+  const iss = typeof jwtPayload?.iss === 'string' ? jwtPayload.iss.trim() : '';
+  const exp = typeof jwtPayload?.exp === 'number' ? jwtPayload.exp : null;
+  const isExpired = typeof exp === 'number' ? Date.now() >= exp * 1000 : false;
+  if (sub && iss && !isExpired && isTrustedIssuer(iss)) {
+    tokenSubCache.set(accessToken, { sub, expiresAt: Date.now() + TOKEN_SUB_CACHE_TTL_MS });
+    return { sub };
   }
   return null;
 };
