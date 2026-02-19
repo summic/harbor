@@ -579,6 +579,7 @@ const subscriptionHandler = async (req: IncomingMessage, res: ServerResponse, ne
         occurredAt?: string;
         connected?: boolean;
         target?: string;
+        outboundType?: string;
         latencyMs?: number;
         error?: string;
         networkType?: string;
@@ -623,6 +624,9 @@ const subscriptionHandler = async (req: IncomingMessage, res: ServerResponse, ne
         occurredAt: payload.occurredAt,
         connected: payload.connected,
         target: payload.target,
+        outboundType:
+          (typeof payload.outboundType === 'string' ? payload.outboundType : undefined) ||
+          (typeof payload.metadata?.outbound_type === 'string' ? String(payload.metadata.outbound_type) : undefined),
         latencyMs: payload.latencyMs,
         error: payload.error,
         networkType: payload.networkType,

@@ -172,6 +172,7 @@ export interface ClientConnectionReportPayload {
   occurredAt?: string;
   connected?: boolean;
   target?: string;
+  outboundType?: string;
   latencyMs?: number;
   error?: string;
   networkType?: string;

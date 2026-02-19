@@ -99,6 +99,7 @@ export type ClientConnectionLogInput = {
   occurredAt?: string;
   connected?: boolean;
   target?: string;
+  outboundType?: string;
   latencyMs?: number;
   error?: string;
   networkType?: string;
@@ -208,6 +209,7 @@ export class ConfigStore {
 
   private runMigrations() {
     this.migrateClientConnectTelemetryV1();
+    this.migrateClientConnectTelemetryV2();
     this.migrateImportSingboxConfigFromFile();
   }
 
@@ -238,6 +240,7 @@ export class ConfigStore {
         device_id TEXT,
         connected INTEGER NOT NULL DEFAULT 0,
         target TEXT,
+        outbound_type TEXT,
         latency_ms INTEGER,
         error_message TEXT,
         network_type TEXT,
@@ -257,6 +260,17 @@ export class ConfigStore {
       CREATE INDEX IF NOT EXISTS idx_client_devices_user_last_seen
         ON client_devices(user_id, last_seen DESC);
     `);
+    this.markMigrationApplied(migrationId);
+  }
+
+  private migrateClientConnectTelemetryV2() {
+    const migrationId = '20260220_client_connect_telemetry_v2_outbound_type';
+    if (this.isMigrationApplied(migrationId)) return;
+    const columns = this.db.prepare(`PRAGMA table_info(client_connect_logs)`).all() as Array<{ name: string }>;
+    const names = new Set(columns.map((item) => item.name));
+    if (!names.has('outbound_type')) {
+      this.db.exec(`ALTER TABLE client_connect_logs ADD COLUMN outbound_type TEXT`);
+    }
     this.markMigrationApplied(migrationId);
   }
 
@@ -771,32 +785,41 @@ export class ConfigStore {
     const aggregate = this.db
       .prepare(
         `SELECT
-           COALESCE(SUM(request_count), 0) AS total_requests,
-           COALESCE(SUM(success_count), 0) AS success_count,
-           COALESCE(SUM(blocked_count), 0) AS blocked_count
+           COUNT(*) AS total_requests,
+           COALESCE(SUM(CASE
+             WHEN lower(COALESCE(outbound_type, json_extract(metadata_json, '$.outbound_type'), '')) = 'proxy' THEN 1
+             ELSE 0 END), 0) AS proxy_count,
+           COALESCE(SUM(CASE
+             WHEN lower(COALESCE(outbound_type, json_extract(metadata_json, '$.outbound_type'), '')) = 'direct' THEN 1
+             ELSE 0 END), 0) AS direct_count,
+           COALESCE(SUM(CASE
+             WHEN lower(COALESCE(outbound_type, json_extract(metadata_json, '$.outbound_type'), '')) = 'block' THEN 1
+             ELSE 0 END), 0) AS block_count
          FROM client_connect_logs
          WHERE user_id = ?`,
       )
       .get(userId) as
       | {
           total_requests: number;
-          success_count: number;
-          blocked_count: number;
+          proxy_count: number;
+          direct_count: number;
+          block_count: number;
         }
       | undefined;
-    const totalRequests = Number(aggregate?.total_requests ?? 0);
-    const successCount = Number(aggregate?.success_count ?? 0);
-    const blockedCount = Number(aggregate?.blocked_count ?? 0);
-    const inferredTotal = totalRequests > 0 ? totalRequests : successCount + blockedCount;
-    const effectiveTotal = inferredTotal > 0 ? inferredTotal : 0;
-    const successRate =
-      effectiveTotal > 0 ? Number(((successCount / effectiveTotal) * 100).toFixed(1)) : 100;
+    const effectiveTotal = Number(aggregate?.total_requests ?? 0);
+    const proxyCount = Number(aggregate?.proxy_count ?? 0);
+    const directCount = Number(aggregate?.direct_count ?? 0);
+    const blockCount = Number(aggregate?.block_count ?? 0);
+    const passCount = proxyCount + directCount;
+    const successRate = effectiveTotal > 0 ? Number(((passCount / effectiveTotal) * 100).toFixed(1)) : 100;
 
     const topAllowed = this.db
       .prepare(
-        `SELECT target, SUM(success_count) AS count
+        `SELECT target, COUNT(*) AS count
          FROM client_connect_logs
-         WHERE user_id = ? AND target IS NOT NULL AND target != '' AND success_count > 0
+         WHERE user_id = ?
+           AND target IS NOT NULL AND target != ''
+           AND lower(COALESCE(outbound_type, json_extract(metadata_json, '$.outbound_type'), '')) IN ('proxy', 'direct')
          GROUP BY target
          ORDER BY count DESC
          LIMIT 5`,
@@ -804,19 +827,12 @@ export class ConfigStore {
       .all(userId) as Array<{ target: string; count: number }>;
     const topBlocked = this.db
       .prepare(
-        `SELECT
-           target,
-           SUM(
-             CASE
-               WHEN blocked_count > 0 THEN blocked_count
-               WHEN connected = 0 THEN 1
-               ELSE 0
-             END
-           ) AS count
+        `SELECT target, COUNT(*) AS count
          FROM client_connect_logs
-         WHERE user_id = ? AND target IS NOT NULL AND target != ''
+         WHERE user_id = ?
+           AND target IS NOT NULL AND target != ''
+           AND lower(COALESCE(outbound_type, json_extract(metadata_json, '$.outbound_type'), '')) = 'block'
          GROUP BY target
-         HAVING count > 0
          ORDER BY count DESC
          LIMIT 5`,
       )
@@ -947,15 +963,16 @@ export class ConfigStore {
     this.db
       .prepare(
         `INSERT INTO client_connect_logs(
-          user_id, device_id, connected, target, latency_ms, error_message, network_type, ip,
+          user_id, device_id, connected, target, outbound_type, latency_ms, error_message, network_type, ip,
           request_count, success_count, blocked_count, upload_bytes, download_bytes, occurred_at, metadata_json
-        ) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        ) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         userId,
         input.device?.id?.trim() || null,
         input.connected === true ? 1 : 0,
         input.target?.trim() || null,
+        input.outboundType?.trim() || null,
         Number.isFinite(input.latencyMs) ? Number(input.latencyMs) : null,
         input.error?.trim() || null,
         input.networkType?.trim() || null,
