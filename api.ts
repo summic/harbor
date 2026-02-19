@@ -6,6 +6,14 @@ const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL ?? '';
 const QUALITY_MOCK_FALLBACK = import.meta.env.VITE_QUALITY_MOCK_FALLBACK !== 'false';
+const DEFAULT_SUBSCRIPTION_PATH = '/api/v1/client/subscribe?token=u1-alice-7f8a9d2b';
+
+const resolveSubscriptionUrl = () => {
+  if (typeof window !== 'undefined' && window.location?.origin) {
+    return `${window.location.origin}${DEFAULT_SUBSCRIPTION_PATH}`;
+  }
+  return `https://beforeve.com${DEFAULT_SUBSCRIPTION_PATH}`;
+};
 
 const fetchJson = async <T>(path: string, init?: RequestInit): Promise<T> => {
   const response = await fetch(`${API_BASE}${path}`, {
@@ -18,6 +26,7 @@ const fetchJson = async <T>(path: string, init?: RequestInit): Promise<T> => {
   }
   return response.json() as Promise<T>;
 };
+
 
 // Mock initial JSON content
 const INITIAL_PROFILE_JSON = `{
@@ -87,7 +96,7 @@ const INITIAL_PROFILE_JSON = `{
 // This implies a unique, secure token for the user 'alice_dev'
 let mockProfileData: UnifiedProfile = {
   content: INITIAL_PROFILE_JSON,
-  publicUrl: "https://sub.beforeve.com/api/v1/client/subscribe?token=u1-alice-7f8a9d2b",
+  publicUrl: resolveSubscriptionUrl(),
   lastUpdated: "2023-10-27 15:30:00",
   size: "2.4 KB"
 };
@@ -256,19 +265,36 @@ export const mockApi = {
   },
 
   getUnifiedProfile: async (): Promise<UnifiedProfile> => {
-    await sleep(400);
-    return { ...mockProfileData };
+    await sleep(200);
+    try {
+      const remote = await fetchJson<UnifiedProfile>('/api/v1/client/profile');
+      mockProfileData = { ...remote };
+      return remote;
+    } catch {
+      return { ...mockProfileData };
+    }
   },
 
-  saveUnifiedProfile: async (content: string): Promise<UnifiedProfile> => {
-    await sleep(800);
-    mockProfileData = {
-      ...mockProfileData,
-      content,
-      lastUpdated: new Date().toLocaleString(),
-      size: (new Blob([content]).size / 1024).toFixed(1) + " KB"
-    };
-    return mockProfileData;
+  saveUnifiedProfile: async (payload: { content: string; publicUrl?: string }): Promise<UnifiedProfile> => {
+    await sleep(300);
+    try {
+      const remote = await fetchJson<UnifiedProfile>('/api/v1/client/profile', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      mockProfileData = { ...remote };
+      return remote;
+    } catch {
+      mockProfileData = {
+        ...mockProfileData,
+        content: payload.content,
+        publicUrl: payload.publicUrl?.trim() || mockProfileData.publicUrl,
+        lastUpdated: new Date().toLocaleString(),
+        size: (new Blob([payload.content]).size / 1024).toFixed(1) + " KB"
+      };
+      return mockProfileData;
+    }
   },
 
   getUsers: async (): Promise<User[]> => {
