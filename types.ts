@@ -27,6 +27,16 @@ export interface ProxyNode {
   enabled: boolean;
 }
 
+export interface ProxyGroup {
+  id: string;
+  name: string;
+  type: OutboundType;
+  outbounds: string[];
+  defaultOutbound?: string;
+  url?: string;
+  interval?: string;
+}
+
 export interface RoutingRule {
   id: string;
   matchType: 'domain' | 'ip' | 'geosite' | 'geoip' | 'port' | 'process' | 'rule_set' | 'protocol' | 'action' | 'ip_private';

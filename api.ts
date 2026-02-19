@@ -1,5 +1,5 @@
 
-import { DomainRule, ProxyNode, RoutingRule, DnsUpstream, HostsEntry, ConfigVersion, UnifiedProfile, User, ProtocolType, TrafficSimulationResult } from './types';
+import { DomainRule, ProxyNode, ProxyGroup, RoutingRule, DnsUpstream, HostsEntry, ConfigVersion, UnifiedProfile, User, ProtocolType, TrafficSimulationResult } from './types';
 import { QualityObservability, normalizeObservabilityResponse } from './utils/quality';
 import { loadSession } from './auth';
 
@@ -427,6 +427,30 @@ const toProxyNodes = (config: JsonObject): ProxyNode[] => {
         tags: [String(item.type ?? 'unknown').toUpperCase()],
         enabled: true,
       } as ProxyNode;
+    });
+};
+
+const toProxyGroups = (config: JsonObject): ProxyGroup[] => {
+  const outbounds = Array.isArray(config.outbounds) ? config.outbounds : [];
+  return outbounds
+    .filter((item) => {
+      const type = String(item?.type ?? '').toLowerCase();
+      return type === 'selector' || type === 'urltest' || type === 'fallback';
+    })
+    .map((item, index) => {
+      const type = String(item?.type ?? '').toLowerCase();
+      const normalizedType = (type === 'urltest' ? 'urltest' : type === 'fallback' ? 'fallback' : 'manual') as ProxyGroup['type'];
+      return {
+        id: `group:${encodeURIComponent(String(item?.tag ?? `group-${index + 1}`))}`,
+        name: String(item?.tag ?? `group-${index + 1}`),
+        type: normalizedType,
+        outbounds: Array.isArray(item?.outbounds)
+          ? item.outbounds.filter((entry: unknown): entry is string => typeof entry === 'string')
+          : [],
+        defaultOutbound: typeof item?.default === 'string' ? item.default : undefined,
+        url: typeof item?.url === 'string' ? item.url : undefined,
+        interval: typeof item?.interval === 'string' ? item.interval : undefined,
+      };
     });
 };
 
@@ -1022,6 +1046,12 @@ export const mockApi = {
     await sleep(220);
     const config = await loadConfig();
     return withLatency(toProxyNodes(config));
+  },
+
+  getProxyGroups: async (): Promise<ProxyGroup[]> => {
+    await sleep(180);
+    const config = await loadConfig();
+    return toProxyGroups(config);
   },
 
   saveProxyNode: async (payload: {

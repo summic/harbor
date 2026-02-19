@@ -10,8 +10,10 @@ import { ProtocolType, ProxyNode } from '../types';
 export const ProxiesPage: React.FC = () => {
   const queryClient = useQueryClient();
   const { data: proxies, isLoading } = useQuery({ queryKey: ['proxies'], queryFn: mockApi.getProxies });
+  const { data: groups } = useQuery({ queryKey: ['proxyGroups'], queryFn: mockApi.getProxyGroups });
   const refreshLinked = () => {
     queryClient.invalidateQueries({ queryKey: ['proxies'] });
+    queryClient.invalidateQueries({ queryKey: ['proxyGroups'] });
     queryClient.invalidateQueries({ queryKey: ['unifiedProfile'] });
   };
   const saveMutation = useMutation({
@@ -172,38 +174,32 @@ export const ProxiesPage: React.FC = () => {
         <div className="space-y-6">
           <SectionCard title="Auto Select Groups">
             <div className="space-y-4">
-              <div className="p-4 border border-blue-100 bg-blue-50/50 rounded-xl">
-                <div className="flex items-center justify-between mb-3">
-                  <div className="flex items-center">
-                    <Zap size={16} className="text-blue-600 mr-2" />
-                    <h3 className="text-sm font-semibold text-blue-900">ProxyGroup</h3>
+              {(groups ?? []).map((group) => (
+                <div key={group.id} className="p-4 border border-slate-200 rounded-xl hover:border-slate-300 transition-colors">
+                  <div className="flex items-center justify-between mb-3">
+                    <div className="flex items-center">
+                      {group.type === 'urltest' ? (
+                        <Zap size={16} className="text-blue-600 mr-2" />
+                      ) : (
+                        <Shuffle size={16} className="text-slate-600 mr-2" />
+                      )}
+                      <h3 className="text-sm font-semibold text-slate-900">{group.name}</h3>
+                    </div>
+                    <span className="text-[10px] bg-slate-100 text-slate-600 px-1.5 py-0.5 rounded font-bold uppercase">
+                      {group.type}
+                    </span>
                   </div>
-                  <span className="text-[10px] bg-blue-200 text-blue-800 px-1.5 py-0.5 rounded font-bold">URL-TEST</span>
-                </div>
-                <div className="flex items-center justify-between text-xs mb-4">
-                  <span className="text-blue-700/70">Selected: HK-Azure-01</span>
-                  <span className="text-blue-700 font-mono font-bold">45ms</span>
-                </div>
-                <div className="w-full bg-blue-100 h-1 rounded-full overflow-hidden">
-                  <div className="bg-blue-600 h-full w-[100%]"></div>
-                </div>
-              </div>
-
-              <div className="p-4 border border-slate-200 rounded-xl hover:border-slate-300 transition-colors">
-                <div className="flex items-center justify-between mb-3">
-                  <div className="flex items-center">
-                    <Shuffle size={16} className="text-slate-600 mr-2" />
-                    <h3 className="text-sm font-semibold text-slate-900">Fallback</h3>
+                  <div className="text-xs text-slate-500 mb-2">
+                    {group.outbounds.length > 0 ? `Members: ${group.outbounds.join(', ')}` : 'No members'}
                   </div>
-                  <span className="text-[10px] bg-slate-100 text-slate-600 px-1.5 py-0.5 rounded font-bold uppercase">Fallback</span>
+                  {group.defaultOutbound ? (
+                    <div className="text-xs text-slate-500 mb-2">Default: {group.defaultOutbound}</div>
+                  ) : null}
+                  {group.url ? (
+                    <div className="text-[10px] text-slate-400 font-mono truncate">{group.url}</div>
+                  ) : null}
                 </div>
-                <div className="text-xs text-slate-500 mb-4">Primary: HK-Azure-01</div>
-                <div className="flex items-center gap-1">
-                  {[1, 2, 3].map(i => (
-                    <div key={i} className={`flex-1 h-1 rounded-full ${i === 1 ? 'bg-emerald-500' : 'bg-slate-200'}`}></div>
-                  ))}
-                </div>
-              </div>
+              ))}
             </div>
           </SectionCard>
 
