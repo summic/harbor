@@ -16,6 +16,7 @@ type AuthContextValue = {
   error: string | null;
   session: AuthSession | null;
   isAuthenticated: boolean;
+  isAdmin: boolean;
   ssoEnabled: boolean;
   ssoConfigured: boolean;
   login: () => Promise<void>;
@@ -23,6 +24,7 @@ type AuthContextValue = {
 };
 
 const AuthContext = React.createContext<AuthContextValue | undefined>(undefined);
+const ADMIN_SUB = 'deeed4b7-748b-4301-8c9e-dfe0893a80cf';
 
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [loading, setLoading] = React.useState(true);
@@ -30,6 +32,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [session, setSession] = React.useState<AuthSession | null>(null);
   const ssoEnabled = oidcConfig.enabled;
   const ssoConfigured = isSsoConfigured();
+  const isAdmin = (session?.user?.sub ?? '') === ADMIN_SUB;
 
   React.useEffect(() => {
     let cancelled = false;
@@ -98,6 +101,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     error,
     session,
     isAuthenticated: !!session?.accessToken,
+    isAdmin,
     ssoEnabled,
     ssoConfigured,
     login,

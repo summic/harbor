@@ -1,8 +1,8 @@
 
 import React from 'react';
-import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
+import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { AuthProvider } from './auth-context';
+import { AuthProvider, useAuth } from './auth-context';
 import { AppShell } from './components/Layout';
 import { AuthGate } from './components/AuthGate';
 import { DashboardPage } from './pages/Dashboard';
@@ -25,6 +25,14 @@ const queryClient = new QueryClient({
   },
 });
 
+const AdminRoute: React.FC<{ children: React.ReactElement }> = ({ children }) => {
+  const auth = useAuth();
+  if (!auth.isAdmin) {
+    return <Navigate to="/" replace />;
+  }
+  return children;
+};
+
 const App: React.FC = () => {
   return (
     <QueryClientProvider client={queryClient}>
@@ -34,15 +42,16 @@ const App: React.FC = () => {
             <AppShell>
               <Routes>
                 <Route path="/" element={<DashboardPage />} />
-                <Route path="/domains" element={<DomainsPage />} />
-                <Route path="/proxies" element={<ProxiesPage />} />
-                <Route path="/routing" element={<RoutingPage />} />
-                <Route path="/dns-hosts" element={<DnsHostsPage />} />
-                <Route path="/users" element={<UsersPage />} />
-                <Route path="/users/:id" element={<UserDetailsPage />} />
-                <Route path="/profile" element={<UnifiedProfilePage />} />
-                <Route path="/publish" element={<PublishPage />} />
-                <Route path="/quality" element={<QualityObservabilityPage />} />
+                <Route path="/domains" element={<AdminRoute><DomainsPage /></AdminRoute>} />
+                <Route path="/proxies" element={<AdminRoute><ProxiesPage /></AdminRoute>} />
+                <Route path="/routing" element={<AdminRoute><RoutingPage /></AdminRoute>} />
+                <Route path="/dns-hosts" element={<AdminRoute><DnsHostsPage /></AdminRoute>} />
+                <Route path="/users" element={<AdminRoute><UsersPage /></AdminRoute>} />
+                <Route path="/users/:id" element={<AdminRoute><UserDetailsPage /></AdminRoute>} />
+                <Route path="/profile" element={<AdminRoute><UnifiedProfilePage /></AdminRoute>} />
+                <Route path="/publish" element={<AdminRoute><PublishPage /></AdminRoute>} />
+                <Route path="/quality" element={<AdminRoute><QualityObservabilityPage /></AdminRoute>} />
+                <Route path="*" element={<Navigate to="/" replace />} />
               </Routes>
             </AppShell>
           </AuthGate>
