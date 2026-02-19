@@ -18,3 +18,18 @@ View your app in AI Studio: https://ai.studio/apps/drive/14HCbQHJ721okoEmtAiiUFJ
 2. Set the `GEMINI_API_KEY` in [.env.local](.env.local) to your Gemini API key
 3. Run the app:
    `npm run dev`
+
+## Release Auto Deploy (Branch: `release`)
+
+This repository deploys automatically when code is pushed to the `release` branch.
+
+- Workflow file: `.github/workflows/deploy-release.yml`
+- Server path: `/var/www/sail`
+- Nginx service port: `8091`
+- Active release symlink: `/var/www/sail/current`
+
+### Required GitHub Secrets
+
+- `SAIL_HOST` (example: `129.226.191.81`)
+- `SAIL_USER` (example: `ubuntu`)
+- `SAIL_SSH_PRIVATE_KEY` (private key content for SSH login)

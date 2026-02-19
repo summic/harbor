@@ -1,0 +1,87 @@
+name: Deploy Release
+
+on:
+  push:
+    branches:
+      - release
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-release
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    env:
+      DEPLOY_PATH: /var/www/sail
+      RELEASE_ID: "${{ github.run_number }}-${{ github.sha }}"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build
+        run: npm run build
+
+      - name: Setup SSH
+        env:
+          SAIL_SSH_PRIVATE_KEY: ${{ secrets.SAIL_SSH_PRIVATE_KEY }}
+          SAIL_HOST: ${{ secrets.SAIL_HOST }}
+        run: |
+          set -euo pipefail
+          mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
+          printf '%s\n' "$SAIL_SSH_PRIVATE_KEY" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          ssh-keyscan -H "$SAIL_HOST" >> ~/.ssh/known_hosts
+
+      - name: Upload release assets
+        env:
+          SAIL_HOST: ${{ secrets.SAIL_HOST }}
+          SAIL_USER: ${{ secrets.SAIL_USER }}
+        run: |
+          set -euo pipefail
+          ssh "${SAIL_USER}@${SAIL_HOST}" "mkdir -p '${DEPLOY_PATH}/releases/${RELEASE_ID}'"
+          rsync -az --delete dist/ "${SAIL_USER}@${SAIL_HOST}:${DEPLOY_PATH}/releases/${RELEASE_ID}/"
+
+      - name: Activate release
+        env:
+          SAIL_HOST: ${{ secrets.SAIL_HOST }}
+          SAIL_USER: ${{ secrets.SAIL_USER }}
+        run: |
+          set -euo pipefail
+          ssh "${SAIL_USER}@${SAIL_HOST}" "bash -s" <<EOF
+          set -euo pipefail
+          DEPLOY_PATH="${DEPLOY_PATH}"
+          RELEASE_ID="${RELEASE_ID}"
+          RELEASE_DIR="\${DEPLOY_PATH}/releases/\${RELEASE_ID}"
+          CURRENT_LINK="\${DEPLOY_PATH}/current"
+
+          test -d "\${RELEASE_DIR}"
+          ln -sfn "\${RELEASE_DIR}" "\${CURRENT_LINK}"
+          echo "\${RELEASE_ID}" > "\${DEPLOY_PATH}/CURRENT_RELEASE"
+
+          if command -v sudo >/dev/null 2>&1; then
+            sudo nginx -t
+            sudo systemctl reload nginx
+          fi
+
+          ls -1dt "\${DEPLOY_PATH}"/releases/* 2>/dev/null | tail -n +11 | xargs -r rm -rf
+          EOF
+
+      - name: Verify deployment
+        env:
+          SAIL_HOST: ${{ secrets.SAIL_HOST }}
+          SAIL_USER: ${{ secrets.SAIL_USER }}
+        run: |
+          set -euo pipefail
+          ssh "${SAIL_USER}@${SAIL_HOST}" "curl -fsS http://127.0.0.1:8091/ >/dev/null"
