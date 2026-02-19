@@ -1,49 +1,14 @@
 
-import React, { useState, useEffect, useRef, useMemo } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { 
   Save, Copy, Globe, FileJson, Check, AlertTriangle, 
   RotateCcw, ExternalLink, Download, Braces
 } from 'lucide-react';
+import CodeMirror from '@uiw/react-codemirror';
+import { json } from '@codemirror/lang-json';
 import { mockApi } from '../api';
 import { SectionCard, LoadingOverlay } from '../components/Common';
-
-// --- Syntax Highlighter Helper ---
-const highlightJSON = (json: string): string => {
-  if (!json) return '';
-  
-  // Escape HTML entities to prevent XSS and rendering issues
-  const escaped = json
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;');
-
-  // Regex to match JSON tokens: keys, strings, numbers, boolean, null, punctuation
-  return escaped.replace(
-    /("(\\u[a-zA-Z0-9]{4}|\\[^u]|[^\\"])*"(\s*:)?|\b(true|false|null)\b|-?\d+(?:\.\d*)?(?:[eE][+\-]?\d+)?|[\[\]\{\},:])/g,
-    (match) => {
-      let cls = 'text-slate-300'; // Default
-      
-      if (/^"/.test(match)) {
-        if (/:$/.test(match)) {
-          cls = 'text-sky-400 font-semibold'; // Key
-        } else {
-          cls = 'text-emerald-400'; // String value
-        }
-      } else if (/true|false/.test(match)) {
-        cls = 'text-rose-400 font-semibold'; // Boolean
-      } else if (/null/.test(match)) {
-        cls = 'text-slate-500 italic'; // Null
-      } else if (/^-?\d/.test(match)) {
-        cls = 'text-amber-400'; // Number
-      } else if (/[\[\]\{\},:]/.test(match)) {
-        cls = 'text-slate-500'; // Punctuation
-      }
-      
-      return `<span class="${cls}">${match}</span>`;
-    }
-  );
-};
 
 export const UnifiedProfilePage: React.FC = () => {
   const queryClient = useQueryClient();
@@ -57,11 +22,6 @@ export const UnifiedProfilePage: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
   const [subscriptionUrl, setSubscriptionUrl] = useState('');
-  
-  // Refs for sync scrolling
-  const textareaRef = useRef<HTMLTextAreaElement>(null);
-  const preRef = useRef<HTMLPreElement>(null);
-  const gutterRef = useRef<HTMLDivElement>(null);
 
   // Initialize content
   useEffect(() => {
@@ -84,16 +44,7 @@ export const UnifiedProfilePage: React.FC = () => {
     }
   });
 
-  // Calculate lines for gutter
-  const lineNumbers = useMemo(() => {
-    return jsonContent.split('\n').map((_, i) => i + 1);
-  }, [jsonContent]);
-
-  // Syntax Highlighted Code
-  const highlightedCode = useMemo(() => highlightJSON(jsonContent), [jsonContent]);
-
-  const handleJsonChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
-    const newVal = e.target.value;
+  const handleJsonChange = (newVal: string) => {
     setJsonContent(newVal);
     setIsDirty(true);
     
@@ -107,17 +58,6 @@ export const UnifiedProfilePage: React.FC = () => {
       } else {
         setError('Invalid JSON');
       }
-    }
-  };
-
-  const handleScroll = (e: React.UIEvent<HTMLTextAreaElement>) => {
-    const { scrollTop, scrollLeft } = e.currentTarget;
-    if (preRef.current) {
-      preRef.current.scrollTop = scrollTop;
-      preRef.current.scrollLeft = scrollLeft;
-    }
-    if (gutterRef.current) {
-      gutterRef.current.scrollTop = scrollTop;
     }
   };
 
@@ -158,26 +98,6 @@ export const UnifiedProfilePage: React.FC = () => {
     URL.revokeObjectURL(link.href);
   };
 
-  const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === 'Tab') {
-      e.preventDefault();
-      const target = e.target as HTMLTextAreaElement;
-      const start = target.selectionStart;
-      const end = target.selectionEnd;
-      
-      const newVal = jsonContent.substring(0, start) + "  " + jsonContent.substring(end);
-      setJsonContent(newVal);
-      
-      // Needs timeout to run after render update
-      setTimeout(() => {
-        if (textareaRef.current) {
-          textareaRef.current.selectionStart = textareaRef.current.selectionEnd = start + 2;
-        }
-      }, 0);
-      setIsDirty(true);
-    }
-  };
-
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -186,46 +106,12 @@ export const UnifiedProfilePage: React.FC = () => {
           <h1 className="text-2xl font-bold tracking-tight text-balance">Unified Profile</h1>
           <p className="text-slate-500 text-pretty">Edit the core JSON configuration directly and access it remotely.</p>
         </div>
-        <div className="flex items-center gap-2">
-          {isDirty && (
-            <span className="text-xs font-bold text-amber-600 bg-amber-50 px-3 py-1.5 rounded-full animate-pulse mr-2">
-              Unsaved Changes
-            </span>
-          )}
-          <button 
-            onClick={() => setJsonContent(profile?.content || '')}
-            disabled={!isDirty || saveMutation.isPending}
-            className="p-2.5 text-slate-500 bg-white border border-slate-200 rounded-lg hover:bg-slate-50 disabled:opacity-50 transition-all"
-            title="Revert changes"
-          >
-            <RotateCcw size={18} />
-          </button>
-          <button 
-            onClick={handleFormat}
-            className="p-2.5 text-blue-600 bg-white border border-blue-200 rounded-lg hover:bg-blue-50 transition-all"
-            title="Format JSON"
-          >
-            <Braces size={18} />
-          </button>
-          <button 
-            onClick={handleSave}
-            disabled={!!error || !isDirty || saveMutation.isPending}
-            className="inline-flex items-center px-5 py-2.5 bg-slate-900 text-white text-sm font-semibold rounded-lg hover:bg-slate-800 disabled:opacity-50 disabled:cursor-not-allowed transition-all shadow-lg shadow-slate-900/10"
-          >
-            {saveMutation.isPending ? (
-              <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin mr-2"></span>
-            ) : (
-              <Save size={18} className="mr-2" />
-            )}
-            Save Profile
-          </button>
-        </div>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 h-[calc(100vh-14rem)] min-h-[500px]">
+      <div className="grid grid-cols-1 lg:grid-cols-3 lg:items-start gap-6 min-h-[500px]">
         {/* Editor Column */}
-        <div className="lg:col-span-2 h-full flex flex-col">
-          <div className="flex-1 bg-slate-900 rounded-xl overflow-hidden shadow-2xl flex flex-col relative border border-slate-800">
+        <div className="lg:col-span-2 flex flex-col">
+          <div className="min-h-[500px] bg-slate-900 rounded-xl overflow-hidden shadow-2xl flex flex-col relative border border-slate-800">
             {isLoading && <LoadingOverlay />}
             
             {/* Editor Toolbar */}
@@ -235,7 +121,7 @@ export const UnifiedProfilePage: React.FC = () => {
                 <span className="font-mono">profile.json</span>
                 {profile?.size && <span className="text-slate-600">({profile.size})</span>}
                 <span className="text-slate-700 mx-1">|</span>
-                <span className="text-slate-500">{lineNumbers.length} lines</span>
+                <span className="text-slate-500">{jsonContent.split('\n').length} lines</span>
               </div>
               <div className="flex items-center gap-4">
                  {error ? (
@@ -251,37 +137,21 @@ export const UnifiedProfilePage: React.FC = () => {
             </div>
 
             {/* Code Editor Area */}
-            <div className="flex-1 relative flex overflow-hidden">
-               {/* Line Numbers Gutter */}
-               <div 
-                 ref={gutterRef}
-                 className="w-12 bg-slate-950 text-slate-600 text-right pr-3 pt-4 pb-4 select-none border-r border-slate-800 font-mono text-sm leading-6 overflow-hidden"
-               >
-                 {lineNumbers.map(n => <div key={n}>{n}</div>)}
-               </div>
-
-               {/* Editing Surface */}
-               <div className="relative flex-1 h-full font-mono text-sm leading-6">
-                 {/* 1. Highlight Layer (Bottom) */}
-                 <pre 
-                   ref={preRef}
-                   className="absolute inset-0 p-4 m-0 pointer-events-none whitespace-pre overflow-hidden bg-slate-900"
-                   aria-hidden="true"
-                 >
-                   <code dangerouslySetInnerHTML={{__html: highlightedCode}} />
-                 </pre>
-
-                 {/* 2. Input Layer (Top) */}
-                 <textarea
-                   ref={textareaRef}
-                   value={jsonContent}
-                   onChange={handleJsonChange}
-                   onScroll={handleScroll}
-                   onKeyDown={handleKeyDown}
-                   spellCheck={false}
-                   className="absolute inset-0 w-full h-full p-4 m-0 bg-transparent text-transparent caret-white resize-none outline-none border-0 custom-scrollbar z-10 selection:bg-blue-500/30 whitespace-pre"
-                 />
-               </div>
+            <div className="overflow-hidden">
+              <CodeMirror
+                value={jsonContent}
+                onChange={handleJsonChange}
+                extensions={[json()]}
+                theme="dark"
+                height="auto"
+                basicSetup={{
+                  lineNumbers: true,
+                  highlightActiveLine: true,
+                  foldGutter: true,
+                  bracketMatching: true,
+                }}
+                className="text-sm"
+              />
             </div>
             
             {/* Error Message Footer */}
@@ -294,7 +164,47 @@ export const UnifiedProfilePage: React.FC = () => {
         </div>
 
         {/* Info Column */}
-        <div className="space-y-6">
+        <div className="lg:sticky lg:top-6">
+          <div className="space-y-6 max-h-[calc(100vh-3rem)] overflow-y-auto">
+          <SectionCard title="Actions">
+            <div className="space-y-3">
+              {isDirty ? (
+                <div className="text-xs font-bold text-amber-600 bg-amber-50 px-3 py-1.5 rounded-full inline-flex">
+                  Unsaved Changes
+                </div>
+              ) : null}
+              <div className="grid grid-cols-1 gap-2">
+                <button
+                  onClick={() => setJsonContent(profile?.content || '')}
+                  disabled={!isDirty || saveMutation.isPending}
+                  className="inline-flex items-center justify-center gap-2 px-4 py-2.5 text-slate-700 bg-white border border-slate-200 rounded-lg hover:bg-slate-50 disabled:opacity-50 transition-all"
+                >
+                  <RotateCcw size={16} />
+                  Refresh
+                </button>
+                <button
+                  onClick={handleFormat}
+                  className="inline-flex items-center justify-center gap-2 px-4 py-2.5 text-blue-700 bg-white border border-blue-200 rounded-lg hover:bg-blue-50 transition-all"
+                >
+                  <Braces size={16} />
+                  Format
+                </button>
+                <button
+                  onClick={handleSave}
+                  disabled={!!error || !isDirty || saveMutation.isPending}
+                  className="inline-flex items-center justify-center gap-2 px-4 py-2.5 bg-slate-900 text-white text-sm font-semibold rounded-lg hover:bg-slate-800 disabled:opacity-50 disabled:cursor-not-allowed transition-all shadow-lg shadow-slate-900/10"
+                >
+                  {saveMutation.isPending ? (
+                    <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin"></span>
+                  ) : (
+                    <Save size={16} />
+                  )}
+                  Save
+                </button>
+              </div>
+            </div>
+          </SectionCard>
+
           <SectionCard title="Remote Access" description="Use this URL to subscribe to this profile in your clients.">
              <div className="space-y-4">
                <div className="p-4 bg-slate-50 border border-slate-200 rounded-xl group relative">
@@ -320,10 +230,6 @@ export const UnifiedProfilePage: React.FC = () => {
                  </button>
                </div>
 
-               <p className="text-xs text-slate-500">
-                 此 URL 仅用于客户端订阅拉取；后台发布该配置，不从客户端反向加载。
-               </p>
-               
                <div className="flex gap-2">
                  <a 
                    href={subscriptionUrl || undefined} 
@@ -365,6 +271,7 @@ export const UnifiedProfilePage: React.FC = () => {
             <p className="opacity-80 text-xs leading-relaxed">
               This editor modifies the raw JSON configuration. Use <code>Ctrl/Cmd + S</code> logic isn't bound, but please validate your JSON before saving to avoid client errors.
             </p>
+          </div>
           </div>
         </div>
       </div>

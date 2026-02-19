@@ -37,13 +37,30 @@ export const AppShell: React.FC<{ children: React.ReactNode }> = ({ children }) 
   const { isSidebarOpen, toggleSidebar } = useAppStore();
   const location = useLocation();
   const auth = useAuth();
-  const name =
-    (auth.session?.user?.name as string | undefined) ||
-    (auth.session?.user?.preferred_username as string | undefined) ||
+  const user = auth.session?.user as Record<string, unknown> | undefined;
+  const displayName =
+    (user?.name as string | undefined) ||
+    (user?.preferred_username as string | undefined) ||
+    (user?.nickname as string | undefined) ||
+    ([user?.given_name, user?.family_name].filter(Boolean).join(' ').trim() || undefined) ||
+    (user?.email as string | undefined) ||
+    (user?.sub as string | undefined) ||
     'Kylith User';
-  const email = (auth.session?.user?.email as string | undefined) || '';
-  const role = (auth.session?.user?.role as string | undefined) || 'Authenticated';
-  const initials = name
+  const email =
+    (user?.email as string | undefined) ||
+    (user?.upn as string | undefined) ||
+    (user?.preferred_username as string | undefined) ||
+    '';
+  const roleFromList = Array.isArray(user?.roles)
+    ? user?.roles.find((item): item is string => typeof item === 'string')
+    : undefined;
+  const role =
+    (user?.role as string | undefined) ||
+    roleFromList ||
+    (user?.['https://kylith.com/claims/role'] as string | undefined) ||
+    'Authenticated';
+  const sub = (user?.sub as string | undefined) || '';
+  const initials = displayName
     .split(/\s+/)
     .filter(Boolean)
     .slice(0, 2)
@@ -116,8 +133,10 @@ export const AppShell: React.FC<{ children: React.ReactNode }> = ({ children }) 
             {/* User Profile Dropdown Area */}
             <div className="flex items-center gap-3 pl-2 border-l border-slate-100 md:border-none md:pl-0 cursor-pointer group relative">
               <div className="text-right hidden sm:block">
-                <p className="text-sm font-semibold text-slate-800 leading-none">{name}</p>
-                <p className="text-[10px] text-slate-500 font-medium mt-1">{role}</p>
+                <p className="text-sm font-semibold text-slate-800 leading-none">{displayName}</p>
+                <p className="text-[10px] text-slate-500 font-medium mt-1 truncate max-w-[220px]">
+                  {email || role}
+                </p>
               </div>
               <div className="w-9 h-9 rounded-full bg-slate-900 text-white flex items-center justify-center font-bold text-sm shadow-md ring-2 ring-slate-100 group-hover:ring-blue-100 transition-all">
                 {initials}
@@ -127,8 +146,13 @@ export const AppShell: React.FC<{ children: React.ReactNode }> = ({ children }) 
               {/* Dropdown Menu (Hover implementation for simplicity) */}
               <div className="absolute top-full right-0 mt-2 w-48 bg-white rounded-lg shadow-xl border border-slate-100 py-1 invisible opacity-0 translate-y-2 group-hover:visible group-hover:opacity-100 group-hover:translate-y-0 transition-all duration-200 z-50">
                  <div className="px-4 py-3 border-b border-slate-50 sm:hidden">
-                    <p className="text-sm font-semibold text-slate-800">{name}</p>
+                    <p className="text-sm font-semibold text-slate-800">{displayName}</p>
                     <p className="text-xs text-slate-500 truncate">{email}</p>
+                 </div>
+                 <div className="px-4 py-2 border-b border-slate-50">
+                   <p className="text-[11px] text-slate-500">Role</p>
+                   <p className="text-xs text-slate-700 truncate">{role}</p>
+                   {sub ? <p className="text-[11px] text-slate-400 truncate mt-1">sub: {sub}</p> : null}
                  </div>
                  <button className="w-full text-left px-4 py-2 text-sm text-slate-600 hover:bg-slate-50 hover:text-blue-600 transition-colors">
                    Account Settings

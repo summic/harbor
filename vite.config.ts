@@ -1,142 +1,36 @@
 import path from 'path';
-import fs from 'fs';
 import type { IncomingMessage, ServerResponse } from 'http';
 import { defineConfig, loadEnv } from 'vite';
 import react from '@vitejs/plugin-react';
+import { ConfigStore } from './dev-server/config-store';
 
-const SUBSCRIPTION_TOKEN = 'u1-alice-7f8a9d2b';
 const SUBSCRIPTION_PATH = '/api/v1/client/subscribe';
 const PROFILE_PATH = '/api/v1/client/profile';
-const PROFILE_STORE_PATH = path.resolve(__dirname, '.local-data', 'unified-profile.json');
+const RULES_PATH = '/api/v1/rules';
+const SIMULATE_PATH = '/api/v1/simulate/traffic';
 
-const SUBSCRIPTION_PROFILE = {
-  log: {
-    level: 'info',
-    timestamp: true,
+const STORE = new ConfigStore({
+  dbPath: path.resolve(__dirname, '.local-data', 'sail.sqlite'),
+  legacyProfilePath: path.resolve(__dirname, '.local-data', 'unified-profile.json'),
+  seedProfile: {
+    log: { level: 'info', timestamp: true },
+    dns: { final: 'dns_direct', strategy: 'prefer_ipv4', servers: [], rules: [] },
+    inbounds: [],
+    outbounds: [],
+    route: { final: 'direct', rules: [], rule_set: [] },
   },
-  dns: {
-    servers: [
-      {
-        tag: 'google',
-        address: 'tls://8.8.8.8',
-        strategy: 'prefer_ipv4',
-      },
-      {
-        tag: 'local',
-        address: '223.5.5.5',
-        detour: 'direct',
-      },
-    ],
-    rules: [
-      { outbound: 'any', server: 'local' },
-      { clash_mode: 'Direct', server: 'local' },
-      { clash_mode: 'Global', server: 'google' },
-      { geosite: 'cn', server: 'local' },
-      { geosite: 'geolocation-!cn', server: 'google' },
-    ],
-  },
-  inbounds: [
-    {
-      type: 'mixed',
-      tag: 'mixed-in',
-      listen: '::',
-      listen_port: 7890,
-      sniff: true,
-    },
-  ],
-  outbounds: [
-    {
-      type: 'selector',
-      tag: 'proxy',
-      outbounds: ['auto', 'direct'],
-    },
-    {
-      type: 'urltest',
-      tag: 'auto',
-      outbounds: ['hk-01', 'sg-01'],
-      url: 'https://www.gstatic.com/generate_204',
-      interval: '10m',
-    },
-    {
-      type: 'direct',
-      tag: 'direct',
-    },
-  ],
-  route: {
-    rules: [
-      { protocol: 'dns', outbound: 'dns-out' },
-      { geosite: 'cn', geoip: 'cn', outbound: 'direct' },
-      { geosite: 'category-ads-all', outbound: 'block' },
-    ],
-    auto_detect_interface: true,
-  },
-};
-
-type StoredProfile = {
-  profile: Record<string, unknown>;
-  token: string;
-  lastUpdated: string;
-};
-
-const ensureProfileStore = () => {
-  if (!fs.existsSync(PROFILE_STORE_PATH)) {
-    fs.mkdirSync(path.dirname(PROFILE_STORE_PATH), { recursive: true });
-    const initial: StoredProfile = {
-      profile: SUBSCRIPTION_PROFILE as Record<string, unknown>,
-      token: SUBSCRIPTION_TOKEN,
-      lastUpdated: new Date().toLocaleString(),
-    };
-    fs.writeFileSync(PROFILE_STORE_PATH, JSON.stringify(initial), 'utf-8');
-  }
-};
-
-const readProfileStore = (): StoredProfile => {
-  ensureProfileStore();
-  const raw = fs.readFileSync(PROFILE_STORE_PATH, 'utf-8');
-  const parsed = JSON.parse(raw) as Partial<StoredProfile> & { content?: string };
-  if (parsed.profile && typeof parsed.profile === 'object') {
-    return {
-      profile: parsed.profile as Record<string, unknown>,
-      token: parsed.token || SUBSCRIPTION_TOKEN,
-      lastUpdated: parsed.lastUpdated || new Date().toLocaleString(),
-    };
-  }
-  if (typeof parsed.content === 'string') {
-    return {
-      profile: JSON.parse(parsed.content) as Record<string, unknown>,
-      token: parsed.token || SUBSCRIPTION_TOKEN,
-      lastUpdated: parsed.lastUpdated || new Date().toLocaleString(),
-    };
-  }
-  return {
-    profile: SUBSCRIPTION_PROFILE as Record<string, unknown>,
-    token: SUBSCRIPTION_TOKEN,
-    lastUpdated: new Date().toLocaleString(),
-  };
-};
-
-const writeProfileStore = (data: StoredProfile) => {
-  fs.mkdirSync(path.dirname(PROFILE_STORE_PATH), { recursive: true });
-  fs.writeFileSync(PROFILE_STORE_PATH, JSON.stringify(data), 'utf-8');
-};
+});
 
 const getOrigin = (req: IncomingMessage) => {
-  const host = req.headers.host ?? 'localhost:3000';
+  const host = req.headers.host ?? 'localhost:5173';
   const proto = (req.headers['x-forwarded-proto'] as string | undefined) ?? 'http';
   return `${proto}://${host}`;
 };
 
-const toUnifiedProfilePayload = (req: IncomingMessage, data: StoredProfile) => ({
-  content: JSON.stringify(data.profile, null, 2),
-  publicUrl: `${getOrigin(req)}${SUBSCRIPTION_PATH}?token=${data.token}`,
-  lastUpdated: data.lastUpdated,
-  size: `${(Buffer.byteLength(JSON.stringify(data.profile), 'utf8') / 1024).toFixed(1)} KB`,
-});
-
 const readBody = async (req: IncomingMessage): Promise<string> =>
   await new Promise((resolve, reject) => {
     let body = '';
-    req.on('data', chunk => {
+    req.on('data', (chunk) => {
       body += String(chunk);
     });
     req.on('end', () => resolve(body));
@@ -159,8 +53,7 @@ const subscriptionHandler = async (req: IncomingMessage, res: ServerResponse, ne
   const url = new URL(req.url, 'http://localhost');
 
   if (url.pathname === PROFILE_PATH && req.method === 'GET') {
-    const current = readProfileStore();
-    sendJson(res, 200, toUnifiedProfilePayload(req, current));
+    sendJson(res, 200, STORE.getUnifiedProfile(getOrigin(req)));
     return;
   }
 
@@ -172,32 +65,75 @@ const subscriptionHandler = async (req: IncomingMessage, res: ServerResponse, ne
         sendJson(res, 400, { error: 'invalid_content' });
         return;
       }
-      let profile: Record<string, unknown>;
-      try {
-        profile = JSON.parse(payload.content) as Record<string, unknown>;
-      } catch {
-        sendJson(res, 400, { error: 'invalid_profile_json' });
+      const updated = STORE.saveUnifiedProfile(payload.content, payload.publicUrl);
+      const origin = getOrigin(req);
+      if (origin.startsWith('http')) {
+        updated.publicUrl = `${origin}${SUBSCRIPTION_PATH}?token=${new URL(updated.publicUrl).searchParams.get('token')}`;
+      }
+      sendJson(res, 200, updated);
+      return;
+    } catch {
+      sendJson(res, 400, { error: 'invalid_request' });
+      return;
+    }
+  }
+
+  if (url.pathname === RULES_PATH && req.method === 'GET') {
+    const scope = url.searchParams.get('scope') as 'global' | 'user' | null;
+    const module = url.searchParams.get('module') || undefined;
+    const userId = url.searchParams.get('user_id') || undefined;
+    sendJson(res, 200, {
+      items: STORE.listRules(scope ?? undefined, module, userId),
+    });
+    return;
+  }
+
+  if (url.pathname === RULES_PATH && req.method === 'POST') {
+    try {
+      const raw = await readBody(req);
+      const payload = JSON.parse(raw) as {
+        id?: number;
+        scope: 'global' | 'user';
+        module: string;
+        payload: Record<string, unknown>;
+        user_id?: string;
+        rule_key?: string;
+        priority?: number;
+        enabled?: boolean;
+      };
+      if (!payload?.scope || !payload?.module || !payload?.payload) {
+        sendJson(res, 400, { error: 'invalid_payload' });
         return;
       }
+      STORE.saveRule(payload);
+      sendJson(res, 200, { success: true });
+      return;
+    } catch {
+      sendJson(res, 400, { error: 'invalid_request' });
+      return;
+    }
+  }
 
-      const current = readProfileStore();
-      let token = current.token;
-      if (payload.publicUrl) {
-        try {
-          const parsed = new URL(payload.publicUrl);
-          token = parsed.searchParams.get('token') || token;
-        } catch {
-          // ignore invalid URL and keep previous token
-        }
+  if (url.pathname === RULES_PATH && req.method === 'DELETE') {
+    const id = Number(url.searchParams.get('id'));
+    if (!Number.isFinite(id)) {
+      sendJson(res, 400, { error: 'invalid_id' });
+      return;
+    }
+    STORE.deleteRule(id);
+    sendJson(res, 200, { success: true });
+    return;
+  }
+
+  if (url.pathname === SIMULATE_PATH && req.method === 'POST') {
+    try {
+      const raw = await readBody(req);
+      const payload = JSON.parse(raw) as { target?: string; protocol?: string; port?: number };
+      if (typeof payload.target !== 'string' || !payload.target.trim()) {
+        sendJson(res, 400, { error: 'invalid_target' });
+        return;
       }
-
-      const updated: StoredProfile = {
-        profile,
-        token,
-        lastUpdated: new Date().toLocaleString(),
-      };
-      writeProfileStore(updated);
-      sendJson(res, 200, toUnifiedProfilePayload(req, updated));
+      sendJson(res, 200, STORE.simulateTraffic(payload));
       return;
     } catch {
       sendJson(res, 400, { error: 'invalid_request' });
@@ -211,48 +147,46 @@ const subscriptionHandler = async (req: IncomingMessage, res: ServerResponse, ne
   }
 
   const token = url.searchParams.get('token');
-
   if (!token) {
     sendJson(res, 400, { error: 'missing_token' });
     return;
   }
 
-  const current = readProfileStore();
-  if (token !== current.token) {
+  const profile = STORE.getSubscriptionProfile(token);
+  if (!profile) {
     sendJson(res, 401, { error: 'invalid_token' });
     return;
   }
-
-  sendJson(res, 200, current.profile);
+  sendJson(res, 200, profile);
 };
 
 export default defineConfig(({ mode }) => {
-    const env = loadEnv(mode, '.', '');
-    return {
-      server: {
-        port: 3000,
-        host: '0.0.0.0',
-      },
-      plugins: [
-        react(),
-        {
-          name: 'subscription-api-mock',
-          configureServer(server) {
-            server.middlewares.use(subscriptionHandler);
-          },
-          configurePreviewServer(server) {
-            server.middlewares.use(subscriptionHandler);
-          },
+  const env = loadEnv(mode, '.', '');
+  return {
+    server: {
+      port: 5173,
+      host: '0.0.0.0',
+    },
+    plugins: [
+      react(),
+      {
+        name: 'subscription-api-mock',
+        configureServer(server) {
+          server.middlewares.use(subscriptionHandler);
         },
-      ],
-      define: {
-        'process.env.API_KEY': JSON.stringify(env.GEMINI_API_KEY),
-        'process.env.GEMINI_API_KEY': JSON.stringify(env.GEMINI_API_KEY)
+        configurePreviewServer(server) {
+          server.middlewares.use(subscriptionHandler);
+        },
       },
-      resolve: {
-        alias: {
-          '@': path.resolve(__dirname, '.'),
-        }
-      }
-    };
+    ],
+    define: {
+      'process.env.API_KEY': JSON.stringify(env.GEMINI_API_KEY),
+      'process.env.GEMINI_API_KEY': JSON.stringify(env.GEMINI_API_KEY),
+    },
+    resolve: {
+      alias: {
+        '@': path.resolve(__dirname, '.'),
+      },
+    },
+  };
 });

@@ -1,7 +1,7 @@
 
 export type RuleType = 'exact' | 'suffix' | 'wildcard' | 'regex';
 export type ActionType = 'DIRECT' | 'PROXY' | 'BLOCK';
-export type ProtocolType = 'Shadowsocks' | 'VLESS' | 'VMess' | 'Trojan' | 'Hysteria2' | 'TUIC' | 'WireGuard';
+export type ProtocolType = 'Shadowsocks' | 'VLESS' | 'VMess' | 'Trojan' | 'Hysteria2' | 'TUIC' | 'WireGuard' | 'Direct' | 'Block' | 'DNS' | 'Selector' | 'URLTest';
 export type OutboundType = 'manual' | 'urltest' | 'fallback';
 
 export interface DomainRule {
@@ -29,7 +29,7 @@ export interface ProxyNode {
 
 export interface RoutingRule {
   id: string;
-  matchType: 'domain' | 'ip' | 'geosite' | 'geoip' | 'port' | 'process';
+  matchType: 'domain' | 'ip' | 'geosite' | 'geoip' | 'port' | 'process' | 'rule_set' | 'protocol' | 'action' | 'ip_private';
   matchExpr: string;
   outbound: string;
   enabled: boolean;
@@ -39,10 +39,10 @@ export interface RoutingRule {
 export interface DnsUpstream {
   id: string;
   name: string;
-  type: 'doh' | 'dot' | 'udp';
+  type: 'doh' | 'dot' | 'udp' | 'hosts' | 'local' | 'tls';
   address: string;
   detour?: string;
-  strategy: 'ipv4_only' | 'ipv6_only' | 'prefer_ipv4' | 'prefer_ipv6';
+  strategy: 'ipv4_only' | 'ipv6_only' | 'prefer_ipv4' | 'prefer_ipv6' | 'auto';
   enabled: boolean;
 }
 
@@ -69,6 +69,35 @@ export interface UnifiedProfile {
   publicUrl: string;
   lastUpdated: string;
   size: string;
+}
+
+export interface TrafficSimulationMatch {
+  index: number;
+  summary: string;
+  outbound?: string;
+  action?: string;
+}
+
+export interface TrafficSimulationResult {
+  input: {
+    target: string;
+    protocol: string;
+    port?: number;
+  };
+  normalized: {
+    domain?: string;
+    ip?: string;
+  };
+  dns: {
+    selectedServer: string;
+    matchedRule?: string;
+  };
+  route: {
+    finalOutbound: string;
+    matchedRules: TrafficSimulationMatch[];
+    actions: TrafficSimulationMatch[];
+    usedFinalFallback: boolean;
+  };
 }
 
 // --- User Management Types ---

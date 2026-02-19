@@ -23,6 +23,7 @@ View your app in AI Studio: https://ai.studio/apps/drive/14HCbQHJ721okoEmtAiiUFJ
 
 This repository deploys automatically when code is pushed to the `release` branch.
 
+- Release process doc: `RELEASE.md`
 - Workflow file: `.github/workflows/deploy-release.yml`
 - Server path: `/var/www/sail`
 - Nginx service port: `8091`
@@ -52,7 +53,7 @@ This app supports OIDC Authorization Code + PKCE for Kylith SSO.
 ### Optional runtime env vars
 
 - `VITE_SSO_SCOPE=openid profile email`
-- `VITE_SSO_REDIRECT_URI=https://sail.beforeve.com/`
+- `VITE_SSO_REDIRECT_URI=https://sail.beforeve.com/auth/callback`
 - `VITE_SSO_USERINFO_URL=https://<kylith-sso>/oauth2/userinfo`
 - `VITE_SSO_LOGOUT_URL=https://<kylith-sso>/oauth2/logout`
 
