@@ -3,8 +3,8 @@ import React from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { 
-  ArrowLeft, ArrowUp, ArrowDown, Activity, CheckCircle2, 
-  XCircle, Smartphone, Laptop, Clock, ShieldCheck, Mail, Calendar, AlertTriangle 
+  ArrowLeft, ArrowUp, ArrowDown, Activity,
+  Smartphone, Laptop, Clock, ShieldCheck, Mail, Calendar, AlertTriangle 
 } from 'lucide-react';
 import { mockApi } from '../api';
 import { SectionCard, StatusBadge, LoadingOverlay } from '../components/Common';
@@ -114,40 +114,34 @@ export const UserDetailsPage: React.FC = () => {
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Left Column: Logs & Domains */}
+        {/* Left Column: Proxy Logs */}
         <div className="lg:col-span-2 space-y-6">
-           <SectionCard title="Access Logs Overview" actions={
-              <span className="text-xs font-mono bg-slate-100 px-2 py-1 rounded text-slate-500">Last 24 Hours</span>
+           <SectionCard title="Proxy Access Overview" actions={
+              <span className="text-xs font-mono bg-emerald-50 px-2 py-1 rounded text-emerald-700">Only outboundType = proxy</span>
            }>
-             <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-6">
+             <div className="mb-4 rounded-lg border border-emerald-100 bg-emerald-50/60 px-4 py-3 text-xs text-emerald-800">
+               Metrics in this panel only include connections routed through proxy outbounds.
+             </div>
+
+             <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
                 <div className="p-4 bg-slate-50 rounded-lg">
-                   <p className="text-xs text-slate-500 mb-1">Total Requests</p>
+                   <p className="text-xs text-slate-500 mb-1">Proxy Requests</p>
                    <p className="text-xl font-bold tabular-nums">{user.logs.totalRequests.toLocaleString()}</p>
                 </div>
                 <div className="p-4 bg-slate-50 rounded-lg">
-                   <p className="text-xs text-slate-500 mb-1">Success Rate</p>
-                   <p className={`text-xl font-bold tabular-nums ${user.logs.successRate > 90 ? 'text-emerald-600' : 'text-amber-600'}`}>
-                     {user.logs.successRate}%
-                   </p>
+                   <p className="text-xs text-slate-500 mb-1">Proxy Upload</p>
+                   <p className="text-xl font-bold tabular-nums text-emerald-700">{formatBytes(user.traffic.upload)}</p>
                 </div>
                 <div className="p-4 bg-slate-50 rounded-lg">
-                   <p className="text-xs text-slate-500 mb-1">Allowed</p>
-                   <p className="text-xl font-bold tabular-nums text-emerald-600">
-                     {Math.round(user.logs.totalRequests * (user.logs.successRate / 100)).toLocaleString()}
-                   </p>
-                </div>
-                <div className="p-4 bg-slate-50 rounded-lg">
-                   <p className="text-xs text-slate-500 mb-1">Blocked</p>
-                   <p className="text-xl font-bold tabular-nums text-rose-600">
-                     {Math.round(user.logs.totalRequests * ((100 - user.logs.successRate) / 100)).toLocaleString()}
-                   </p>
+                   <p className="text-xs text-slate-500 mb-1">Proxy Download</p>
+                   <p className="text-xl font-bold tabular-nums text-blue-700">{formatBytes(user.traffic.download)}</p>
                 </div>
              </div>
 
-             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+             <div className="grid grid-cols-1 gap-6">
                <div>
                   <h3 className="text-xs font-bold text-emerald-700 uppercase tracking-wider mb-3 flex items-center">
-                    <CheckCircle2 size={14} className="mr-1.5" /> Top Allowed Domains
+                    <Activity size={14} className="mr-1.5" /> Top Proxied Domains
                   </h3>
                   <div className="bg-white border border-slate-200 rounded-lg overflow-hidden">
                      {user.logs.topAllowed.map((item, idx) => (
@@ -156,22 +150,7 @@ export const UserDetailsPage: React.FC = () => {
                           <span className="text-xs font-mono text-slate-500 bg-slate-100 px-2 py-0.5 rounded-full">{item.count}</span>
                        </div>
                      ))}
-                     {user.logs.topAllowed.length === 0 && <div className="p-6 text-center text-xs text-slate-400">No data available</div>}
-                  </div>
-               </div>
-
-               <div>
-                  <h3 className="text-xs font-bold text-rose-700 uppercase tracking-wider mb-3 flex items-center">
-                    <XCircle size={14} className="mr-1.5" /> Top Blocked/Failed Domains
-                  </h3>
-                  <div className="bg-white border border-slate-200 rounded-lg overflow-hidden">
-                     {user.logs.topBlocked.map((item, idx) => (
-                       <div key={idx} className="flex items-center justify-between px-4 py-3 border-b border-slate-100 last:border-0 hover:bg-slate-50 transition-colors">
-                          <span className="text-sm font-medium text-slate-700">{item.domain}</span>
-                          <span className="text-xs font-mono text-slate-500 bg-slate-100 px-2 py-0.5 rounded-full">{item.count}</span>
-                       </div>
-                     ))}
-                      {user.logs.topBlocked.length === 0 && <div className="p-6 text-center text-xs text-slate-400">No data available</div>}
+                     {user.logs.topAllowed.length === 0 && <div className="p-6 text-center text-xs text-slate-400">No proxy domain data yet</div>}
                   </div>
                </div>
              </div>
