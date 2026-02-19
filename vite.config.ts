@@ -102,10 +102,37 @@ type AuthInfo = { sub: string };
 
 const TOKEN_SUB_CACHE_TTL_MS = 5 * 60 * 1000;
 const tokenSubCache = new Map<string, { sub: string; expiresAt: number }>();
-const USERINFO_URL =
-  process.env.SAIL_OIDC_USERINFO_URL ||
-  process.env.VITE_SSO_USERINFO_URL ||
-  'https://auth0.kylith.com/oauth2/userinfo';
+const DEFAULT_USERINFO_URLS = [
+  'https://auth0.kylith.com/oauth2/userinfo',
+  'https://id.kylith.com/oauth2/userinfo',
+];
+const ENV_USERINFO_URLS = (process.env.SAIL_OIDC_USERINFO_URLS || process.env.SAIL_OIDC_USERINFO_URL || process.env.VITE_SSO_USERINFO_URL || '')
+  .split(',')
+  .map((item) => item.trim())
+  .filter(Boolean);
+
+const parseJwtPayload = (token: string): Record<string, unknown> | null => {
+  const parts = token.split('.');
+  if (parts.length < 2) return null;
+  try {
+    const payloadBase64 = parts[1].replace(/-/g, '+').replace(/_/g, '/');
+    const padded = payloadBase64.padEnd(Math.ceil(payloadBase64.length / 4) * 4, '=');
+    return JSON.parse(Buffer.from(padded, 'base64').toString('utf8')) as Record<string, unknown>;
+  } catch {
+    return null;
+  }
+};
+
+const buildUserInfoCandidates = (accessToken: string): string[] => {
+  const candidates = [...ENV_USERINFO_URLS, ...DEFAULT_USERINFO_URLS];
+  const payload = parseJwtPayload(accessToken);
+  const issuer = typeof payload?.iss === 'string' ? payload.iss.trim() : '';
+  if (issuer) {
+    const normalizedIssuer = issuer.replace(/\/+$/, '');
+    candidates.unshift(`${normalizedIssuer}/userinfo`, `${normalizedIssuer}/oauth2/userinfo`);
+  }
+  return Array.from(new Set(candidates));
+};
 
 const extractBearerToken = (req: IncomingMessage): string | null => {
   const raw = req.headers.authorization;
@@ -121,19 +148,27 @@ const fetchAuthInfo = async (accessToken: string): Promise<AuthInfo | null> => {
   if (cached && cached.expiresAt > Date.now()) {
     return { sub: cached.sub };
   }
-  const response = await fetch(USERINFO_URL, {
-    method: 'GET',
-    headers: {
-      Accept: 'application/json',
-      Authorization: `Bearer ${accessToken}`,
-    },
-  });
-  if (!response.ok) return null;
-  const payload = (await response.json()) as { sub?: string };
-  const sub = typeof payload.sub === 'string' ? payload.sub.trim() : '';
-  if (!sub) return null;
-  tokenSubCache.set(accessToken, { sub, expiresAt: Date.now() + TOKEN_SUB_CACHE_TTL_MS });
-  return { sub };
+  const candidates = buildUserInfoCandidates(accessToken);
+  for (const userInfoURL of candidates) {
+    try {
+      const response = await fetch(userInfoURL, {
+        method: 'GET',
+        headers: {
+          Accept: 'application/json',
+          Authorization: `Bearer ${accessToken}`,
+        },
+      });
+      if (!response.ok) continue;
+      const payload = (await response.json()) as { sub?: string };
+      const sub = typeof payload.sub === 'string' ? payload.sub.trim() : '';
+      if (!sub) continue;
+      tokenSubCache.set(accessToken, { sub, expiresAt: Date.now() + TOKEN_SUB_CACHE_TTL_MS });
+      return { sub };
+    } catch {
+      continue;
+    }
+  }
+  return null;
 };
 
 const measureTcpLatency = (host: string, port: number, timeoutMs: number): Promise<number | null> =>
