@@ -76,7 +76,7 @@ export const AppShell: React.FC<{ children: React.ReactNode }> = ({ children }) 
           {/* Sidebar */}
           <aside
             className={`
-            fixed inset-y-0 left-0 z-50 w-64 bg-white border-r border-slate-200 transition-transform duration-200 ease-in-out md:relative md:translate-x-0
+            fixed inset-y-0 left-0 z-50 w-64 bg-white border-r border-slate-200 transition-transform duration-200 ease-in-out md:relative md:translate-x-0 relative overflow-hidden
             ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full'}
           `}
           >
@@ -110,8 +110,21 @@ export const AppShell: React.FC<{ children: React.ReactNode }> = ({ children }) 
               })}
             </nav>
 
-            <div className="p-4 border-t border-slate-100 text-[10px] text-slate-400 font-mono text-center">
-              Harbor Console for Sail
+            <div className="h-14 border-t border-slate-100" />
+
+            <div className="pointer-events-none absolute bottom-2 left-2 text-slate-300/35">
+              <svg viewBox="0 0 96 96" className="h-24 w-24 fill-none stroke-current" aria-hidden="true">
+                <path d="M34 86h28" strokeWidth="3" strokeLinecap="round" />
+                <path d="M40 86l5-38h6l5 38" strokeWidth="3" strokeLinejoin="round" />
+                <path d="M41 48h14l-2-8h-10z" strokeWidth="3" strokeLinejoin="round" />
+                <path d="M42 40h12v-8H42z" strokeWidth="3" strokeLinejoin="round" />
+                <path d="M48 32v-8" strokeWidth="3" strokeLinecap="round" />
+                <path d="M48 18l4 2-4 2-4-2z" strokeWidth="3" strokeLinejoin="round" />
+                <path d="M58 34l10-4" strokeWidth="3" strokeLinecap="round" />
+                <path d="M38 34l-10-4" strokeWidth="3" strokeLinecap="round" />
+                <path d="M60 42l14-2" strokeWidth="3" strokeLinecap="round" />
+                <path d="M36 42l-14-2" strokeWidth="3" strokeLinecap="round" />
+              </svg>
             </div>
           </aside>
         </>
