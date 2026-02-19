@@ -213,40 +213,6 @@ export const UnifiedProfilePage: React.FC = () => {
           <h1 className="text-2xl font-bold tracking-tight text-balance">Unified Profile</h1>
           <p className="text-slate-500 text-pretty">Edit the core JSON configuration directly and access it remotely.</p>
         </div>
-        <div className="flex items-center gap-2">
-          {isDirty && (
-            <span className="text-xs font-bold text-amber-600 bg-amber-50 px-3 py-1.5 rounded-full animate-pulse mr-2">
-              Unsaved Changes
-            </span>
-          )}
-          <button 
-            onClick={() => setJsonContent(profile?.content || '')}
-            disabled={!isDirty || saveMutation.isPending}
-            className="p-2.5 text-slate-500 bg-white border border-slate-200 rounded-lg hover:bg-slate-50 disabled:opacity-50 transition-all"
-            title="Revert changes"
-          >
-            <RotateCcw size={18} />
-          </button>
-          <button 
-            onClick={handleFormat}
-            className="p-2.5 text-blue-600 bg-white border border-blue-200 rounded-lg hover:bg-blue-50 transition-all"
-            title="Format JSON"
-          >
-            <Braces size={18} />
-          </button>
-          <button 
-            onClick={handleSave}
-            disabled={!!error || !isDirty || saveMutation.isPending}
-            className="inline-flex items-center px-5 py-2.5 bg-slate-900 text-white text-sm font-semibold rounded-lg hover:bg-slate-800 disabled:opacity-50 disabled:cursor-not-allowed transition-all shadow-lg shadow-slate-900/10"
-          >
-            {saveMutation.isPending ? (
-              <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin mr-2"></span>
-            ) : (
-              <Save size={18} className="mr-2" />
-            )}
-            Save Profile
-          </button>
-        </div>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 h-[calc(100vh-14rem)] min-h-[500px]">
@@ -326,6 +292,45 @@ export const UnifiedProfilePage: React.FC = () => {
             className="space-y-6 max-h-[calc(100vh-7rem)] overflow-y-auto pr-1"
             style={fixedPanelStyle}
           >
+          <SectionCard title="Actions">
+            <div className="space-y-3">
+              {isDirty ? (
+                <div className="text-xs font-bold text-amber-600 bg-amber-50 px-3 py-1.5 rounded-full inline-flex">
+                  Unsaved Changes
+                </div>
+              ) : null}
+              <div className="grid grid-cols-1 gap-2">
+                <button
+                  onClick={() => setJsonContent(profile?.content || '')}
+                  disabled={!isDirty || saveMutation.isPending}
+                  className="inline-flex items-center justify-center gap-2 px-4 py-2.5 text-slate-700 bg-white border border-slate-200 rounded-lg hover:bg-slate-50 disabled:opacity-50 transition-all"
+                >
+                  <RotateCcw size={16} />
+                  Refresh
+                </button>
+                <button
+                  onClick={handleFormat}
+                  className="inline-flex items-center justify-center gap-2 px-4 py-2.5 text-blue-700 bg-white border border-blue-200 rounded-lg hover:bg-blue-50 transition-all"
+                >
+                  <Braces size={16} />
+                  Format
+                </button>
+                <button
+                  onClick={handleSave}
+                  disabled={!!error || !isDirty || saveMutation.isPending}
+                  className="inline-flex items-center justify-center gap-2 px-4 py-2.5 bg-slate-900 text-white text-sm font-semibold rounded-lg hover:bg-slate-800 disabled:opacity-50 disabled:cursor-not-allowed transition-all shadow-lg shadow-slate-900/10"
+                >
+                  {saveMutation.isPending ? (
+                    <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin"></span>
+                  ) : (
+                    <Save size={16} />
+                  )}
+                  Save
+                </button>
+              </div>
+            </div>
+          </SectionCard>
+
           <SectionCard title="Remote Access" description="Use this URL to subscribe to this profile in your clients.">
              <div className="space-y-4">
                <div className="p-4 bg-slate-50 border border-slate-200 rounded-xl group relative">
