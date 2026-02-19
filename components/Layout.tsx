@@ -69,6 +69,11 @@ export const AppShell: React.FC<{ children: React.ReactNode }> = ({ children }) 
     .slice(0, 2)
     .map((part) => part[0]?.toUpperCase() || '')
     .join('') || 'KU';
+  const appVersion = process.env.APP_VERSION || '0.0.0';
+  const buildTimeRaw = process.env.BUILD_TIME;
+  const buildTime = buildTimeRaw
+    ? new Date(buildTimeRaw).toLocaleString()
+    : '--';
 
   return (
     <div className="flex h-dvh w-full overflow-hidden bg-slate-50">
@@ -210,9 +215,16 @@ export const AppShell: React.FC<{ children: React.ReactNode }> = ({ children }) 
         </header>
 
         <main className="flex-1 overflow-y-auto p-6 relative">
-          <div className="max-w-7xl mx-auto space-y-6 pb-20">
+          <div className="max-w-7xl mx-auto space-y-6 pb-10">
             {children}
           </div>
+          <footer className="max-w-7xl mx-auto pt-6 pb-4 text-[11px] text-slate-400 border-t border-slate-100 mt-4">
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+              <span>© {new Date().getFullYear()} Beforeve. All rights reserved.</span>
+              <span>Version v{appVersion}</span>
+              <span>Last updated {buildTime}</span>
+            </div>
+          </footer>
         </main>
       </div>
       
