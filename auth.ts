@@ -33,6 +33,7 @@ type OidcConfig = {
   userInfoUrl?: string;
   logoutUrl?: string;
   redirectUri: string;
+  postLogoutRedirectUri: string;
 };
 
 const trim = (v: string | undefined) => (v ?? '').trim();
@@ -48,6 +49,8 @@ export const oidcConfig: OidcConfig = {
   userInfoUrl: trim(import.meta.env.VITE_SSO_USERINFO_URL) || undefined,
   logoutUrl: trim(import.meta.env.VITE_SSO_LOGOUT_URL) || undefined,
   redirectUri: trim(import.meta.env.VITE_SSO_REDIRECT_URI) || redirectUriDefault(),
+  postLogoutRedirectUri:
+    trim(import.meta.env.VITE_SSO_POST_LOGOUT_REDIRECT_URI) || window.location.origin,
 };
 
 export const isSsoConfigured = () =>
@@ -267,7 +270,8 @@ export const logout = () => {
   clearSession();
   if (!oidcConfig.logoutUrl) return;
   const url = new URL(oidcConfig.logoutUrl);
-  url.searchParams.set('post_logout_redirect_uri', oidcConfig.redirectUri);
+  url.searchParams.set('post_logout_redirect_uri', oidcConfig.postLogoutRedirectUri);
+  url.searchParams.set('client_id', oidcConfig.clientId);
   if (idToken) {
     url.searchParams.set('id_token_hint', idToken);
   }

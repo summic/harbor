@@ -56,5 +56,6 @@ This app supports OIDC Authorization Code + PKCE for Kylith SSO.
 - `VITE_SSO_REDIRECT_URI=https://harbor.beforeve.com/auth/callback`
 - `VITE_SSO_USERINFO_URL=https://<kylith-sso>/oauth2/userinfo`
 - `VITE_SSO_LOGOUT_URL=https://<kylith-sso>/oauth2/logout`
+- `VITE_SSO_POST_LOGOUT_REDIRECT_URI=https://harbor.beforeve.com/`
 
 If `VITE_SSO_ENABLED=false`, app login is bypassed.

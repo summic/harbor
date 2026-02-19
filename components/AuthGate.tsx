@@ -1,6 +1,7 @@
 import React from 'react';
 import { Anchor } from 'lucide-react';
 import { useAuth } from '../auth-context';
+import { buildInfo } from '../utils/build-info';
 
 export const AuthGate: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const auth = useAuth();
@@ -41,7 +42,7 @@ export const AuthGate: React.FC<{ children: React.ReactNode }> = ({ children }) 
 
   if (!auth.isAuthenticated) {
     return (
-      <div className="min-h-dvh bg-slate-50 flex items-center justify-center p-6">
+      <div className="min-h-dvh bg-slate-50 flex flex-col items-center justify-center p-6">
         <div className="w-full max-w-md bg-white border border-slate-200 rounded-2xl shadow-sm p-8 text-center">
           <Anchor className="h-10 w-10 text-blue-600 mx-auto mb-3" />
           <h1 className="text-xl font-semibold text-slate-900">Sign in to Harbor</h1>
@@ -56,6 +57,13 @@ export const AuthGate: React.FC<{ children: React.ReactNode }> = ({ children }) 
             Continue
           </button>
         </div>
+        <footer className="mt-5 text-[11px] text-slate-400">
+          <div className="flex flex-wrap items-center justify-center gap-x-3 gap-y-1">
+            <span>{buildInfo.copyrightText}</span>
+            <span>Version v{buildInfo.appVersion}</span>
+            <span>Last updated {buildInfo.buildTimeText}</span>
+          </div>
+        </footer>
       </div>
     );
   }

@@ -20,6 +20,7 @@ import {
 } from 'lucide-react';
 import { useAppStore } from '../store';
 import { useAuth } from '../auth-context';
+import { buildInfo } from '../utils/build-info';
 
 const navItems = [
   { path: '/', label: 'Dashboard', icon: LayoutDashboard },
@@ -69,12 +70,6 @@ export const AppShell: React.FC<{ children: React.ReactNode }> = ({ children }) 
     .slice(0, 2)
     .map((part) => part[0]?.toUpperCase() || '')
     .join('') || 'KU';
-  const appVersion = process.env.APP_VERSION || '0.0.0';
-  const buildTimeRaw = process.env.BUILD_TIME;
-  const buildTime = buildTimeRaw
-    ? new Date(buildTimeRaw).toLocaleString()
-    : '--';
-
   return (
     <div className="flex h-dvh w-full overflow-hidden bg-slate-50">
       {isAdmin ? (
@@ -220,9 +215,9 @@ export const AppShell: React.FC<{ children: React.ReactNode }> = ({ children }) 
           </div>
           <footer className="max-w-7xl mx-auto pt-6 pb-4 text-[11px] text-slate-400 border-t border-slate-100 mt-4">
             <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-              <span>© {new Date().getFullYear()} Beforeve. All rights reserved.</span>
-              <span>Version v{appVersion}</span>
-              <span>Last updated {buildTime}</span>
+              <span>{buildInfo.copyrightText}</span>
+              <span>Version v{buildInfo.appVersion}</span>
+              <span>Last updated {buildInfo.buildTimeText}</span>
             </div>
           </footer>
         </main>
