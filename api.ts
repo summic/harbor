@@ -1,5 +1,5 @@
 
-import { DomainRule, ProxyNode, RoutingRule, DnsUpstream, HostsEntry, ConfigVersion, UnifiedProfile, User } from './types';
+import { DomainRule, ProxyNode, RoutingRule, DnsUpstream, HostsEntry, ConfigVersion, UnifiedProfile, User, ProtocolType } from './types';
 import { QualityObservability, normalizeObservabilityResponse } from './utils/quality';
 import { loadSession } from './auth';
 
@@ -31,6 +31,75 @@ const fetchJson = async <T>(path: string, init?: RequestInit): Promise<T> => {
     throw new Error(message || `Request failed with ${response.status}`);
   }
   return response.json() as Promise<T>;
+};
+
+type JsonObject = Record<string, any>;
+
+const parseJsonObject = (content: string): JsonObject => {
+  try {
+    const parsed = JSON.parse(content);
+    if (parsed && typeof parsed === 'object') {
+      return parsed as JsonObject;
+    }
+  } catch {
+    // no-op
+  }
+  return {};
+};
+
+const outboundToAction = (outbound?: string): DomainRule['action'] => {
+  const v = (outbound ?? '').toLowerCase();
+  if (v === 'direct') return 'DIRECT';
+  if (v === 'block' || v === 'reject') return 'BLOCK';
+  return 'PROXY';
+};
+
+const normalizeProtocol = (raw?: string): ProtocolType => {
+  const v = (raw ?? '').toLowerCase();
+  switch (v) {
+    case 'shadowsocks':
+      return 'Shadowsocks';
+    case 'vless':
+      return 'VLESS';
+    case 'vmess':
+      return 'VMess';
+    case 'trojan':
+      return 'Trojan';
+    case 'hysteria2':
+      return 'Hysteria2';
+    case 'tuic':
+      return 'TUIC';
+    case 'wireguard':
+      return 'WireGuard';
+    case 'selector':
+      return 'Selector';
+    case 'urltest':
+      return 'URLTest';
+    case 'direct':
+      return 'Direct';
+    case 'block':
+      return 'Block';
+    case 'dns':
+      return 'DNS';
+    default:
+      return 'Shadowsocks';
+  }
+};
+
+const normalizeDnsType = (server: JsonObject): DnsUpstream['type'] => {
+  const type = String(server.type ?? '').toLowerCase();
+  if (type === 'tls') return 'dot';
+  if (type === 'https' || type === 'h3') return 'doh';
+  if (type === 'local') return 'local';
+  if (type === 'hosts') return 'hosts';
+  return 'udp';
+};
+
+const stringifyExpr = (rule: JsonObject, key: string): string | null => {
+  const value = rule[key];
+  if (Array.isArray(value)) return value.join(', ');
+  if (typeof value === 'string') return value;
+  return null;
 };
 
 
@@ -105,6 +174,200 @@ let mockProfileData: UnifiedProfile = {
   publicUrl: resolveSubscriptionUrl(),
   lastUpdated: "2023-10-27 15:30:00",
   size: "2.4 KB"
+};
+
+const refreshUnifiedProfile = async (): Promise<UnifiedProfile> => {
+  try {
+    const remote = await fetchJson<UnifiedProfile>('/api/v1/client/profile');
+    mockProfileData = { ...remote };
+    return { ...remote };
+  } catch {
+    return { ...mockProfileData };
+  }
+};
+
+const loadConfig = async (): Promise<JsonObject> => {
+  const profile = await refreshUnifiedProfile();
+  return parseJsonObject(profile.content);
+};
+
+const collectRouteSetOutbounds = (config: JsonObject): Map<string, string> => {
+  const outbounds = new Map<string, string>();
+  const rules = Array.isArray(config.route?.rules) ? config.route.rules : [];
+  for (const rule of rules) {
+    const sets = Array.isArray(rule?.rule_set) ? rule.rule_set : [];
+    for (const tag of sets) {
+      if (typeof tag === 'string' && typeof rule?.outbound === 'string') {
+        outbounds.set(tag, rule.outbound);
+      }
+    }
+  }
+  return outbounds;
+};
+
+const toDomainRules = (config: JsonObject): DomainRule[] => {
+  const result: DomainRule[] = [];
+  const routeSetOutbounds = collectRouteSetOutbounds(config);
+  const ruleSets = Array.isArray(config.route?.rule_set) ? config.route.rule_set : [];
+
+  let order = 0;
+  for (const set of ruleSets) {
+    if (set?.type !== 'inline' || !Array.isArray(set?.rules)) continue;
+    const group = String(set?.tag ?? 'inline-rule-set');
+    const action = outboundToAction(routeSetOutbounds.get(group));
+
+    for (const rule of set.rules) {
+      const mappings: Array<{ key: string; type: DomainRule['type'] }> = [
+        { key: 'domain', type: 'exact' },
+        { key: 'domain_suffix', type: 'suffix' },
+        { key: 'domain_keyword', type: 'wildcard' },
+        { key: 'domain_regex', type: 'regex' },
+      ];
+      for (const mapping of mappings) {
+        const value = rule?.[mapping.key];
+        const values = Array.isArray(value) ? value : typeof value === 'string' ? [value] : [];
+        for (const item of values) {
+          if (typeof item !== 'string' || !item.trim()) continue;
+          order += 1;
+          result.push({
+            id: `domain-set-${group}-${order}`,
+            type: mapping.type,
+            value: item,
+            group,
+            action,
+            priority: 10000 - order,
+            enabled: true,
+          });
+        }
+      }
+    }
+  }
+
+  return result;
+};
+
+const toProxyNodes = (config: JsonObject): ProxyNode[] => {
+  const outbounds = Array.isArray(config.outbounds) ? config.outbounds : [];
+  let id = 0;
+  return outbounds
+    .filter((item) =>
+      typeof item?.tag === 'string' &&
+      typeof item?.server === 'string' &&
+      Number.isFinite(item?.server_port),
+    )
+    .map((item) => {
+      id += 1;
+      const server = String(item.server);
+      const port = Number(item.server_port);
+      return {
+        id: `proxy-${id}`,
+        name: String(item.tag),
+        protocol: normalizeProtocol(item.type),
+        address: server,
+        port,
+        tags: [String(item.type ?? 'unknown').toUpperCase()],
+        enabled: true,
+      } as ProxyNode;
+    });
+};
+
+const toRoutingRules = (config: JsonObject): RoutingRule[] => {
+  const rules = Array.isArray(config.route?.rules) ? config.route.rules : [];
+  return rules.map((rule, index) => {
+    let matchType: RoutingRule['matchType'] = 'action';
+    let matchExpr = 'default';
+
+    const candidates: Array<{ key: string; type: RoutingRule['matchType'] }> = [
+      { key: 'rule_set', type: 'rule_set' },
+      { key: 'domain', type: 'domain' },
+      { key: 'domain_suffix', type: 'domain' },
+      { key: 'ip_cidr', type: 'ip' },
+      { key: 'geosite', type: 'geosite' },
+      { key: 'geoip', type: 'geoip' },
+      { key: 'protocol', type: 'protocol' },
+    ];
+
+    for (const candidate of candidates) {
+      const expr = stringifyExpr(rule, candidate.key);
+      if (expr) {
+        matchType = candidate.type;
+        matchExpr = `${candidate.key}: ${expr}`;
+        break;
+      }
+    }
+
+    if (rule?.ip_is_private === true) {
+      matchType = 'ip_private';
+      matchExpr = 'ip_is_private=true';
+    }
+
+    const outbound = String(rule?.outbound ?? rule?.action ?? config.route?.final ?? '-');
+    return {
+      id: `route-${index + 1}`,
+      matchType,
+      matchExpr,
+      outbound,
+      enabled: true,
+      priority: index + 1,
+    };
+  });
+};
+
+const toDnsServers = (config: JsonObject): DnsUpstream[] => {
+  const dns = config.dns ?? {};
+  const servers = Array.isArray(dns.servers) ? dns.servers : [];
+  return servers.map((server, index) => {
+    const normalizedType = normalizeDnsType(server);
+    const name = String(server?.tag ?? `dns-${index + 1}`);
+    let address = 'system';
+    if (normalizedType === 'hosts') {
+      const count = server?.predefined && typeof server.predefined === 'object'
+        ? Object.keys(server.predefined).length
+        : 0;
+      address = `${count} host records`;
+    } else if (typeof server?.address === 'string') {
+      address = server.address;
+    } else if (typeof server?.server === 'string') {
+      const port = Number.isFinite(server?.server_port) ? `:${server.server_port}` : '';
+      address = `${server.server}${port}`;
+    }
+
+    return {
+      id: `dns-${index + 1}`,
+      name,
+      type: normalizedType,
+      address,
+      detour: typeof server?.detour === 'string' ? server.detour : undefined,
+      strategy: (dns.strategy as DnsUpstream['strategy']) || 'auto',
+      enabled: true,
+    };
+  });
+};
+
+const toHostsEntries = (config: JsonObject): HostsEntry[] => {
+  const dns = config.dns ?? {};
+  const servers = Array.isArray(dns.servers) ? dns.servers : [];
+  const result: HostsEntry[] = [];
+  let id = 0;
+
+  for (const server of servers) {
+    if (String(server?.type ?? '').toLowerCase() !== 'hosts') continue;
+    const predefined = server?.predefined && typeof server.predefined === 'object'
+      ? server.predefined
+      : {};
+    for (const [hostname, ip] of Object.entries(predefined)) {
+      id += 1;
+      result.push({
+        id: `host-${id}`,
+        hostname,
+        ip: String(ip),
+        group: String(server?.tag ?? 'hosts'),
+        enabled: true,
+      });
+    }
+  }
+
+  return result;
 };
 
 const mockQualityObservabilityPayload = {
@@ -220,46 +483,33 @@ const mockUsers: User[] = [
 
 export const mockApi = {
   getDomains: async (): Promise<DomainRule[]> => {
-    await sleep(500);
-    return [
-      { id: '1', type: 'suffix', value: 'google.com', group: 'G-Services', action: 'PROXY', priority: 10, enabled: true, note: 'Primary search' },
-      { id: '2', type: 'exact', value: 'baidu.com', group: 'CN', action: 'DIRECT', priority: 5, enabled: true },
-      { id: '3', type: 'regex', value: '.*\\.ads\\.com', group: 'Adblock', action: 'BLOCK', priority: 100, enabled: true },
-    ];
+    await sleep(200);
+    const config = await loadConfig();
+    return toDomainRules(config);
   },
 
   getProxies: async (): Promise<ProxyNode[]> => {
-    await sleep(600);
-    return [
-      { id: 'p1', name: 'HK-Azure-01', protocol: 'VLESS', address: 'hk1.node.com', port: 443, tags: ['High Speed', 'HK'], latency: 45, lastChecked: '2 min ago', enabled: true },
-      { id: 'p2', name: 'US-GCP-05', protocol: 'Shadowsocks', address: 'us5.node.com', port: 8388, tags: ['US'], latency: 160, lastChecked: '5 min ago', enabled: true },
-      { id: 'p3', name: 'JP-AWS-02', protocol: 'Trojan', address: 'jp2.node.com', port: 443, tags: ['Gaming'], latency: 32, lastChecked: '1 min ago', enabled: false },
-    ];
+    await sleep(220);
+    const config = await loadConfig();
+    return toProxyNodes(config);
   },
 
   getRouting: async (): Promise<RoutingRule[]> => {
-    await sleep(400);
-    return [
-      { id: 'r1', matchType: 'geosite', matchExpr: 'category-ads-all', outbound: 'block', enabled: true, priority: 1 },
-      { id: 'r2', matchType: 'geosite', matchExpr: 'google', outbound: 'ProxyGroup', enabled: true, priority: 10 },
-      { id: 'r3', matchType: 'geoip', matchExpr: 'cn', outbound: 'direct', enabled: true, priority: 20 },
-    ];
+    await sleep(180);
+    const config = await loadConfig();
+    return toRoutingRules(config);
   },
 
   getDns: async (): Promise<DnsUpstream[]> => {
-    await sleep(300);
-    return [
-      { id: 'd1', name: 'Google DNS', type: 'doh', address: 'https://8.8.8.8/dns-query', strategy: 'prefer_ipv4', enabled: true },
-      { id: 'd2', name: 'Cloudflare', type: 'dot', address: '1.1.1.1', detour: 'ProxyGroup', strategy: 'prefer_ipv4', enabled: true },
-    ];
+    await sleep(180);
+    const config = await loadConfig();
+    return toDnsServers(config);
   },
 
   getHosts: async (): Promise<HostsEntry[]> => {
-    await sleep(300);
-    return [
-      { id: 'h1', hostname: 'my-nas.local', ip: '192.168.1.100', group: 'Local', enabled: true, note: 'Home Server' },
-      { id: 'h2', hostname: 'test.dev', ip: '127.0.0.1', group: 'Dev', enabled: true },
-    ];
+    await sleep(180);
+    const config = await loadConfig();
+    return toHostsEntries(config);
   },
 
   getVersions: async (): Promise<ConfigVersion[]> => {
@@ -272,13 +522,7 @@ export const mockApi = {
 
   getUnifiedProfile: async (): Promise<UnifiedProfile> => {
     await sleep(200);
-    try {
-      const remote = await fetchJson<UnifiedProfile>('/api/v1/client/profile');
-      mockProfileData = { ...remote };
-      return remote;
-    } catch {
-      return { ...mockProfileData };
-    }
+    return refreshUnifiedProfile();
   },
 
   saveUnifiedProfile: async (payload: { content: string; publicUrl?: string }): Promise<UnifiedProfile> => {

@@ -8,6 +8,12 @@ import { SectionCard, Skeleton, StatusBadge, LoadingOverlay } from '../component
 
 export const ProxiesPage: React.FC = () => {
   const { data: proxies, isLoading } = useQuery({ queryKey: ['proxies'], queryFn: mockApi.getProxies });
+  const totalNodes = proxies?.length ?? 0;
+  const activeNodes = proxies?.filter((item) => item.enabled).length ?? 0;
+  const latencyValues = (proxies ?? []).map((item) => item.latency).filter((v): v is number => typeof v === 'number');
+  const avgLatency = latencyValues.length
+    ? `${Math.round(latencyValues.reduce((sum, v) => sum + v, 0) / latencyValues.length)}ms`
+    : '--';
 
   return (
     <div className="space-y-6">
@@ -127,15 +133,15 @@ export const ProxiesPage: React.FC = () => {
             <div className="space-y-4">
               <div className="flex items-center justify-between">
                 <span className="text-xs text-slate-500">Total Nodes</span>
-                <span className="text-sm font-semibold tabular-nums">24</span>
+                <span className="text-sm font-semibold tabular-nums">{totalNodes}</span>
               </div>
               <div className="flex items-center justify-between">
                 <span className="text-xs text-slate-500">Active Nodes</span>
-                <span className="text-sm font-semibold text-emerald-600 tabular-nums">18</span>
+                <span className="text-sm font-semibold text-emerald-600 tabular-nums">{activeNodes}</span>
               </div>
               <div className="flex items-center justify-between">
                 <span className="text-xs text-slate-500">Avg Latency</span>
-                <span className="text-sm font-semibold tabular-nums">112ms</span>
+                <span className="text-sm font-semibold tabular-nums">{avgLatency}</span>
               </div>
             </div>
           </SectionCard>
