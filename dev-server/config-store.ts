@@ -1,6 +1,27 @@
 import fs from 'fs';
 import path from 'path';
-import { DatabaseSync } from 'node:sqlite';
+import { createRequire } from 'module';
+
+const require = createRequire(import.meta.url);
+
+type CompatibleDb = {
+  exec: (sql: string) => void;
+  prepare: (sql: string) => {
+    run: (...args: any[]) => any;
+    get: (...args: any[]) => any;
+    all: (...args: any[]) => any[];
+  };
+};
+
+const createDatabase = (dbPath: string): CompatibleDb => {
+  try {
+    const sqlite = require('node:sqlite') as { DatabaseSync: new (path: string) => CompatibleDb };
+    return new sqlite.DatabaseSync(dbPath);
+  } catch {
+    const BetterSqlite = require('better-sqlite3') as new (path: string) => CompatibleDb;
+    return new BetterSqlite(dbPath);
+  }
+};
 
 export const DEFAULT_SUBSCRIPTION_TOKEN = 'u1-alice-7f8a9d2b';
 const DEFAULT_USER_ID = 'u1';
@@ -38,7 +59,7 @@ export type SimulationInput = {
 };
 
 export class ConfigStore {
-  private db: DatabaseSync;
+  private db: CompatibleDb;
   private readonly storePath: string;
   private readonly dbPath: string;
 
@@ -46,7 +67,7 @@ export class ConfigStore {
     this.storePath = opts.legacyProfilePath;
     this.dbPath = opts.dbPath;
     fs.mkdirSync(path.dirname(this.dbPath), { recursive: true });
-    this.db = new DatabaseSync(this.dbPath);
+    this.db = createDatabase(this.dbPath);
     this.initSchema();
     this.seedIfNeeded(opts.seedProfile);
   }
