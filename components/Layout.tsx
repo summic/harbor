@@ -125,8 +125,14 @@ export const AppShell: React.FC<{ children: React.ReactNode }> = ({ children }) 
                 <path d="M60 42l14-2" strokeWidth="3" strokeLinecap="round" />
                 <path d="M36 42l-14-2" strokeWidth="3" strokeLinecap="round" />
               </svg>
-              <div className="absolute bottom-3 left-24 text-[11px] tracking-[0.25em] text-slate-300/45 select-none">
-                Sail
+              <div className="absolute bottom-3 left-24 text-slate-300/45">
+                <svg viewBox="0 0 64 24" className="h-5 w-14 fill-none stroke-current" aria-hidden="true">
+                  <path d="M2 19h60" strokeWidth="1.5" strokeLinecap="round" className="stroke-slate-300/35" />
+                  <path d="M24 18h16l-2 3H26z" strokeWidth="1.4" strokeLinejoin="round" />
+                  <path d="M30 18V9" strokeWidth="1.4" strokeLinecap="round" />
+                  <path d="M30 10l8 5h-8z" strokeWidth="1.2" strokeLinejoin="round" className="fill-slate-300/20" />
+                  <path d="M30 11l-5 4h5z" strokeWidth="1.2" strokeLinejoin="round" className="fill-slate-300/15" />
+                </svg>
               </div>
             </div>
           </aside>
