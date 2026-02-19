@@ -175,8 +175,27 @@ export const handleAuthCallbackIfPresent = async (): Promise<Nullable<AuthSessio
   });
 
   if (!tokenRes.ok) {
+    let detail = '';
+    try {
+      const payload = (await tokenRes.json()) as {
+        error?: string;
+        error_description?: string;
+        message?: string;
+      };
+      detail = payload.error_description || payload.error || payload.message || '';
+    } catch {
+      try {
+        detail = await tokenRes.text();
+      } catch {
+        detail = '';
+      }
+    }
     cleanupAuthQuery();
-    throw new Error(`Token exchange failed (${tokenRes.status})`);
+    throw new Error(
+      detail
+        ? `Token exchange failed (${tokenRes.status}): ${detail}`
+        : `Token exchange failed (${tokenRes.status})`,
+    );
   }
 
   const tokenPayload = (await tokenRes.json()) as {
