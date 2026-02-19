@@ -33,3 +33,23 @@ This repository deploys automatically when code is pushed to the `release` branc
 - `SAIL_HOST` (example: `129.226.191.81`)
 - `SAIL_USER` (example: `ubuntu`)
 - `SAIL_SSH_PRIVATE_KEY` (private key content for SSH login)
+
+## Kylith SSO
+
+This app supports OIDC Authorization Code + PKCE for Kylith SSO.
+
+### Required runtime env vars
+
+- `VITE_SSO_ENABLED=true`
+- `VITE_SSO_CLIENT_ID=<kylith_client_id>`
+- `VITE_SSO_AUTHORIZE_URL=https://<kylith-sso>/oauth2/authorize`
+- `VITE_SSO_TOKEN_URL=https://<kylith-sso>/oauth2/token`
+
+### Optional runtime env vars
+
+- `VITE_SSO_SCOPE=openid profile email`
+- `VITE_SSO_REDIRECT_URI=https://sail.beforeve.com/`
+- `VITE_SSO_USERINFO_URL=https://<kylith-sso>/oauth2/userinfo`
+- `VITE_SSO_LOGOUT_URL=https://<kylith-sso>/oauth2/logout`
+
+If `VITE_SSO_ENABLED=false`, app login is bypassed.

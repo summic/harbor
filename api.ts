@@ -1,6 +1,7 @@
 
 import { DomainRule, ProxyNode, RoutingRule, DnsUpstream, HostsEntry, ConfigVersion, UnifiedProfile, User } from './types';
 import { QualityObservability, normalizeObservabilityResponse } from './utils/quality';
+import { loadSession } from './auth';
 
 const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
@@ -16,8 +17,13 @@ const resolveSubscriptionUrl = () => {
 };
 
 const fetchJson = async <T>(path: string, init?: RequestInit): Promise<T> => {
+  const token = loadSession()?.accessToken;
   const response = await fetch(`${API_BASE}${path}`, {
-    headers: { Accept: 'application/json', ...(init?.headers ?? {}) },
+    headers: {
+      Accept: 'application/json',
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      ...(init?.headers ?? {}),
+    },
     ...init,
   });
   if (!response.ok) {
