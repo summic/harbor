@@ -9,6 +9,10 @@ const API_BASE = import.meta.env.VITE_API_BASE_URL ?? '';
 const QUALITY_MOCK_FALLBACK = import.meta.env.VITE_QUALITY_MOCK_FALLBACK !== 'false';
 const DEFAULT_SUBSCRIPTION_PATH = '/api/v1/client/subscribe?token=u1-alice-7f8a9d2b';
 const SIMULATE_TRAFFIC_PATH = '/api/v1/simulate/traffic';
+const PROXY_LATENCY_PATH = '/api/v1/proxies/latency';
+const VERSIONS_PATH = '/api/v1/client/versions';
+const PUBLISH_PATH = '/api/v1/client/publish';
+const ROLLBACK_PATH = '/api/v1/client/rollback';
 
 const resolveSubscriptionUrl = () => {
   if (typeof window !== 'undefined' && window.location?.origin) {
@@ -84,6 +88,27 @@ const normalizeProtocol = (raw?: string): ProtocolType => {
       return 'DNS';
     default:
       return 'Shadowsocks';
+  }
+};
+
+const protocolToOutboundType = (protocol?: ProtocolType): string => {
+  switch (protocol) {
+    case 'Shadowsocks':
+      return 'shadowsocks';
+    case 'VLESS':
+      return 'vless';
+    case 'VMess':
+      return 'vmess';
+    case 'Trojan':
+      return 'trojan';
+    case 'Hysteria2':
+      return 'hysteria2';
+    case 'TUIC':
+      return 'tuic';
+    case 'WireGuard':
+      return 'wireguard';
+    default:
+      return 'shadowsocks';
   }
 };
 
@@ -383,7 +408,6 @@ const deleteDomainInConfig = (config: JsonObject, ruleId: string): JsonObject =>
 
 const toProxyNodes = (config: JsonObject): ProxyNode[] => {
   const outbounds = Array.isArray(config.outbounds) ? config.outbounds : [];
-  let id = 0;
   return outbounds
     .filter((item) =>
       typeof item?.tag === 'string' &&
@@ -391,12 +415,12 @@ const toProxyNodes = (config: JsonObject): ProxyNode[] => {
       Number.isFinite(item?.server_port),
     )
     .map((item) => {
-      id += 1;
+      const tag = String(item.tag);
       const server = String(item.server);
       const port = Number(item.server_port);
       return {
-        id: `proxy-${id}`,
-        name: String(item.tag),
+        id: `proxy:${encodeURIComponent(tag)}`,
+        name: tag,
         protocol: normalizeProtocol(item.type),
         address: server,
         port,
@@ -404,6 +428,85 @@ const toProxyNodes = (config: JsonObject): ProxyNode[] => {
         enabled: true,
       } as ProxyNode;
     });
+};
+
+const ensureOutboundSection = (config: JsonObject): JsonObject => {
+  const next = JSON.parse(JSON.stringify(config)) as JsonObject;
+  next.outbounds = Array.isArray(next.outbounds) ? next.outbounds : [];
+  return next;
+};
+
+const decodeProxyTagFromId = (id: string): string | null => {
+  const matched = /^proxy:(.+)$/.exec(id);
+  if (!matched) return null;
+  return decodeURIComponent(matched[1]);
+};
+
+const upsertProxyInConfig = (config: JsonObject, payload: {
+  id?: string;
+  name: string;
+  protocol: ProtocolType;
+  address: string;
+  port: number;
+}): JsonObject => {
+  const next = ensureOutboundSection(config);
+  const outbounds = next.outbounds as JsonObject[];
+  const targetTag = payload.id ? decodeProxyTagFromId(payload.id) : null;
+  const existingIndex = targetTag
+    ? outbounds.findIndex((item) => String(item?.tag ?? '') === targetTag)
+    : -1;
+
+  const nextTag = payload.name.trim();
+  const base = existingIndex >= 0 ? outbounds[existingIndex] : {};
+  const type = protocolToOutboundType(payload.protocol);
+  const nextPayload: JsonObject = {
+    ...base,
+    tag: nextTag,
+    type,
+    server: payload.address.trim(),
+    server_port: Number(payload.port),
+  };
+  if (type === 'shadowsocks' && !nextPayload.method) {
+    nextPayload.method = 'chacha20-ietf-poly1305';
+  }
+  if (type === 'shadowsocks' && !nextPayload.password) {
+    nextPayload.password = 'changeme';
+  }
+
+  if (existingIndex >= 0) {
+    const oldTag = String(outbounds[existingIndex]?.tag ?? '');
+    outbounds[existingIndex] = nextPayload;
+    if (oldTag !== nextTag) {
+      for (const outbound of outbounds) {
+        if (!Array.isArray(outbound?.outbounds)) continue;
+        outbound.outbounds = outbound.outbounds.map((item: unknown) => (item === oldTag ? nextTag : item));
+      }
+    }
+  } else {
+    outbounds.push(nextPayload);
+    for (const outbound of outbounds) {
+      if (!Array.isArray(outbound?.outbounds)) continue;
+      if (String(outbound?.type ?? '') === 'urltest' && !outbound.outbounds.includes(nextTag)) {
+        outbound.outbounds.push(nextTag);
+      }
+    }
+  }
+
+  return next;
+};
+
+const deleteProxyInConfig = (config: JsonObject, id: string): JsonObject => {
+  const next = ensureOutboundSection(config);
+  const outbounds = next.outbounds as JsonObject[];
+  const tag = decodeProxyTagFromId(id);
+  if (!tag) return next;
+
+  next.outbounds = outbounds.filter((item) => String(item?.tag ?? '') !== tag);
+  for (const outbound of next.outbounds as JsonObject[]) {
+    if (!Array.isArray(outbound?.outbounds)) continue;
+    outbound.outbounds = outbound.outbounds.filter((item: unknown) => item !== tag);
+  }
+  return next;
 };
 
 const toRoutingRules = (config: JsonObject): RoutingRule[] => {
@@ -921,16 +1024,70 @@ export const mockApi = {
     return withLatency(toProxyNodes(config));
   },
 
+  saveProxyNode: async (payload: {
+    id?: string;
+    name: string;
+    protocol: ProtocolType;
+    address: string;
+    port: number;
+  }): Promise<ProxyNode[]> => {
+    await sleep(180);
+    if (!payload.name.trim() || !payload.address.trim() || !Number.isFinite(payload.port)) {
+      throw new Error('name, address and port are required');
+    }
+    const config = await loadConfig();
+    const nextConfig = upsertProxyInConfig(config, payload);
+    await mockApi.saveUnifiedProfile({
+      content: JSON.stringify(nextConfig, null, 2),
+      publicUrl: mockProfileData.publicUrl,
+    });
+    return withLatency(toProxyNodes(nextConfig));
+  },
+
+  deleteProxyNode: async (id: string): Promise<ProxyNode[]> => {
+    await sleep(150);
+    const config = await loadConfig();
+    const nextConfig = deleteProxyInConfig(config, id);
+    await mockApi.saveUnifiedProfile({
+      content: JSON.stringify(nextConfig, null, 2),
+      publicUrl: mockProfileData.publicUrl,
+    });
+    return withLatency(toProxyNodes(nextConfig));
+  },
+
   checkProxiesLatency: async (): Promise<ProxyNode[]> => {
-    await sleep(500);
     const config = await loadConfig();
     const nodes = toProxyNodes(config);
-    const checkedAt = nowLabel();
-    for (const node of nodes) {
-      proxyLatencyCache.set(latencyCacheKey(node), {
-        latency: measureLatency(node),
-        lastChecked: checkedAt,
+    try {
+      const response = await fetchJson<Array<{ id: string; latency: number | null; checkedAt: string }>>(PROXY_LATENCY_PATH, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          targets: nodes.map((node) => ({
+            id: node.id,
+            host: node.address,
+            port: node.port,
+          })),
+          timeoutMs: 2000,
+        }),
       });
+      for (const item of response) {
+        if (item.latency == null) continue;
+        const node = nodes.find((candidate) => candidate.id === item.id);
+        if (!node) continue;
+        proxyLatencyCache.set(latencyCacheKey(node), {
+          latency: item.latency,
+          lastChecked: item.checkedAt || nowLabel(),
+        });
+      }
+    } catch {
+      const checkedAt = nowLabel();
+      for (const node of nodes) {
+        proxyLatencyCache.set(latencyCacheKey(node), {
+          latency: measureLatency(node),
+          lastChecked: checkedAt,
+        });
+      }
     }
     return withLatency(nodes);
   },
@@ -1092,11 +1249,28 @@ export const mockApi = {
   },
 
   getVersions: async (): Promise<ConfigVersion[]> => {
-    await sleep(500);
-    return [
-      { id: 'v3', version: 'v1.2.4', timestamp: '2023-10-27 14:20', author: 'Admin', summary: 'Added Netflix rules', content: '{ "outbounds": [...] }' },
-      { id: 'v2', version: 'v1.2.3', timestamp: '2023-10-26 10:15', author: 'Admin', summary: 'Initial setup', content: '{ "outbounds": [] }' },
-    ];
+    await sleep(240);
+    return fetchJson<ConfigVersion[]>(VERSIONS_PATH);
+  },
+
+  publishCurrentProfile: async (payload?: { summary?: string; author?: string }): Promise<ConfigVersion> => {
+    await sleep(180);
+    return fetchJson<ConfigVersion>(PUBLISH_PATH, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload ?? {}),
+    });
+  },
+
+  rollbackVersion: async (id: string): Promise<UnifiedProfile> => {
+    await sleep(220);
+    const profile = await fetchJson<UnifiedProfile>(ROLLBACK_PATH, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id }),
+    });
+    mockProfileData = { ...profile };
+    return profile;
   },
 
   getUnifiedProfile: async (): Promise<UnifiedProfile> => {

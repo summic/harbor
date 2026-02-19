@@ -52,6 +52,15 @@ export type UnifiedProfilePayload = {
   size: string;
 };
 
+export type ConfigVersionItem = {
+  id: string;
+  version: string;
+  timestamp: string;
+  author: string;
+  summary: string;
+  content: string;
+};
+
 export type SimulationInput = {
   target: string;
   protocol?: string;
@@ -92,6 +101,14 @@ export class ConfigStore {
         enabled INTEGER NOT NULL DEFAULT 1,
         payload_json TEXT NOT NULL,
         updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+      );
+      CREATE TABLE IF NOT EXISTS revisions (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        version TEXT NOT NULL,
+        timestamp TEXT NOT NULL,
+        author TEXT NOT NULL,
+        summary TEXT NOT NULL,
+        content TEXT NOT NULL
       );
     `);
   }
@@ -149,9 +166,44 @@ export class ConfigStore {
     this.db.prepare(`INSERT OR IGNORE INTO users(id, username) VALUES(?, ?)`).run(DEFAULT_USER_ID, 'alice');
     const legacy = this.readLegacyProfile(seedProfile);
     this.replaceGlobalProfile(legacy.profile, legacy.lastUpdated);
+    if (this.listVersions().length === 0) {
+      this.appendRevision('Initial profile import', 'system', legacy.profile, legacy.lastUpdated);
+    }
     this.setState('subscription_token', legacy.token || DEFAULT_SUBSCRIPTION_TOKEN);
     this.setState('last_updated', legacy.lastUpdated || new Date().toLocaleString());
     this.setState('seeded_v1', '1');
+  }
+
+  private nextVersionLabel(): string {
+    const raw = this.getState('revision_counter');
+    const current = raw ? Number(raw) : 0;
+    const next = Number.isFinite(current) ? current + 1 : 1;
+    this.setState('revision_counter', String(next));
+    return `v1.0.${next}`;
+  }
+
+  private appendRevision(
+    summary: string,
+    author: string,
+    profile?: Record<string, unknown>,
+    timestamp?: string,
+  ): ConfigVersionItem {
+    const currentProfile = profile ?? this.compileProfile(DEFAULT_USER_ID);
+    const version = this.nextVersionLabel();
+    const ts = timestamp ?? new Date().toLocaleString();
+    const content = JSON.stringify(currentProfile, null, 2);
+    this.db
+      .prepare(`INSERT INTO revisions(version, timestamp, author, summary, content) VALUES(?, ?, ?, ?, ?)`)
+      .run(version, ts, author, summary, content);
+    const row = this.db.prepare(`SELECT id FROM revisions ORDER BY id DESC LIMIT 1`).get() as { id: number };
+    return {
+      id: `v${row.id}`,
+      version,
+      timestamp: ts,
+      author,
+      summary,
+      content,
+    };
   }
 
   private insertRule(scope: 'global' | 'user', userId: string | null, module: string, payload: unknown, priority: number, ruleKey?: string | null) {
@@ -299,6 +351,7 @@ export class ConfigStore {
     const parsed = JSON.parse(content) as Record<string, unknown>;
     const lastUpdated = new Date().toLocaleString();
     this.replaceGlobalProfile(parsed, lastUpdated);
+    this.appendRevision('Update global profile', 'console', parsed, lastUpdated);
     if (publicUrl) {
       try {
         const token = new URL(publicUrl).searchParams.get('token');
@@ -314,6 +367,55 @@ export class ConfigStore {
   getSubscriptionProfile(token: string): Record<string, unknown> | null {
     if (token !== this.getToken()) return null;
     return this.compileProfile(DEFAULT_USER_ID);
+  }
+
+  listVersions(limit = 30): ConfigVersionItem[] {
+    const rows = this.db
+      .prepare(`SELECT id, version, timestamp, author, summary, content FROM revisions ORDER BY id DESC LIMIT ?`)
+      .all(limit) as Array<{
+      id: number;
+      version: string;
+      timestamp: string;
+      author: string;
+      summary: string;
+      content: string;
+    }>;
+    return rows.map((row) => ({
+      id: `v${row.id}`,
+      version: row.version,
+      timestamp: row.timestamp,
+      author: row.author,
+      summary: row.summary,
+      content: row.content,
+    }));
+  }
+
+  publishCurrentProfile(summary?: string, author?: string): ConfigVersionItem {
+    return this.appendRevision(
+      summary?.trim() || 'Publish current profile',
+      author?.trim() || 'console',
+      this.compileProfile(DEFAULT_USER_ID),
+      new Date().toLocaleString(),
+    );
+  }
+
+  rollbackVersion(versionId: string): UnifiedProfilePayload {
+    const numericId = Number(versionId.replace(/^v/, ''));
+    if (!Number.isFinite(numericId)) {
+      throw new Error('invalid version id');
+    }
+    const row = this.db
+      .prepare(`SELECT content, version FROM revisions WHERE id = ?`)
+      .get(numericId) as { content: string; version: string } | undefined;
+    if (!row) {
+      throw new Error('version not found');
+    }
+    const parsed = JSON.parse(row.content) as Record<string, unknown>;
+    const lastUpdated = new Date().toLocaleString();
+    this.replaceGlobalProfile(parsed, lastUpdated);
+    this.appendRevision(`Rollback to ${row.version}`, 'console', parsed, lastUpdated);
+    this.setState('last_updated', lastUpdated);
+    return this.getUnifiedProfile('http://localhost');
   }
 
   listRules(scope?: 'global' | 'user', module?: string, userId?: string) {

@@ -1,4 +1,5 @@
 import path from 'path';
+import net from 'net';
 import type { IncomingMessage, ServerResponse } from 'http';
 import { defineConfig, loadEnv } from 'vite';
 import react from '@vitejs/plugin-react';
@@ -8,6 +9,10 @@ const SUBSCRIPTION_PATH = '/api/v1/client/subscribe';
 const PROFILE_PATH = '/api/v1/client/profile';
 const RULES_PATH = '/api/v1/rules';
 const SIMULATE_PATH = '/api/v1/simulate/traffic';
+const PROXY_LATENCY_PATH = '/api/v1/proxies/latency';
+const VERSIONS_PATH = '/api/v1/client/versions';
+const PUBLISH_PATH = '/api/v1/client/publish';
+const ROLLBACK_PATH = '/api/v1/client/rollback';
 
 const STORE = new ConfigStore({
   dbPath: path.resolve(__dirname, '.local-data', 'sail.sqlite'),
@@ -43,6 +48,24 @@ const sendJson = (res: ServerResponse, statusCode: number, payload: unknown) => 
   res.setHeader('Cache-Control', 'no-store');
   res.end(JSON.stringify(payload, null, 2));
 };
+
+const measureTcpLatency = (host: string, port: number, timeoutMs: number): Promise<number | null> =>
+  new Promise((resolve) => {
+    const started = Date.now();
+    const socket = new net.Socket();
+    let settled = false;
+    const finish = (latency: number | null) => {
+      if (settled) return;
+      settled = true;
+      socket.destroy();
+      resolve(latency);
+    };
+    socket.setTimeout(timeoutMs);
+    socket.once('connect', () => finish(Date.now() - started));
+    socket.once('timeout', () => finish(null));
+    socket.once('error', () => finish(null));
+    socket.connect(port, host);
+  });
 
 const subscriptionHandler = async (req: IncomingMessage, res: ServerResponse, next: () => void) => {
   if (!req.url) {
@@ -137,6 +160,71 @@ const subscriptionHandler = async (req: IncomingMessage, res: ServerResponse, ne
       return;
     } catch {
       sendJson(res, 400, { error: 'invalid_request' });
+      return;
+    }
+  }
+
+  if (url.pathname === PROXY_LATENCY_PATH && req.method === 'POST') {
+    try {
+      const raw = await readBody(req);
+      const payload = JSON.parse(raw) as {
+        targets?: Array<{ id?: string; host?: string; port?: number }>;
+        timeoutMs?: number;
+      };
+      const targets = Array.isArray(payload.targets) ? payload.targets : [];
+      const timeoutMs = Number.isFinite(payload.timeoutMs) ? Number(payload.timeoutMs) : 2000;
+      const checkedAt = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+      const results = await Promise.all(
+        targets.map(async (target) => {
+          const host = String(target.host ?? '').trim();
+          const port = Number(target.port);
+          if (!host || !Number.isFinite(port) || port <= 0) {
+            return { id: String(target.id ?? ''), latency: null, checkedAt };
+          }
+          const latency = await measureTcpLatency(host, port, timeoutMs);
+          return { id: String(target.id ?? ''), latency, checkedAt };
+        }),
+      );
+      sendJson(res, 200, results);
+      return;
+    } catch {
+      sendJson(res, 400, { error: 'invalid_request' });
+      return;
+    }
+  }
+
+  if (url.pathname === VERSIONS_PATH && req.method === 'GET') {
+    sendJson(res, 200, STORE.listVersions());
+    return;
+  }
+
+  if (url.pathname === PUBLISH_PATH && req.method === 'POST') {
+    try {
+      const raw = await readBody(req);
+      const payload = raw ? JSON.parse(raw) as { summary?: string; author?: string } : {};
+      sendJson(res, 200, STORE.publishCurrentProfile(payload.summary, payload.author));
+      return;
+    } catch {
+      sendJson(res, 400, { error: 'invalid_request' });
+      return;
+    }
+  }
+
+  if (url.pathname === ROLLBACK_PATH && req.method === 'POST') {
+    try {
+      const raw = await readBody(req);
+      const payload = JSON.parse(raw) as { id?: string };
+      if (!payload.id) {
+        sendJson(res, 400, { error: 'missing_id' });
+        return;
+      }
+      const updated = STORE.rollbackVersion(payload.id);
+      const origin = getOrigin(req);
+      updated.publicUrl = `${origin}${SUBSCRIPTION_PATH}?token=${new URL(updated.publicUrl).searchParams.get('token')}`;
+      sendJson(res, 200, updated);
+      return;
+    } catch (error) {
+      sendJson(res, 400, { error: error instanceof Error ? error.message : 'invalid_request' });
       return;
     }
   }

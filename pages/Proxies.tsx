@@ -2,13 +2,26 @@
 import React from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 // Added Shuffle to imports
-import { Plus, Wifi, RefreshCw, Zap, Server, Activity, ArrowRight, MoreHorizontal, Shuffle } from 'lucide-react';
+import { Plus, RefreshCw, Zap, Server, Activity, Shuffle, Edit3, Trash2 } from 'lucide-react';
 import { mockApi } from '../api';
-import { SectionCard, Skeleton, StatusBadge, LoadingOverlay } from '../components/Common';
+import { SectionCard, StatusBadge, LoadingOverlay } from '../components/Common';
+import { ProtocolType, ProxyNode } from '../types';
 
 export const ProxiesPage: React.FC = () => {
   const queryClient = useQueryClient();
   const { data: proxies, isLoading } = useQuery({ queryKey: ['proxies'], queryFn: mockApi.getProxies });
+  const refreshLinked = () => {
+    queryClient.invalidateQueries({ queryKey: ['proxies'] });
+    queryClient.invalidateQueries({ queryKey: ['unifiedProfile'] });
+  };
+  const saveMutation = useMutation({
+    mutationFn: mockApi.saveProxyNode,
+    onSuccess: () => refreshLinked(),
+  });
+  const deleteMutation = useMutation({
+    mutationFn: mockApi.deleteProxyNode,
+    onSuccess: () => refreshLinked(),
+  });
   const checkLatencyMutation = useMutation({
     mutationFn: mockApi.checkProxiesLatency,
     onSuccess: (data) => {
@@ -22,6 +35,40 @@ export const ProxiesPage: React.FC = () => {
     ? `${Math.round(latencyValues.reduce((sum, v) => sum + v, 0) / latencyValues.length)}ms`
     : '--';
 
+  const promptProxyPayload = (initial?: ProxyNode): {
+    id?: string;
+    name: string;
+    protocol: ProtocolType;
+    address: string;
+    port: number;
+  } | null => {
+    const name = (window.prompt('Node name/tag', initial?.name || '') || '').trim();
+    if (!name) return null;
+    const protocol = (window.prompt(
+      'Protocol: Shadowsocks / VLESS / VMess / Trojan / Hysteria2 / TUIC / WireGuard',
+      initial?.protocol || 'Shadowsocks',
+    ) || '').trim() as ProtocolType;
+    if (!protocol) return null;
+    const address = (window.prompt('Server address', initial?.address || '') || '').trim();
+    if (!address) return null;
+    const portRaw = window.prompt('Server port', String(initial?.port || 443)) || '';
+    const port = Number(portRaw);
+    if (!Number.isFinite(port) || port <= 0) return null;
+    return { id: initial?.id, name, protocol, address, port };
+  };
+
+  const handleAdd = () => {
+    const payload = promptProxyPayload();
+    if (!payload) return;
+    saveMutation.mutate(payload);
+  };
+
+  const handleEdit = (node: ProxyNode) => {
+    const payload = promptProxyPayload(node);
+    if (!payload) return;
+    saveMutation.mutate(payload);
+  };
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
@@ -30,7 +77,7 @@ export const ProxiesPage: React.FC = () => {
           <p className="text-slate-500">Manage outbound nodes and logical selection groups.</p>
         </div>
         <div className="flex items-center gap-2">
-           <button
+          <button
             onClick={() => checkLatencyMutation.mutate()}
             disabled={isLoading || checkLatencyMutation.isPending || totalNodes === 0}
             className="inline-flex items-center px-4 py-2 bg-white text-slate-700 text-sm font-semibold rounded-lg border border-slate-200 hover:bg-slate-50 active:scale-95 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
@@ -38,7 +85,10 @@ export const ProxiesPage: React.FC = () => {
             <RefreshCw size={14} className={`mr-2 ${checkLatencyMutation.isPending ? 'animate-spin' : ''}`} />
             Check Latency
           </button>
-          <button className="inline-flex items-center px-4 py-2 bg-blue-600 text-white text-sm font-semibold rounded-lg hover:bg-blue-700 active:scale-95 transition-all">
+          <button
+            onClick={handleAdd}
+            className="inline-flex items-center px-4 py-2 bg-blue-600 text-white text-sm font-semibold rounded-lg hover:bg-blue-700 active:scale-95 transition-all"
+          >
             <Plus size={16} className="mr-2" />
             Add Node
           </button>
@@ -92,9 +142,23 @@ export const ProxiesPage: React.FC = () => {
                           <StatusBadge active={node.enabled} />
                         </td>
                         <td className="px-6 py-4 text-right">
-                          <button className="p-1.5 text-slate-400 hover:text-slate-900 rounded opacity-0 group-hover:opacity-100 transition-opacity">
-                            <MoreHorizontal size={14} />
-                          </button>
+                          <div className="inline-flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                            <button
+                              onClick={() => handleEdit(node)}
+                              className="p-1.5 text-slate-400 hover:text-slate-900 rounded"
+                            >
+                              <Edit3 size={14} />
+                            </button>
+                            <button
+                              onClick={() => {
+                                if (!window.confirm(`Delete node ${node.name}?`)) return;
+                                deleteMutation.mutate(node.id);
+                              }}
+                              className="p-1.5 text-slate-400 hover:text-rose-600 rounded"
+                            >
+                              <Trash2 size={14} />
+                            </button>
+                          </div>
                         </td>
                       </tr>
                     ))}
