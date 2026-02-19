@@ -1,13 +1,45 @@
 
 import React, { useState } from 'react';
-import { useQuery } from '@tanstack/react-query';
-import { Send, History, CheckCircle2, AlertCircle, FileText, ChevronRight, RotateCcw, Eye } from 'lucide-react';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { Send, CheckCircle2, AlertCircle, ChevronRight, RotateCcw, Eye } from 'lucide-react';
 import { mockApi } from '../api';
 import { SectionCard, LoadingOverlay } from '../components/Common';
 
 export const PublishPage: React.FC = () => {
+  const queryClient = useQueryClient();
   const { data: versions, isLoading } = useQuery({ queryKey: ['versions'], queryFn: mockApi.getVersions });
+  const { data: profile, isLoading: loadingProfile } = useQuery({ queryKey: ['unifiedProfile'], queryFn: mockApi.getUnifiedProfile });
   const [step, setStep] = useState(1);
+  const [validationError, setValidationError] = useState<string | null>(null);
+  const [publishSummary, setPublishSummary] = useState('Publish from console');
+
+  const publishMutation = useMutation({
+    mutationFn: mockApi.publishCurrentProfile,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['versions'] });
+      setStep(3);
+    },
+  });
+  const rollbackMutation = useMutation({
+    mutationFn: mockApi.rollbackVersion,
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['versions'] });
+      queryClient.invalidateQueries({ queryKey: ['unifiedProfile'] });
+    },
+  });
+
+  const previewContent = profile?.content || '{}';
+  const previewLines = previewContent.split('\n').slice(0, 40).join('\n');
+  const handleValidate = () => {
+    try {
+      JSON.parse(previewContent);
+      setValidationError(null);
+      setStep(2);
+    } catch (error) {
+      setValidationError(error instanceof Error ? error.message : 'Invalid JSON');
+      setStep(1);
+    }
+  };
 
   return (
     <div className="space-y-6">
@@ -49,32 +81,15 @@ export const PublishPage: React.FC = () => {
             <div className="bg-slate-900 rounded-xl p-6 overflow-hidden relative">
               <div className="flex items-center justify-between mb-4 border-b border-slate-800 pb-2">
                 <span className="text-[10px] font-mono text-slate-500 uppercase">config.json</span>
-                <span className="text-[10px] font-mono text-emerald-500 uppercase">Valid Schema</span>
+                <span className="text-[10px] font-mono text-emerald-500 uppercase">{validationError ? 'Invalid JSON' : 'Valid Schema'}</span>
               </div>
               <pre className="text-xs text-slate-300 font-mono overflow-x-auto">
-                {`{
-  "log": { "level": "info", "timestamp": true },
-  "dns": {
-    "servers": [
-      { "tag": "google", "address": "tls://8.8.8.8" }
-    ]
-  },
-  "outbounds": [
-    { "type": "selector", "tag": "proxy", "outbounds": ["hk1", "us1"] },
-    { "type": "direct", "tag": "direct" }
-  ],
-  "route": {
-    "rules": [
-      { "geosite": "google", "outbound": "proxy" },
-      { "geoip": "cn", "outbound": "direct" }
-    ]
-  }
-}`}
+                {previewLines}
               </pre>
               <div className="absolute inset-x-0 bottom-0 h-24 bg-gradient-to-t from-slate-900 to-transparent flex items-end justify-center pb-4">
                  {step === 1 && (
                     <button 
-                      onClick={() => setStep(2)}
+                      onClick={handleValidate}
                       className="px-8 py-2.5 bg-blue-600 text-white rounded-lg font-bold text-sm shadow-xl shadow-blue-500/20 hover:bg-blue-500 transition-all flex items-center"
                     >
                       Verify Syntax <ChevronRight size={16} className="ml-1" />
@@ -82,7 +97,7 @@ export const PublishPage: React.FC = () => {
                  )}
                  {step === 2 && (
                     <button 
-                      onClick={() => setStep(3)}
+                      onClick={() => publishMutation.mutate({ summary: publishSummary })}
                       className="px-8 py-2.5 bg-emerald-600 text-white rounded-lg font-bold text-sm shadow-xl shadow-emerald-500/20 hover:bg-emerald-500 transition-all flex items-center"
                     >
                       Commit Changes <Send size={16} className="ml-2" />
@@ -105,22 +120,28 @@ export const PublishPage: React.FC = () => {
                  <CheckCircle2 size={16} className="shrink-0" />
                  <div>
                    <p className="font-bold uppercase tracking-tighter">JSON Schema</p>
-                   <p className="mt-1 opacity-80">Structure is valid for sing-box v1.8+</p>
+                   <p className="mt-1 opacity-80">{validationError ? validationError : 'Structure is valid for sing-box schema'}</p>
                  </div>
                </div>
                <div className="flex items-start gap-3 p-3 bg-blue-50 text-blue-700 rounded-lg border border-blue-100 text-xs">
                  <AlertCircle size={16} className="shrink-0" />
                  <div>
                    <p className="font-bold uppercase tracking-tighter">Semantic Check</p>
-                   <p className="mt-1 opacity-80">14 rules, 3 outbounds correctly referenced.</p>
+                   <p className="mt-1 opacity-80">Based on current unified profile snapshot.</p>
                  </div>
                </div>
+               <input
+                 value={publishSummary}
+                 onChange={(e) => setPublishSummary(e.target.value)}
+                 placeholder="Publish summary"
+                 className="w-full px-3 py-2 text-xs border border-slate-200 rounded-lg"
+               />
              </div>
           </SectionCard>
 
           <SectionCard title="Deployment History">
              <div className="relative overflow-hidden -mx-6 -my-6">
-               {isLoading && <LoadingOverlay />}
+               {(isLoading || loadingProfile) && <LoadingOverlay />}
                <div className="divide-y divide-slate-100">
                  {versions?.map(v => (
                    <div key={v.id} className="p-4 hover:bg-slate-50 transition-colors group">
@@ -130,8 +151,14 @@ export const PublishPage: React.FC = () => {
                      </div>
                      <p className="text-xs text-slate-500 line-clamp-1 mb-2">{v.summary}</p>
                      <div className="flex items-center justify-end gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                        <button className="text-[10px] font-bold text-blue-600 hover:underline uppercase">View Diff</button>
-                        <button className="flex items-center text-[10px] font-bold text-rose-600 hover:text-rose-700 uppercase">
+                        <button className="text-[10px] font-bold text-blue-600 hover:underline uppercase">View Snapshot</button>
+                        <button
+                          onClick={() => {
+                            if (!window.confirm(`Rollback to ${v.version}?`)) return;
+                            rollbackMutation.mutate(v.id);
+                          }}
+                          className="flex items-center text-[10px] font-bold text-rose-600 hover:text-rose-700 uppercase"
+                        >
                           <RotateCcw size={10} className="mr-1" /> Rollback
                         </button>
                      </div>
