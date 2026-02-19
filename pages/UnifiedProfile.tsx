@@ -1,49 +1,14 @@
 
-import React, { useState, useEffect, useRef, useMemo } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { 
   Save, Copy, Globe, FileJson, Check, AlertTriangle, 
   RotateCcw, ExternalLink, Download, Braces
 } from 'lucide-react';
+import CodeMirror from '@uiw/react-codemirror';
+import { json } from '@codemirror/lang-json';
 import { mockApi } from '../api';
 import { SectionCard, LoadingOverlay } from '../components/Common';
-
-// --- Syntax Highlighter Helper ---
-const highlightJSON = (json: string): string => {
-  if (!json) return '';
-  
-  // Escape HTML entities to prevent XSS and rendering issues
-  const escaped = json
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;');
-
-  // Regex to match JSON tokens: keys, strings, numbers, boolean, null, punctuation
-  return escaped.replace(
-    /("(\\u[a-zA-Z0-9]{4}|\\[^u]|[^\\"])*"(\s*:)?|\b(true|false|null)\b|-?\d+(?:\.\d*)?(?:[eE][+\-]?\d+)?|[\[\]\{\},:])/g,
-    (match) => {
-      let cls = 'text-slate-300'; // Default
-      
-      if (/^"/.test(match)) {
-        if (/:$/.test(match)) {
-          cls = 'text-sky-400 font-semibold'; // Key
-        } else {
-          cls = 'text-emerald-400'; // String value
-        }
-      } else if (/true|false/.test(match)) {
-        cls = 'text-rose-400 font-semibold'; // Boolean
-      } else if (/null/.test(match)) {
-        cls = 'text-slate-500 italic'; // Null
-      } else if (/^-?\d/.test(match)) {
-        cls = 'text-amber-400'; // Number
-      } else if (/[\[\]\{\},:]/.test(match)) {
-        cls = 'text-slate-500'; // Punctuation
-      }
-      
-      return `<span class="${cls}">${match}</span>`;
-    }
-  );
-};
 
 export const UnifiedProfilePage: React.FC = () => {
   const queryClient = useQueryClient();
@@ -59,10 +24,6 @@ export const UnifiedProfilePage: React.FC = () => {
   const [subscriptionUrl, setSubscriptionUrl] = useState('');
   const [fixedPanelStyle, setFixedPanelStyle] = useState<React.CSSProperties>({});
   
-  // Refs for sync scrolling
-  const textareaRef = useRef<HTMLTextAreaElement>(null);
-  const preRef = useRef<HTMLPreElement>(null);
-  const gutterRef = useRef<HTMLDivElement>(null);
   const infoAnchorRef = useRef<HTMLDivElement>(null);
 
   // Initialize content
@@ -111,16 +72,7 @@ export const UnifiedProfilePage: React.FC = () => {
     }
   });
 
-  // Calculate lines for gutter
-  const lineNumbers = useMemo(() => {
-    return jsonContent.split('\n').map((_, i) => i + 1);
-  }, [jsonContent]);
-
-  // Syntax Highlighted Code
-  const highlightedCode = useMemo(() => highlightJSON(jsonContent), [jsonContent]);
-
-  const handleJsonChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
-    const newVal = e.target.value;
+  const handleJsonChange = (newVal: string) => {
     setJsonContent(newVal);
     setIsDirty(true);
     
@@ -134,17 +86,6 @@ export const UnifiedProfilePage: React.FC = () => {
       } else {
         setError('Invalid JSON');
       }
-    }
-  };
-
-  const handleScroll = (e: React.UIEvent<HTMLTextAreaElement>) => {
-    const { scrollTop, scrollLeft } = e.currentTarget;
-    if (preRef.current) {
-      preRef.current.scrollTop = scrollTop;
-      preRef.current.scrollLeft = scrollLeft;
-    }
-    if (gutterRef.current) {
-      gutterRef.current.scrollTop = scrollTop;
     }
   };
 
@@ -185,26 +126,6 @@ export const UnifiedProfilePage: React.FC = () => {
     URL.revokeObjectURL(link.href);
   };
 
-  const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === 'Tab') {
-      e.preventDefault();
-      const target = e.target as HTMLTextAreaElement;
-      const start = target.selectionStart;
-      const end = target.selectionEnd;
-      
-      const newVal = jsonContent.substring(0, start) + "  " + jsonContent.substring(end);
-      setJsonContent(newVal);
-      
-      // Needs timeout to run after render update
-      setTimeout(() => {
-        if (textareaRef.current) {
-          textareaRef.current.selectionStart = textareaRef.current.selectionEnd = start + 2;
-        }
-      }, 0);
-      setIsDirty(true);
-    }
-  };
-
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -228,7 +149,7 @@ export const UnifiedProfilePage: React.FC = () => {
                 <span className="font-mono">profile.json</span>
                 {profile?.size && <span className="text-slate-600">({profile.size})</span>}
                 <span className="text-slate-700 mx-1">|</span>
-                <span className="text-slate-500">{lineNumbers.length} lines</span>
+                <span className="text-slate-500">{jsonContent.split('\n').length} lines</span>
               </div>
               <div className="flex items-center gap-4">
                  {error ? (
@@ -244,37 +165,21 @@ export const UnifiedProfilePage: React.FC = () => {
             </div>
 
             {/* Code Editor Area */}
-            <div className="flex-1 relative flex overflow-hidden">
-               {/* Line Numbers Gutter */}
-               <div 
-                 ref={gutterRef}
-                 className="w-12 bg-slate-950 text-slate-600 text-right pr-3 pt-4 pb-4 select-none border-r border-slate-800 font-mono text-sm leading-6 overflow-hidden"
-               >
-                 {lineNumbers.map(n => <div key={n}>{n}</div>)}
-               </div>
-
-               {/* Editing Surface */}
-               <div className="relative flex-1 h-full font-mono text-sm leading-6">
-                 {/* 1. Highlight Layer (Bottom) */}
-                 <pre 
-                   ref={preRef}
-                   className="absolute inset-0 p-4 m-0 pointer-events-none whitespace-pre overflow-hidden bg-slate-900"
-                   aria-hidden="true"
-                 >
-                   <code dangerouslySetInnerHTML={{__html: highlightedCode}} />
-                 </pre>
-
-                 {/* 2. Input Layer (Top) */}
-                 <textarea
-                   ref={textareaRef}
-                   value={jsonContent}
-                   onChange={handleJsonChange}
-                   onScroll={handleScroll}
-                   onKeyDown={handleKeyDown}
-                   spellCheck={false}
-                   className="absolute inset-0 w-full h-full p-4 m-0 bg-transparent text-transparent caret-white resize-none outline-none border-0 custom-scrollbar z-10 selection:bg-blue-500/30 whitespace-pre"
-                 />
-               </div>
+            <div className="flex-1 overflow-hidden">
+              <CodeMirror
+                value={jsonContent}
+                onChange={handleJsonChange}
+                extensions={[json()]}
+                theme="dark"
+                basicSetup={{
+                  lineNumbers: true,
+                  highlightActiveLine: true,
+                  foldGutter: true,
+                  bracketMatching: true,
+                }}
+                className="h-full text-sm"
+                style={{ height: '100%' }}
+              />
             </div>
             
             {/* Error Message Footer */}
