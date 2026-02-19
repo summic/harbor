@@ -17,6 +17,7 @@ const PUBLISH_PATH = '/api/v1/client/publish';
 const ROLLBACK_PATH = '/api/v1/client/rollback';
 const AUTH_SYNC_USER_PATH = '/api/v1/auth/sync-user';
 const USERS_PATH = '/api/v1/users';
+const CLIENT_CONNECT_REPORT_PATH = '/api/v1/client/connect';
 
 const STORE = new ConfigStore({
   dbPath: process.env.SAIL_DB_PATH || path.resolve(__dirname, '.local-data', 'sail.sqlite'),
@@ -270,6 +271,77 @@ const subscriptionHandler = async (req: IncomingMessage, res: ServerResponse, ne
     return;
   }
 
+  if (url.pathname === CLIENT_CONNECT_REPORT_PATH && req.method === 'POST') {
+    try {
+      const raw = await readBody(req);
+      const payload = JSON.parse(raw) as {
+        userId?: string;
+        occurredAt?: string;
+        connected?: boolean;
+        target?: string;
+        latencyMs?: number;
+        error?: string;
+        networkType?: string;
+        requestCount?: number;
+        successCount?: number;
+        blockedCount?: number;
+        uploadBytes?: number;
+        downloadBytes?: number;
+        device?: {
+          id?: string;
+          name?: string;
+          model?: string;
+          osName?: string;
+          osVersion?: string;
+          appVersion?: string;
+          ip?: string;
+          location?: string;
+        };
+        metadata?: Record<string, unknown>;
+      };
+      if (!payload.userId || !payload.userId.trim()) {
+        sendJson(res, 400, { error: 'missing_user_id' });
+        return;
+      }
+      if (payload.device && (!payload.device.id || !payload.device.id.trim())) {
+        sendJson(res, 400, { error: 'invalid_device_id' });
+        return;
+      }
+      const updated = STORE.ingestClientConnectReport({
+        userId: payload.userId,
+        occurredAt: payload.occurredAt,
+        connected: payload.connected,
+        target: payload.target,
+        latencyMs: payload.latencyMs,
+        error: payload.error,
+        networkType: payload.networkType,
+        requestCount: payload.requestCount,
+        successCount: payload.successCount,
+        blockedCount: payload.blockedCount,
+        uploadBytes: payload.uploadBytes,
+        downloadBytes: payload.downloadBytes,
+        device: payload.device?.id
+          ? {
+              id: payload.device.id,
+              name: payload.device.name,
+              model: payload.device.model,
+              osName: payload.device.osName,
+              osVersion: payload.device.osVersion,
+              appVersion: payload.device.appVersion,
+              ip: payload.device.ip,
+              location: payload.device.location,
+            }
+          : undefined,
+        metadata: payload.metadata,
+      });
+      sendJson(res, 200, { success: true, user: updated });
+      return;
+    } catch (error) {
+      sendJson(res, 400, { error: error instanceof Error ? error.message : 'invalid_request' });
+      return;
+    }
+  }
+
   if (url.pathname.startsWith(`${USERS_PATH}/`) && req.method === 'GET') {
     const id = decodeURIComponent(url.pathname.slice(USERS_PATH.length + 1));
     const user = STORE.getUser(id);
@@ -341,10 +413,16 @@ export default defineConfig(({ mode }) => {
   };
   const buildTime = readGitValue('git log -1 --format=%cI', new Date().toISOString());
   const gitSha = readGitValue('git rev-parse --short HEAD', 'local');
+  const allowedHosts = ['harbor.beforeve.com', 'localhost', '127.0.0.1'];
   return {
     server: {
       port: 5173,
       host: '0.0.0.0',
+      allowedHosts,
+    },
+    preview: {
+      host: '0.0.0.0',
+      allowedHosts,
     },
     plugins: [
       react(),
