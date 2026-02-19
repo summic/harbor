@@ -112,8 +112,10 @@ export const AppShell: React.FC<{ children: React.ReactNode }> = ({ children }) 
 
             <div className="h-14 border-t border-slate-100" />
 
-            <div className="pointer-events-none absolute bottom-2 left-2 text-slate-300/35">
-              <svg viewBox="0 0 96 96" className="h-24 w-24 fill-none stroke-current" aria-hidden="true">
+            <div className="pointer-events-none absolute bottom-1 left-1">
+              <div className="absolute -top-6 left-7 h-12 w-12 rounded-full bg-amber-300/25 blur-xl" />
+              <div className="absolute -top-3 left-12 h-8 w-14 rounded-full bg-orange-200/20 blur-lg" />
+              <svg viewBox="0 0 96 96" className="h-28 w-28 fill-none stroke-slate-300/40" aria-hidden="true">
                 <path d="M34 86h28" strokeWidth="3" strokeLinecap="round" />
                 <path d="M40 86l5-38h6l5 38" strokeWidth="3" strokeLinejoin="round" />
                 <path d="M41 48h14l-2-8h-10z" strokeWidth="3" strokeLinejoin="round" />
