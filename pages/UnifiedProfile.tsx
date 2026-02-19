@@ -294,8 +294,8 @@ export const UnifiedProfilePage: React.FC = () => {
         </div>
 
         {/* Info Column */}
-        <div className="lg:sticky lg:top-0 lg:self-start">
-          <div className="space-y-6 max-h-[calc(100vh-2rem)] overflow-y-auto pr-1">
+        <div className="lg:self-start">
+          <div className="space-y-6 lg:fixed lg:top-24 lg:right-6 lg:w-[22rem] max-h-[calc(100vh-7rem)] overflow-y-auto pr-1">
           <SectionCard title="Remote Access" description="Use this URL to subscribe to this profile in your clients.">
              <div className="space-y-4">
                <div className="p-4 bg-slate-50 border border-slate-200 rounded-xl group relative">
