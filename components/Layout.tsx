@@ -70,6 +70,14 @@ export const AppShell: React.FC<{ children: React.ReactNode }> = ({ children }) 
     .slice(0, 2)
     .map((part) => part[0]?.toUpperCase() || '')
     .join('') || 'KU';
+
+  const closeSidebarOnMobile = () => {
+    if (typeof window === 'undefined') return;
+    if (window.matchMedia('(max-width: 767px)').matches && isSidebarOpen) {
+      toggleSidebar();
+    }
+  };
+
   return (
     <div className="flex h-dvh w-full overflow-hidden bg-slate-50">
       {isAdmin ? (
@@ -97,6 +105,7 @@ export const AppShell: React.FC<{ children: React.ReactNode }> = ({ children }) 
                   <Link
                     key={item.path}
                     to={item.path}
+                    onClick={closeSidebarOnMobile}
                     className={`
                     flex items-center px-4 py-2.5 rounded-lg text-sm font-medium transition-colors
                     ${isActive
