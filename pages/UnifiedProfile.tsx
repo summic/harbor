@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { 
   Save, Copy, Globe, FileJson, Check, AlertTriangle, 
@@ -22,9 +22,6 @@ export const UnifiedProfilePage: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
   const [subscriptionUrl, setSubscriptionUrl] = useState('');
-  const [fixedPanelStyle, setFixedPanelStyle] = useState<React.CSSProperties>({});
-  
-  const infoAnchorRef = useRef<HTMLDivElement>(null);
 
   // Initialize content
   useEffect(() => {
@@ -35,38 +32,6 @@ export const UnifiedProfilePage: React.FC = () => {
       setError(null);
     }
   }, [profile]);
-
-  // Keep right panel fixed while preserving original grid column position/width.
-  useEffect(() => {
-    const updateFixedPanelStyle = () => {
-      if (!infoAnchorRef.current) return;
-      if (window.innerWidth < 1024) {
-        setFixedPanelStyle({});
-        return;
-      }
-      const rect = infoAnchorRef.current.getBoundingClientRect();
-      const top = Math.max(16, Math.round(rect.top));
-      setFixedPanelStyle({
-        position: 'fixed',
-        top: `${top}px`,
-        left: `${rect.left}px`,
-        width: `${rect.width}px`,
-        maxHeight: `calc(100vh - ${top + 16}px)`,
-        boxSizing: 'border-box',
-      });
-    };
-
-    updateFixedPanelStyle();
-    window.addEventListener('resize', updateFixedPanelStyle);
-    const observer = new ResizeObserver(() => updateFixedPanelStyle());
-    if (infoAnchorRef.current) {
-      observer.observe(infoAnchorRef.current);
-    }
-    return () => {
-      window.removeEventListener('resize', updateFixedPanelStyle);
-      observer.disconnect();
-    };
-  }, []);
 
   // Save Mutation
   const saveMutation = useMutation({
@@ -199,11 +164,8 @@ export const UnifiedProfilePage: React.FC = () => {
         </div>
 
         {/* Info Column */}
-        <div ref={infoAnchorRef} className="lg:self-start">
-          <div
-            className="space-y-6 max-h-[calc(100vh-7rem)] overflow-y-auto"
-            style={fixedPanelStyle}
-          >
+        <div className="lg:self-start">
+          <div className="space-y-6 lg:sticky lg:top-4 max-h-[calc(100vh-2rem)] overflow-y-auto">
           <SectionCard title="Actions">
             <div className="space-y-3">
               {isDirty ? (
