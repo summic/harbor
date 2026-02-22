@@ -98,13 +98,17 @@ export const AppShell: React.FC<{ children: React.ReactNode }> = ({ children }) 
             ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full'}
           `}
           >
-            <div className="flex h-16 items-center px-6 border-b border-slate-100">
+            <Link
+              to="/"
+              onClick={closeSidebarOnMobile}
+              className="flex h-16 items-center px-6 border-b border-slate-100 hover:bg-slate-50 transition-colors"
+            >
               <Anchor className="h-6 w-6 text-blue-600 mr-2" />
               <div className="leading-tight">
                 <div className="font-bold text-lg tracking-tight">Harbor</div>
                 <div className="text-[10px] text-slate-500 font-medium">for Sail</div>
               </div>
-            </div>
+            </Link>
 
             <nav className="flex-1 overflow-y-auto p-4 space-y-1">
               {navItems.map((item) => {
