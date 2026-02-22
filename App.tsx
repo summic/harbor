@@ -18,6 +18,7 @@ import { UserDetailsPage } from './pages/UserDetails';
 import { UserTargetDetailsPage } from './pages/UserTargetDetails';
 import { QualityObservabilityPage } from './pages/QualityObservability';
 import { AccountSettingsPage } from './pages/AccountSettings';
+import { SurgeStylePage } from './pages/SurgeStyle';
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -57,6 +58,7 @@ const App: React.FC = () => {
                 <Route path="/profile" element={<AdminRoute><UnifiedProfilePage /></AdminRoute>} />
                 <Route path="/publish" element={<AdminRoute><PublishPage /></AdminRoute>} />
                 <Route path="/quality" element={<AdminRoute><QualityObservabilityPage /></AdminRoute>} />
+                <Route path="/surge-style" element={<AdminRoute><SurgeStylePage /></AdminRoute>} />
                 <Route path="*" element={<Navigate to="/" replace />} />
               </Routes>
             </AppShell>
