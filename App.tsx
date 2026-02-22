@@ -9,7 +9,6 @@ import { DashboardPage } from './pages/Dashboard';
 import { DomainsPage } from './pages/Domains';
 import { DomainGroupsPage } from './pages/DomainGroups';
 import { ProxiesPage } from './pages/Proxies';
-import { RoutingPage } from './pages/Routing';
 import { SimulationPage } from './pages/Simulation';
 import { DnsHostsPage } from './pages/DnsHosts';
 import { UnifiedProfilePage } from './pages/UnifiedProfile';
@@ -38,7 +37,7 @@ const AdminRoute: React.FC<{ children: React.ReactElement }> = ({ children }) =>
 const LegacyDomainGroupDomainsRedirect: React.FC = () => {
   const params = useParams<{ groupName: string }>();
   const groupName = params.groupName ? encodeURIComponent(params.groupName) : '';
-  return <Navigate to={groupName ? `/policy/${groupName}/domains` : '/policy'} replace />;
+  return <Navigate to={groupName ? `/policy/${groupName}/rules` : '/policy'} replace />;
 };
 
 const App: React.FC = () => {
@@ -52,11 +51,12 @@ const App: React.FC = () => {
                 <Route path="/" element={<DashboardPage />} />
                 <Route path="/account" element={<AccountSettingsPage />} />
                 <Route path="/policy" element={<AdminRoute><DomainGroupsPage /></AdminRoute>} />
-                <Route path="/policy/:groupName/domains" element={<AdminRoute><DomainsPage /></AdminRoute>} />
+                <Route path="/policy/:groupName/rules" element={<AdminRoute><DomainsPage /></AdminRoute>} />
                 <Route path="/domain-groups" element={<Navigate to="/policy" replace />} />
                 <Route path="/domain-groups/:groupName/domains" element={<LegacyDomainGroupDomainsRedirect />} />
+                <Route path="/policy/:groupName/domains" element={<LegacyDomainGroupDomainsRedirect />} />
                 <Route path="/proxies" element={<AdminRoute><ProxiesPage /></AdminRoute>} />
-                <Route path="/routing" element={<AdminRoute><RoutingPage /></AdminRoute>} />
+                <Route path="/routing" element={<Navigate to="/policy" replace />} />
                 <Route path="/simulation" element={<AdminRoute><SimulationPage /></AdminRoute>} />
                 <Route path="/dns-hosts" element={<AdminRoute><DnsHostsPage /></AdminRoute>} />
                 <Route path="/users" element={<AdminRoute><UsersPage /></AdminRoute>} />

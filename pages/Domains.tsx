@@ -181,8 +181,8 @@ export const DomainsPage: React.FC = () => {
     <div className="space-y-6">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold tracking-tight">Policy · {activeGroup}</h1>
-          <p className="text-slate-500">Manage domains in this policy group.</p>
+          <h1 className="text-2xl font-bold tracking-tight">Policy Rules · {activeGroup}</h1>
+          <p className="text-slate-500">Manage match rules in this policy group.</p>
         </div>
         <div className="flex items-center gap-2">
           <Link to="/policy" className="inline-flex items-center px-3 py-2 border border-slate-200 rounded-lg text-sm text-slate-600 hover:bg-slate-50">
@@ -200,7 +200,7 @@ export const DomainsPage: React.FC = () => {
       </div>
 
       <SectionCard
-        title="Domains"
+        title="Rules"
         actions={
           <div className="relative group">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 group-focus-within:text-blue-500 transition-colors" size={14} />

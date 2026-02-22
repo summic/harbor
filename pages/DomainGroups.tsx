@@ -119,7 +119,7 @@ export const DomainGroupsPage: React.FC = () => {
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold tracking-tight">Policy</h1>
-          <p className="text-slate-500">Manage policy groups, then click a group row to manage domains.</p>
+          <p className="text-slate-500">Manage policy groups, then click a group row to manage rules.</p>
         </div>
         <div className="flex items-center gap-2">
           <button
@@ -166,7 +166,7 @@ export const DomainGroupsPage: React.FC = () => {
                 <tr
                   key={group.id}
                   className="hover:bg-slate-50/50 transition-colors group cursor-pointer"
-                  onClick={() => navigate(`/policy/${encodeURIComponent(group.name)}/domains`)}
+                  onClick={() => navigate(`/policy/${encodeURIComponent(group.name)}/rules`)}
                 >
                   <td className="px-6 py-4 font-medium text-slate-800 flex items-center gap-2">
                     <Shield size={14} className="text-slate-400" />
