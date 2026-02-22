@@ -1,9 +1,9 @@
 import React from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Plus, MoveUp, MoveDown, Trash2, Edit3, Network, Target, Shuffle, Search, Server, Route, X } from 'lucide-react';
+import { Plus, Trash2, Edit3, Network, X } from 'lucide-react';
 import { mockApi } from '../api';
-import { SectionCard, StatusBadge, LoadingOverlay } from '../components/Common';
-import { RoutingRule } from '../types';
+import { SectionCard, LoadingOverlay } from '../components/Common';
+import { DomainRule, ProxyGroup, RoutingRule } from '../types';
 
 const protocolOptions = ['tcp', 'udp', 'dns', 'icmp', 'stun', 'dtls'];
 const matchTypeOptions: RoutingRule['matchType'][] = [
@@ -153,15 +153,15 @@ const RoutingPolicyModal: React.FC<{
 export const RoutingPage: React.FC = () => {
   const queryClient = useQueryClient();
   const { data: rules, isLoading } = useQuery({ queryKey: ['routing'], queryFn: mockApi.getRouting });
-  const [target, setTarget] = React.useState('connect-api-prod.kuainiu.chat');
-  const [protocol, setProtocol] = React.useState('tcp');
-  const [port, setPort] = React.useState<string>('443');
+  const { data: domains = [] } = useQuery({ queryKey: ['domains'], queryFn: mockApi.getDomains });
+  const { data: proxyGroups = [] } = useQuery({ queryKey: ['proxyGroups'], queryFn: mockApi.getProxyGroups });
   const [isPolicyModalOpen, setIsPolicyModalOpen] = React.useState(false);
   const [editingPolicy, setEditingPolicy] = React.useState<RoutingRule | null>(null);
+  const [positions, setPositions] = React.useState<Record<string, { x: number; y: number }>>({});
+  const [draggingId, setDraggingId] = React.useState<string | null>(null);
+  const dragOffsetRef = React.useRef<{ x: number; y: number }>({ x: 0, y: 0 });
+  const canvasRef = React.useRef<HTMLDivElement | null>(null);
 
-  const simulateMutation = useMutation({
-    mutationFn: mockApi.simulateTraffic,
-  });
   const saveMutation = useMutation({
     mutationFn: mockApi.saveRoutingRule,
     onSuccess: (next) => {
@@ -188,6 +188,151 @@ export const RoutingPage: React.FC = () => {
     () => (rules ? [...rules].sort((a, b) => a.priority - b.priority) : []),
     [rules],
   );
+  const domainGroups = React.useMemo(() => {
+    const grouped = new Map<string, DomainRule[]>();
+    for (const rule of domains) {
+      const key = rule.group || 'default';
+      const list = grouped.get(key) ?? [];
+      list.push(rule);
+      grouped.set(key, list);
+    }
+    return [...grouped.entries()].map(([name, list]) => ({
+      id: `domain:${name}`,
+      name,
+      count: list.length,
+      actions: Array.from(new Set(list.map((item) => item.action))).join(', ').toLowerCase(),
+    }));
+  }, [domains]);
+
+  const policyNodes = React.useMemo(
+    () =>
+      orderedRules.map((rule) => ({
+        id: `policy:${rule.id}`,
+        rule,
+      })),
+    [orderedRules],
+  );
+
+  const proxyNodes = React.useMemo(
+    () =>
+      (proxyGroups as ProxyGroup[]).map((group) => ({
+        id: `proxy:${group.name}`,
+        name: group.name,
+        type: group.type,
+        members: group.outbounds.length,
+      })),
+    [proxyGroups],
+  );
+
+  React.useEffect(() => {
+    setPositions((prev) => {
+      const next = { ...prev };
+      domainGroups.forEach((item, index) => {
+        if (!next[item.id]) next[item.id] = { x: 24, y: 40 + index * 96 };
+      });
+      policyNodes.forEach((item, index) => {
+        if (!next[item.id]) next[item.id] = { x: 390, y: 40 + index * 110 };
+      });
+      proxyNodes.forEach((item, index) => {
+        if (!next[item.id]) next[item.id] = { x: 760, y: 40 + index * 96 };
+      });
+      return next;
+    });
+  }, [domainGroups, policyNodes, proxyNodes]);
+
+  const parseMatchValues = (value: string) =>
+    value
+      .split(',')
+      .map((item) => item.trim())
+      .filter(Boolean);
+
+  const isPolicyMatchDomainGroup = (rule: RoutingRule, groupName: string): boolean => {
+    if (rule.matchType !== 'rule_set' && rule.matchType !== 'domain') return false;
+    const list = parseMatchValues(rule.matchExpr);
+    return list.includes(groupName);
+  };
+
+  const lineSegments = React.useMemo(() => {
+    const lines: Array<{ id: string; x1: number; y1: number; x2: number; y2: number; color: string }> = [];
+    const domainCenter = (id: string) => {
+      const pos = positions[id];
+      if (!pos) return null;
+      return { x: pos.x + 240, y: pos.y + 34 };
+    };
+    const policyCenter = (id: string) => {
+      const pos = positions[id];
+      if (!pos) return null;
+      return { x: pos.x + 280, y: pos.y + 44 };
+    };
+    const proxyCenter = (id: string) => {
+      const pos = positions[id];
+      if (!pos) return null;
+      return { x: pos.x, y: pos.y + 34 };
+    };
+
+    for (const domain of domainGroups) {
+      for (const policy of policyNodes) {
+        if (!isPolicyMatchDomainGroup(policy.rule, domain.name)) continue;
+        const from = domainCenter(domain.id);
+        const to = policyCenter(policy.id);
+        if (!from || !to) continue;
+        lines.push({
+          id: `${domain.id}->${policy.id}`,
+          x1: from.x,
+          y1: from.y,
+          x2: to.x,
+          y2: to.y,
+          color: '#7dd3fc',
+        });
+      }
+    }
+
+    for (const policy of policyNodes) {
+      for (const proxy of proxyNodes) {
+        if (policy.rule.outbound !== proxy.name) continue;
+        const from = policyCenter(policy.id);
+        const to = proxyCenter(proxy.id);
+        if (!from || !to) continue;
+        lines.push({
+          id: `${policy.id}->${proxy.id}`,
+          x1: from.x,
+          y1: from.y,
+          x2: to.x,
+          y2: to.y,
+          color: '#34d399',
+        });
+      }
+    }
+    return lines;
+  }, [domainGroups, policyNodes, proxyNodes, positions]);
+
+  React.useEffect(() => {
+    const onMove = (e: MouseEvent) => {
+      if (!draggingId || !canvasRef.current) return;
+      const rect = canvasRef.current.getBoundingClientRect();
+      const x = e.clientX - rect.left - dragOffsetRef.current.x;
+      const y = e.clientY - rect.top - dragOffsetRef.current.y;
+      setPositions((prev) => ({ ...prev, [draggingId]: { x: Math.max(8, x), y: Math.max(8, y) } }));
+    };
+    const onUp = () => setDraggingId(null);
+    window.addEventListener('mousemove', onMove);
+    window.addEventListener('mouseup', onUp);
+    return () => {
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('mouseup', onUp);
+    };
+  }, [draggingId]);
+
+  const startDrag = (id: string, e: React.MouseEvent<HTMLDivElement>) => {
+    const pos = positions[id];
+    if (!pos || !canvasRef.current) return;
+    const rect = canvasRef.current.getBoundingClientRect();
+    dragOffsetRef.current = {
+      x: e.clientX - rect.left - pos.x,
+      y: e.clientY - rect.top - pos.y,
+    };
+    setDraggingId(id);
+  };
 
   const handleAdd = () => {
     setEditingPolicy(null);
@@ -210,16 +355,6 @@ export const RoutingPage: React.FC = () => {
     setEditingPolicy(null);
   };
 
-  const handleSimulate = () => {
-    simulateMutation.mutate({
-      target: target.trim(),
-      protocol,
-      port: port.trim() ? Number(port) : undefined,
-    });
-  };
-
-  const result = simulateMutation.data;
-
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
@@ -236,194 +371,125 @@ export const RoutingPage: React.FC = () => {
         </button>
       </div>
 
-      <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
-        <div className="xl:col-span-2 space-y-6">
-          <SectionCard title="Rules Order">
-            <div className="relative overflow-hidden -mx-6 -my-6">
-              {isLoading && <LoadingOverlay />}
-              <div className="space-y-0.5 p-2">
-                {orderedRules.map((rule, idx) => (
-                  <div key={rule.id} className="flex items-center p-3 bg-white border border-slate-100 rounded-lg hover:border-blue-200 hover:shadow-sm transition-all group">
-                    <div className="flex flex-col items-center mr-4 text-slate-300">
-                      <button
-                        onClick={() => moveMutation.mutate({ id: rule.id, direction: 'up' })}
-                        disabled={idx === 0 || moveMutation.isPending}
-                        className="hover:text-blue-500 p-0.5 disabled:opacity-40"
-                      >
-                        <MoveUp size={14} />
-                      </button>
-                      <span className="text-[10px] font-bold tabular-nums my-0.5">{idx + 1}</span>
-                      <button
-                        onClick={() => moveMutation.mutate({ id: rule.id, direction: 'down' })}
-                        disabled={idx === orderedRules.length - 1 || moveMutation.isPending}
-                        className="hover:text-blue-500 p-0.5 disabled:opacity-40"
-                      >
-                        <MoveDown size={14} />
-                      </button>
-                    </div>
+      <SectionCard title="Routing Graph" description="Drag cards to arrange your visual policy map.">
+        <div
+          ref={canvasRef}
+          className="relative h-[760px] overflow-hidden rounded-2xl border border-slate-200 bg-[radial-gradient(circle_at_12%_18%,rgba(56,189,248,0.14),transparent_32%),radial-gradient(circle_at_88%_82%,rgba(16,185,129,0.10),transparent_30%),linear-gradient(180deg,#f8fafc,#eef2ff)]"
+        >
+          {isLoading ? <LoadingOverlay /> : null}
+          <svg className="absolute inset-0 h-full w-full pointer-events-none">
+            {lineSegments.map((line) => (
+              <line
+                key={line.id}
+                x1={line.x1}
+                y1={line.y1}
+                x2={line.x2}
+                y2={line.y2}
+                stroke={line.color}
+                strokeWidth={2}
+                strokeOpacity={0.65}
+              />
+            ))}
+          </svg>
 
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2 mb-1">
-                        <span className="text-[10px] font-bold tracking-tighter uppercase px-1.5 py-0.5 bg-slate-100 text-slate-600 rounded">
-                          {rule.matchType}
-                        </span>
-                        <h4 className="text-sm font-semibold truncate">{rule.matchExpr}</h4>
-                      </div>
-                      <div className="flex items-center text-xs text-slate-500">
-                        <Network size={12} className="mr-1" />
-                        <span>Outbound:</span>
-                        <span className="ml-1.5 font-semibold text-blue-600 uppercase tracking-wide">{rule.outbound}</span>
-                      </div>
-                    </div>
+          <div className="absolute left-6 top-3 text-[11px] font-semibold uppercase tracking-[0.18em] text-sky-700/70">
+            Domain Groups
+          </div>
+          <div className="absolute left-[390px] top-3 text-[11px] font-semibold uppercase tracking-[0.18em] text-indigo-700/70">
+            Routing Policies
+          </div>
+          <div className="absolute left-[760px] top-3 text-[11px] font-semibold uppercase tracking-[0.18em] text-emerald-700/70">
+            Proxy Groups
+          </div>
 
-                    <div className="flex items-center gap-2 ml-4">
-                      <StatusBadge active={rule.enabled} />
-                      <div className="flex items-center opacity-0 group-hover:opacity-100 transition-opacity">
-                        <button
-                          onClick={() => handleEdit(rule)}
-                          className="p-2 text-slate-400 hover:text-blue-600"
-                        >
-                          <Edit3 size={16} />
-                        </button>
-                        <button
-                          onClick={() => {
-                            if (!window.confirm(`Delete routing policy ${rule.matchExpr}?`)) return;
-                            deleteMutation.mutate(rule.id);
-                          }}
-                          className="p-2 text-slate-400 hover:text-rose-600"
-                        >
-                          <Trash2 size={16} />
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          </SectionCard>
-        </div>
-
-        <div className="space-y-6">
-          <SectionCard title="Traffic Simulator" description="Run real route simulation against current profile JSON.">
-            <div className="space-y-4">
-              <div>
-                <label className="block text-xs font-semibold text-slate-500 mb-1.5 uppercase">Target Domain / IP / URL</label>
-                <input
-                  type="text"
-                  value={target}
-                  onChange={(e) => setTarget(e.target.value)}
-                  placeholder="e.g. connect-api-prod.kuainiu.chat"
-                  className="w-full px-4 py-2 border border-slate-200 rounded-lg text-sm focus:ring-2 focus:ring-blue-500/20"
-                />
-              </div>
-
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-xs font-semibold text-slate-500 mb-1.5 uppercase">Protocol</label>
-                  <select
-                    value={protocol}
-                    onChange={(e) => setProtocol(e.target.value)}
-                    className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm bg-white"
-                  >
-                    {protocolOptions.map((item) => (
-                      <option key={item} value={item}>{item}</option>
-                    ))}
-                  </select>
-                </div>
-                <div>
-                  <label className="block text-xs font-semibold text-slate-500 mb-1.5 uppercase">Port</label>
-                  <input
-                    type="number"
-                    value={port}
-                    onChange={(e) => setPort(e.target.value)}
-                    placeholder="443"
-                    className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm"
-                  />
-                </div>
-              </div>
-
-              <button
-                onClick={handleSimulate}
-                disabled={!target.trim() || simulateMutation.isPending}
-                className="w-full py-2 bg-slate-900 text-white text-sm font-semibold rounded-lg hover:bg-slate-800 transition-colors disabled:opacity-50"
+          {domainGroups.map((group) => {
+            const pos = positions[group.id];
+            if (!pos) return null;
+            return (
+              <div
+                key={group.id}
+                onMouseDown={(e) => startDrag(group.id, e)}
+                className="absolute w-[240px] cursor-grab rounded-2xl border border-sky-200 bg-white/90 p-4 shadow-[0_10px_24px_rgba(14,116,144,0.12)] active:cursor-grabbing"
+                style={{ left: pos.x, top: pos.y }}
               >
-                {simulateMutation.isPending ? 'Simulating...' : 'Run Simulation'}
-              </button>
-
-              {simulateMutation.error ? (
-                <div className="text-xs text-rose-600 bg-rose-50 border border-rose-200 rounded-lg p-3">
-                  {simulateMutation.error instanceof Error ? simulateMutation.error.message : 'Simulation failed'}
+                <div className="flex items-center justify-between">
+                  <h3 className="text-sm font-semibold text-slate-900">{group.name}</h3>
+                  <span className="text-[10px] rounded-full bg-sky-100 px-2 py-0.5 font-semibold text-sky-700">
+                    {group.count} rules
+                  </span>
                 </div>
-              ) : null}
+                <p className="mt-2 text-[11px] text-slate-500">actions: {group.actions || 'mixed'}</p>
+              </div>
+            );
+          })}
 
-              {result ? (
-                <div className="relative mt-4">
-                  <div className="absolute left-[11px] top-2 bottom-2 w-px bg-slate-200"></div>
-                  <div className="space-y-6 relative">
-                    <div className="flex items-start">
-                      <div className="z-10 w-6 h-6 rounded-full bg-blue-100 flex items-center justify-center border-2 border-white shadow-sm">
-                        <Target size={12} className="text-blue-600" />
-                      </div>
-                      <div className="ml-4 pt-0.5">
-                        <p className="text-xs font-bold uppercase text-slate-400">Input</p>
-                        <p className="text-sm font-medium">{result.input.target}</p>
-                        <p className="text-xs text-slate-500">protocol: {result.input.protocol}{result.input.port ? `:${result.input.port}` : ''}</p>
-                      </div>
-                    </div>
-
-                    <div className="flex items-start">
-                      <div className="z-10 w-6 h-6 rounded-full bg-cyan-100 flex items-center justify-center border-2 border-white shadow-sm">
-                        <Search size={12} className="text-cyan-700" />
-                      </div>
-                      <div className="ml-4 pt-0.5">
-                        <p className="text-xs font-bold uppercase text-slate-400">DNS Decision</p>
-                        <p className="text-sm font-medium">server: {result.dns.selectedServer}</p>
-                        {result.dns.matchedRule ? (
-                          <p className="text-xs text-slate-500">matched: {result.dns.matchedRule}</p>
-                        ) : null}
-                      </div>
-                    </div>
-
-                    <div className="flex items-start">
-                      <div className="z-10 w-6 h-6 rounded-full bg-emerald-100 flex items-center justify-center border-2 border-white shadow-sm">
-                        <Server size={12} className="text-emerald-700" />
-                      </div>
-                      <div className="ml-4 pt-0.5 w-full">
-                        <p className="text-xs font-bold uppercase text-slate-400">Matched Rules</p>
-                        {result.route.matchedRules.length === 0 ? (
-                          <p className="text-sm text-slate-500">No explicit rule matched.</p>
-                        ) : (
-                          <div className="space-y-2">
-                            {result.route.matchedRules.map((item) => (
-                              <div key={`${item.index}-${item.summary}`} className="text-xs border border-slate-200 rounded-md p-2 bg-slate-50">
-                                <p className="font-semibold text-slate-700">#{item.index} {item.outbound ? `-> ${item.outbound}` : `action: ${item.action}`}</p>
-                                <p className="text-slate-500 break-all">{item.summary}</p>
-                              </div>
-                            ))}
-                          </div>
-                        )}
-                      </div>
-                    </div>
-
-                    <div className="flex items-start">
-                      <div className="z-10 w-6 h-6 rounded-full bg-amber-100 flex items-center justify-center border-2 border-white shadow-sm">
-                        <Route size={12} className="text-amber-700" />
-                      </div>
-                      <div className="ml-4 pt-0.5">
-                        <p className="text-xs font-bold uppercase text-slate-400">Final Outbound</p>
-                        <p className="text-sm font-bold text-blue-700 uppercase">{result.route.finalOutbound}</p>
-                        {result.route.usedFinalFallback ? (
-                          <p className="text-xs text-slate-500">fallback: route.final</p>
-                        ) : null}
-                      </div>
-                    </div>
+          {policyNodes.map((policy, idx) => {
+            const pos = positions[policy.id];
+            if (!pos) return null;
+            const rule = policy.rule;
+            return (
+              <div
+                key={policy.id}
+                onMouseDown={(e) => startDrag(policy.id, e)}
+                className="absolute w-[280px] cursor-grab rounded-2xl border border-indigo-200 bg-white/92 p-4 shadow-[0_12px_28px_rgba(67,56,202,0.14)] active:cursor-grabbing"
+                style={{ left: pos.x, top: pos.y }}
+              >
+                <div className="flex items-center justify-between gap-2">
+                  <div className="text-xs font-semibold text-indigo-700">#{idx + 1} Policy</div>
+                  <div className="flex items-center gap-1">
+                    <button
+                      onMouseDown={(e) => e.stopPropagation()}
+                      onClick={() => handleEdit(rule)}
+                      className="rounded-md p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-900"
+                    >
+                      <Edit3 size={14} />
+                    </button>
+                    <button
+                      onMouseDown={(e) => e.stopPropagation()}
+                      onClick={() => {
+                        if (!window.confirm(`Delete routing policy ${rule.matchExpr}?`)) return;
+                        deleteMutation.mutate(rule.id);
+                      }}
+                      className="rounded-md p-1.5 text-slate-400 hover:bg-rose-50 hover:text-rose-600"
+                    >
+                      <Trash2 size={14} />
+                    </button>
                   </div>
                 </div>
-              ) : null}
-            </div>
-          </SectionCard>
+                <div className="mt-2 text-sm font-semibold text-slate-900 break-all">{rule.matchExpr || '(empty)'}</div>
+                <div className="mt-2 inline-flex items-center gap-1 rounded-md bg-indigo-50 px-2 py-1 text-[10px] font-semibold uppercase tracking-wide text-indigo-700">
+                  {rule.matchType}
+                </div>
+                <div className="mt-2 flex items-center text-xs text-slate-500">
+                  <Network size={12} className="mr-1" />
+                  outbound: <span className="ml-1 font-semibold text-blue-600">{rule.outbound}</span>
+                </div>
+              </div>
+            );
+          })}
+
+          {proxyNodes.map((proxy) => {
+            const pos = positions[proxy.id];
+            if (!pos) return null;
+            return (
+              <div
+                key={proxy.id}
+                onMouseDown={(e) => startDrag(proxy.id, e)}
+                className="absolute w-[220px] cursor-grab rounded-2xl border border-emerald-200 bg-white/92 p-4 shadow-[0_12px_28px_rgba(16,185,129,0.14)] active:cursor-grabbing"
+                style={{ left: pos.x, top: pos.y }}
+              >
+                <div className="flex items-center justify-between">
+                  <h3 className="text-sm font-semibold text-slate-900">{proxy.name}</h3>
+                  <span className="text-[10px] rounded-full bg-emerald-100 px-2 py-0.5 font-semibold text-emerald-700">
+                    {proxy.type}
+                  </span>
+                </div>
+                <p className="mt-2 text-[11px] text-slate-500">members: {proxy.members}</p>
+              </div>
+            );
+          })}
         </div>
-      </div>
+      </SectionCard>
 
       <RoutingPolicyModal
         isOpen={isPolicyModalOpen}
