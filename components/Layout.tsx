@@ -3,9 +3,7 @@ import React from 'react';
 import { useLocation, Link, useNavigate } from 'react-router-dom';
 import { 
   LayoutDashboard, 
-  Globe, 
   Zap, 
-  Shuffle, 
   Orbit,
   Settings2, 
   Menu, 
@@ -24,7 +22,7 @@ import { buildInfo } from '../utils/build-info';
 
 const navItems = [
   { path: '/', label: 'Dashboard', icon: LayoutDashboard },
-  { path: '/domain-groups', label: 'Policy', icon: Shield },
+  { path: '/policy', label: 'Policy', icon: Shield },
   { path: '/proxies', label: 'Proxies', icon: Zap },
   { path: '/dns-hosts', label: 'DNS', icon: Settings2 },
   { path: '/simulation', label: 'Simulation', icon: Orbit },

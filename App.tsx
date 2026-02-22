@@ -1,6 +1,6 @@
 
 import React from 'react';
-import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
+import { BrowserRouter as Router, Routes, Route, Navigate, useParams } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { AuthProvider, useAuth } from './auth-context';
 import { AppShell } from './components/Layout';
@@ -35,6 +35,12 @@ const AdminRoute: React.FC<{ children: React.ReactElement }> = ({ children }) =>
   return children;
 };
 
+const LegacyDomainGroupDomainsRedirect: React.FC = () => {
+  const params = useParams<{ groupName: string }>();
+  const groupName = params.groupName ? encodeURIComponent(params.groupName) : '';
+  return <Navigate to={groupName ? `/policy/${groupName}/domains` : '/policy'} replace />;
+};
+
 const App: React.FC = () => {
   return (
     <QueryClientProvider client={queryClient}>
@@ -45,8 +51,10 @@ const App: React.FC = () => {
               <Routes>
                 <Route path="/" element={<DashboardPage />} />
                 <Route path="/account" element={<AccountSettingsPage />} />
-                <Route path="/domain-groups" element={<AdminRoute><DomainGroupsPage /></AdminRoute>} />
-                <Route path="/domain-groups/:groupName/domains" element={<AdminRoute><DomainsPage /></AdminRoute>} />
+                <Route path="/policy" element={<AdminRoute><DomainGroupsPage /></AdminRoute>} />
+                <Route path="/policy/:groupName/domains" element={<AdminRoute><DomainsPage /></AdminRoute>} />
+                <Route path="/domain-groups" element={<Navigate to="/policy" replace />} />
+                <Route path="/domain-groups/:groupName/domains" element={<LegacyDomainGroupDomainsRedirect />} />
                 <Route path="/proxies" element={<AdminRoute><ProxiesPage /></AdminRoute>} />
                 <Route path="/routing" element={<AdminRoute><RoutingPage /></AdminRoute>} />
                 <Route path="/simulation" element={<AdminRoute><SimulationPage /></AdminRoute>} />

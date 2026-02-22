@@ -29,7 +29,7 @@ const DomainGroupModal: React.FC<{
       <div className="absolute inset-0 bg-slate-900/35 backdrop-blur-sm" onClick={onClose} />
       <div className="relative w-full max-w-lg bg-white rounded-2xl shadow-2xl border border-slate-100">
         <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100 bg-slate-50/50">
-          <h2 className="text-lg font-bold text-slate-900">{isEdit ? 'Edit Domain Group' : 'Add Domain Group'}</h2>
+          <h2 className="text-lg font-bold text-slate-900">{isEdit ? 'Edit Policy Group' : 'Add Policy Group'}</h2>
           <button onClick={onClose} className="p-2 text-slate-400 hover:bg-slate-100 rounded-full transition-colors">
             <X size={20} />
           </button>
@@ -118,8 +118,8 @@ export const DomainGroupsPage: React.FC = () => {
     <div className="space-y-6">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold tracking-tight">Domain Groups</h1>
-          <p className="text-slate-500">Manage groups, then click a group row to manage its domains.</p>
+          <h1 className="text-2xl font-bold tracking-tight">Policy</h1>
+          <p className="text-slate-500">Manage policy groups, then click a group row to manage domains.</p>
         </div>
         <div className="flex items-center gap-2">
           <button
@@ -130,7 +130,7 @@ export const DomainGroupsPage: React.FC = () => {
             className="inline-flex items-center px-4 py-2 bg-blue-600 text-white text-sm font-semibold rounded-lg hover:bg-blue-700"
           >
             <Plus size={16} className="mr-2" />
-            Add Group
+            Add Policy Group
           </button>
         </div>
       </div>
@@ -166,7 +166,7 @@ export const DomainGroupsPage: React.FC = () => {
                 <tr
                   key={group.id}
                   className="hover:bg-slate-50/50 transition-colors group cursor-pointer"
-                  onClick={() => navigate(`/domain-groups/${encodeURIComponent(group.name)}/domains`)}
+                  onClick={() => navigate(`/policy/${encodeURIComponent(group.name)}/domains`)}
                 >
                   <td className="px-6 py-4 font-medium text-slate-800 flex items-center gap-2">
                     <Shield size={14} className="text-slate-400" />
@@ -221,7 +221,7 @@ export const DomainGroupsPage: React.FC = () => {
         <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
           <div className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm" onClick={() => setDeleteTarget(null)} />
           <div className="relative bg-white rounded-xl shadow-2xl max-w-sm w-full p-6">
-            <h3 className="text-lg font-bold text-center text-slate-900 mb-2">Delete Domain Group?</h3>
+            <h3 className="text-lg font-bold text-center text-slate-900 mb-2">Delete Policy Group?</h3>
             <p className="text-sm text-slate-500 text-center mb-6">
               Group <code className="bg-slate-100 px-1 py-0.5 rounded">{deleteTarget.name}</code> and its routing mapping will be removed.
             </p>

@@ -137,7 +137,7 @@ export const DomainsPage: React.FC = () => {
   const [deleteTarget, setDeleteTarget] = React.useState<string | null>(null);
 
   if (!activeGroup) {
-    return <Navigate to="/domain-groups" replace />;
+    return <Navigate to="/policy" replace />;
   }
 
   const filteredRules = React.useMemo(() => {
@@ -181,26 +181,26 @@ export const DomainsPage: React.FC = () => {
     <div className="space-y-6">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold tracking-tight">Domains · {activeGroup}</h1>
-          <p className="text-slate-500">Manage domain rules in this group.</p>
+          <h1 className="text-2xl font-bold tracking-tight">Policy · {activeGroup}</h1>
+          <p className="text-slate-500">Manage domains in this policy group.</p>
         </div>
         <div className="flex items-center gap-2">
-          <Link to="/domain-groups" className="inline-flex items-center px-3 py-2 border border-slate-200 rounded-lg text-sm text-slate-600 hover:bg-slate-50">
+          <Link to="/policy" className="inline-flex items-center px-3 py-2 border border-slate-200 rounded-lg text-sm text-slate-600 hover:bg-slate-50">
             <Shield size={14} className="mr-1.5" />
-            Back to Groups
+            Back to Policy
           </Link>
           <button
             onClick={openAdd}
             className="inline-flex items-center px-4 py-2 bg-blue-600 text-white text-sm font-semibold rounded-lg hover:bg-blue-700"
           >
             <Plus size={16} className="mr-2" />
-            Add Domain
+            Add Domain Rule
           </button>
         </div>
       </div>
 
       <SectionCard
-        title="Domain Rules"
+        title="Domains"
         actions={
           <div className="relative group">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 group-focus-within:text-blue-500 transition-colors" size={14} />
