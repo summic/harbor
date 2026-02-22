@@ -1,101 +1,10 @@
 import React from 'react';
 import { useMutation } from '@tanstack/react-query';
-import { Target, Search, Server, Route, Shuffle, ArrowRight, Radar } from 'lucide-react';
+import { Target, Search, Server, Route, Shuffle } from 'lucide-react';
 import { mockApi } from '../api';
 import { SectionCard } from '../components/Common';
-import { TrafficSimulationResult } from '../types';
 
 const protocolOptions = ['tcp', 'udp', 'dns', 'icmp', 'stun', 'dtls'];
-
-const pathColor = (outbound: string) => {
-  const value = outbound.toLowerCase();
-  if (value.includes('proxy')) return 'from-blue-500 to-cyan-500';
-  if (value.includes('direct')) return 'from-emerald-500 to-lime-500';
-  if (value.includes('block') || value.includes('reject')) return 'from-rose-500 to-orange-500';
-  return 'from-slate-500 to-slate-400';
-};
-
-const FlowCard: React.FC<{
-  title: string;
-  subtitle: string;
-  badge?: string;
-  tone?: 'default' | 'dns' | 'route' | 'outbound' | 'target';
-}> = ({ title, subtitle, badge, tone = 'default' }) => {
-  const toneClasses: Record<string, string> = {
-    default: 'border-slate-200 bg-white',
-    dns: 'border-cyan-200 bg-cyan-50/40',
-    route: 'border-violet-200 bg-violet-50/40',
-    outbound: 'border-emerald-200 bg-emerald-50/40',
-    target: 'border-blue-200 bg-blue-50/40',
-  };
-  return (
-    <div className={`rounded-xl border p-3 ${toneClasses[tone]}`}>
-      <div className="flex items-center justify-between gap-2">
-        <p className="text-xs font-semibold uppercase tracking-wider text-slate-500">{title}</p>
-        {badge ? <span className="rounded bg-slate-100 px-2 py-0.5 text-[10px] text-slate-600">{badge}</span> : null}
-      </div>
-      <p className="mt-1 text-sm font-semibold text-slate-900 break-all">{subtitle || '-'}</p>
-    </div>
-  );
-};
-
-const FlowGraph: React.FC<{ result: TrafficSimulationResult }> = ({ result }) => {
-  const matchedRule = result.route.matchedRules[0];
-  const finalOutbound = result.route.finalOutbound || 'direct';
-  const outboundGradient = pathColor(finalOutbound);
-  const destination = result.normalized.domain || result.normalized.ip || result.input.target;
-
-  return (
-    <div className="rounded-2xl border border-slate-200 bg-white p-4">
-      <div className="mb-4 flex items-center justify-between">
-        <h3 className="text-sm font-bold text-slate-900 flex items-center gap-2">
-          <Radar size={16} className="text-blue-600" />
-          End-to-End Access Flow
-        </h3>
-        <span className="text-[11px] text-slate-500">First match wins, then fallback to final outbound</span>
-      </div>
-
-      <div className="grid grid-cols-1 md:grid-cols-[1fr_auto_1fr_auto_1fr_auto_1fr_auto_1fr] gap-2 items-center">
-        <FlowCard
-          title="Client Input"
-          subtitle={`${result.input.target}${result.input.port ? `:${result.input.port}` : ''}`}
-          badge={result.input.protocol.toUpperCase()}
-          tone="target"
-        />
-        <ArrowRight size={16} className="text-slate-400 mx-auto" />
-        <FlowCard
-          title="DNS Rule"
-          subtitle={result.dns.matchedRule || 'dns.final fallback'}
-          badge={result.dns.selectedServer}
-          tone="dns"
-        />
-        <ArrowRight size={16} className="text-slate-400 mx-auto" />
-        <FlowCard
-          title="Routing Rule"
-          subtitle={matchedRule ? `#${matchedRule.index} ${matchedRule.summary}` : 'no explicit rule matched'}
-          badge={matchedRule?.outbound || matchedRule?.action || 'route.final'}
-          tone="route"
-        />
-        <ArrowRight size={16} className="text-slate-400 mx-auto" />
-        <FlowCard
-          title="Outbound Path"
-          subtitle={finalOutbound}
-          badge={result.route.usedFinalFallback ? 'fallback' : 'matched'}
-          tone="outbound"
-        />
-        <ArrowRight size={16} className="text-slate-400 mx-auto" />
-        <FlowCard
-          title="Remote Site"
-          subtitle={destination}
-          badge={result.normalized.ip ? `ip: ${result.normalized.ip}` : 'domain'}
-          tone="target"
-        />
-      </div>
-
-      <div className={`mt-4 h-2 rounded-full bg-gradient-to-r ${outboundGradient}`} />
-    </div>
-  );
-};
 
 export const SimulationPage: React.FC = () => {
   const [target, setTarget] = React.useState('connect-api-prod.kuainiu.chat');
@@ -184,8 +93,6 @@ export const SimulationPage: React.FC = () => {
               </div>
             ) : (
               <div className="space-y-4">
-                <FlowGraph result={result} />
-
                 <div className="relative rounded-2xl border border-slate-200 bg-white p-4">
                   <div className="absolute left-[22px] top-12 bottom-6 w-px bg-slate-200"></div>
                   <div className="space-y-6 relative">
