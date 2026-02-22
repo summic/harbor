@@ -185,6 +185,16 @@ export interface DashboardSummary {
   }>;
 }
 
+export interface FailedDomainSummary {
+  domain: string;
+  failures: number;
+  requests: number;
+  successRate: number;
+  lastError: string | null;
+  lastSeen: string;
+  outboundType: string;
+}
+
 export interface AccessLogSummary {
   totalRequests: number;
   successRate: number; // percentage

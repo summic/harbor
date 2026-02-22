@@ -20,6 +20,7 @@ const USERS_PATH = '/api/v1/users';
 const CLIENT_CONNECT_REPORT_PATH = '/api/v1/client/connect';
 const CLIENT_CONNECTIONS_REPORT_PATH = '/api/v1/client/connections';
 const DASHBOARD_PATH = '/api/v1/dashboard';
+const FAILED_DOMAINS_PATH = '/api/v1/failures/domains';
 const QUALITY_OBSERVABILITY_V1_PATH = '/api/v1/quality/observability';
 const QUALITY_OBSERVABILITY_PATH = '/api/quality/observability';
 const HEALTH_PATH = '/api/v1/health';
@@ -647,6 +648,20 @@ const subscriptionHandler = async (req: IncomingMessage, res: ServerResponse, ne
 
   if (url.pathname === DASHBOARD_PATH && req.method === 'GET') {
     sendJson(res, 200, STORE.getDashboardSummary());
+    return;
+  }
+
+  if (url.pathname === FAILED_DOMAINS_PATH && req.method === 'GET') {
+    const window = url.searchParams.get('window') ?? undefined;
+    const limitRaw = Number(url.searchParams.get('limit') ?? '20');
+    sendJson(
+      res,
+      200,
+      STORE.listFailedDomains({
+        window,
+        limit: Number.isFinite(limitRaw) ? limitRaw : 20,
+      }),
+    );
     return;
   }
 

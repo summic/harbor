@@ -1,6 +1,6 @@
 import React, { useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { Users, Zap, GitCommit, Activity, Globe, AlertTriangle } from 'lucide-react';
+import { Users, Zap, GitCommit, Activity, Globe, AlertTriangle, XCircle } from 'lucide-react';
 import { SectionCard, LoadingOverlay } from '../components/Common';
 import { mockApi, qualityApi } from '../api';
 import { standardizeFailureReason } from '../utils/quality';
@@ -120,6 +120,11 @@ export const DashboardPage: React.FC = () => {
   const { data: qualityData } = useQuery({
     queryKey: ['dashboard-quality-observability', '24h', 10],
     queryFn: () => qualityApi.getObservability({ window: '24h', topN: 10, bucket: '1h' }),
+    refetchInterval: 30_000,
+  });
+  const { data: failedDomains = [] } = useQuery({
+    queryKey: ['dashboard-failed-domains', '24h', 12],
+    queryFn: () => mockApi.getFailedDomains({ window: '24h', limit: 12 }),
     refetchInterval: 30_000,
   });
 
@@ -270,35 +275,66 @@ export const DashboardPage: React.FC = () => {
             </SectionCard>
           </div>
           <div className="lg:col-span-1">
-            <SectionCard
-              title="Proxy Failures"
-              description="连接失败原因标准化统计"
-              actions={<AlertTriangle size={16} className="text-slate-400" />}
-            >
-              <div className="space-y-3">
-                {(qualityData?.failureReasons ?? []).slice(0, 6).map((item, index) => {
-                  const standardized = standardizeFailureReason(item.code);
-                  const ratio = proxyFailureTotal > 0 ? (item.count / proxyFailureTotal) * 100 : 0;
-                  return (
-                    <div key={`${item.code}-${index}`} className="rounded-lg border border-slate-200 px-3 py-2">
-                      <div className="flex items-center justify-between gap-3">
-                        <div>
-                          <p className="text-sm font-semibold text-slate-800">{standardized.label}</p>
-                          <p className="text-[10px] uppercase tracking-wider text-slate-400">{standardized.code}</p>
+            <div className="space-y-6">
+              <SectionCard
+                title="Proxy Failures"
+                description="连接失败原因标准化统计"
+                actions={<AlertTriangle size={16} className="text-slate-400" />}
+              >
+                <div className="space-y-3">
+                  {(qualityData?.failureReasons ?? []).slice(0, 6).map((item, index) => {
+                    const standardized = standardizeFailureReason(item.code);
+                    const ratio = proxyFailureTotal > 0 ? (item.count / proxyFailureTotal) * 100 : 0;
+                    return (
+                      <div key={`${item.code}-${index}`} className="rounded-lg border border-slate-200 px-3 py-2">
+                        <div className="flex items-center justify-between gap-3">
+                          <div>
+                            <p className="text-sm font-semibold text-slate-800">{standardized.label}</p>
+                            <p className="text-[10px] uppercase tracking-wider text-slate-400">{standardized.code}</p>
+                          </div>
+                          <div className="text-right">
+                            <p className="text-sm font-bold text-slate-900 tabular-nums">{item.count.toLocaleString()}</p>
+                            <p className="text-xs text-slate-500 tabular-nums">{ratio.toFixed(1)}%</p>
+                          </div>
                         </div>
-                        <div className="text-right">
-                          <p className="text-sm font-bold text-slate-900 tabular-nums">{item.count.toLocaleString()}</p>
-                          <p className="text-xs text-slate-500 tabular-nums">{ratio.toFixed(1)}%</p>
+                      </div>
+                    );
+                  })}
+                  {(qualityData?.failureReasons ?? []).length === 0 ? (
+                    <p className="text-xs text-slate-400">No failure reasons yet</p>
+                  ) : null}
+                </div>
+              </SectionCard>
+
+              <SectionCard
+                title="Failed Domains"
+                description="最近 24h 请求失败域名聚合"
+                actions={<XCircle size={16} className="text-slate-400" />}
+              >
+                <div className="space-y-2">
+                  {failedDomains.slice(0, 8).map((item, index) => (
+                    <div key={`${item.domain}-${index}`} className="rounded-lg border border-slate-200 px-3 py-2">
+                      <div className="flex items-start justify-between gap-3">
+                        <div className="min-w-0">
+                          <p className="text-sm font-semibold text-slate-800 truncate">{item.domain}</p>
+                          <p className="text-[11px] text-slate-500 truncate">{item.lastError || 'unknown error'}</p>
+                          <p className="text-[10px] uppercase tracking-wider text-slate-400 mt-1">
+                            {outboundToPathLabel(item.outboundType)} · success {item.successRate.toFixed(1)}%
+                          </p>
+                        </div>
+                        <div className="text-right shrink-0">
+                          <p className="text-sm font-bold text-rose-600 tabular-nums">{item.failures.toLocaleString()}</p>
+                          <p className="text-[10px] text-slate-400 tabular-nums">/ {item.requests.toLocaleString()}</p>
                         </div>
                       </div>
                     </div>
-                  );
-                })}
-                {(qualityData?.failureReasons ?? []).length === 0 ? (
-                  <p className="text-xs text-slate-400">No failure reasons yet</p>
-                ) : null}
-              </div>
-            </SectionCard>
+                  ))}
+                  {failedDomains.length === 0 ? (
+                    <p className="text-xs text-slate-400">No failed domains in last 24h</p>
+                  ) : null}
+                </div>
+              </SectionCard>
+            </div>
           </div>
         </div>
       </div>

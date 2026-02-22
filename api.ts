@@ -1,5 +1,5 @@
 
-import { DomainRule, DomainGroup, ProxyNode, ProxyGroup, RoutingRule, DnsUpstream, HostsEntry, ConfigVersion, UnifiedProfile, User, ProtocolType, TrafficSimulationResult, ClientDeviceReportPayload, ClientConnectionReportPayload, UserTargetAggregate, UserTargetDetail, UserProfileAudit, DashboardSummary, CoreSettings } from './types';
+import { DomainRule, DomainGroup, ProxyNode, ProxyGroup, RoutingRule, DnsUpstream, HostsEntry, ConfigVersion, UnifiedProfile, User, ProtocolType, TrafficSimulationResult, ClientDeviceReportPayload, ClientConnectionReportPayload, UserTargetAggregate, UserTargetDetail, UserProfileAudit, DashboardSummary, CoreSettings, FailedDomainSummary } from './types';
 import { QualityObservability, normalizeObservabilityResponse } from './utils/quality';
 import { loadSession } from './auth';
 
@@ -20,6 +20,7 @@ const USERS_PATH = '/api/v1/users';
 const CLIENT_CONNECT_REPORT_PATH = '/api/v1/client/connect';
 const CLIENT_CONNECTIONS_REPORT_PATH = '/api/v1/client/connections';
 const DASHBOARD_PATH = '/api/v1/dashboard';
+const FAILED_DOMAINS_PATH = '/api/v1/failures/domains';
 const userTargetsPath = (id: string) => `${USERS_PATH}/${encodeURIComponent(id)}/targets`;
 const userTargetDetailPath = (id: string, target: string) =>
   `${USERS_PATH}/${encodeURIComponent(id)}/targets/${encodeURIComponent(target)}`;
@@ -1895,6 +1896,15 @@ export const mockApi = {
         auditLogs: [],
       };
     }
+  },
+
+  getFailedDomains: async (input?: { window?: string; limit?: number }): Promise<FailedDomainSummary[]> => {
+    await sleep(100);
+    const params = new URLSearchParams();
+    if (input?.window) params.set('window', input.window);
+    if (Number.isFinite(input?.limit as number)) params.set('limit', String(Math.trunc(input?.limit as number)));
+    const query = params.toString();
+    return fetchJson<FailedDomainSummary[]>(`${FAILED_DOMAINS_PATH}${query ? `?${query}` : ''}`);
   },
 
   getUser: async (id: string): Promise<User | undefined> => {

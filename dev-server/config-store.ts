@@ -185,6 +185,16 @@ export type DashboardSummaryItem = {
   }>;
 };
 
+export type FailedDomainItem = {
+  domain: string;
+  failures: number;
+  requests: number;
+  successRate: number;
+  lastError: string | null;
+  lastSeen: string;
+  outboundType: string;
+};
+
 type QualityObservabilityPoint = {
   timestamp: string;
   total: number;
@@ -1448,6 +1458,20 @@ export class ConfigStore {
     return type || 'unknown';
   }
 
+  private normalizeTargetDomain(target: string | null | undefined): string {
+    const raw = (target || '').trim();
+    if (!raw) return '(unknown)';
+    const candidate = raw.includes('://') ? raw : `https://${raw}`;
+    try {
+      const url = new URL(candidate);
+      return (url.hostname || raw).toLowerCase();
+    } catch {
+      const first = raw.split('/')[0];
+      const hostPort = first.startsWith('[') ? first : first.split(':')[0];
+      return (hostPort || raw).toLowerCase();
+    }
+  }
+
   private isBlockedOutbound(outboundType: string): boolean {
     return outboundType === 'block' || outboundType === 'reject';
   }
@@ -1642,6 +1666,89 @@ export class ConfigStore {
       topDomains,
       failureReasons,
     };
+  }
+
+  listFailedDomains(input: { window?: string; limit?: number }): FailedDomainItem[] {
+    const windowMs = this.parseDurationToMs(input.window, 24 * 60 * 60 * 1000);
+    const sinceIso = new Date(Date.now() - windowMs).toISOString();
+    const limit = Number.isFinite(input.limit) ? Math.max(1, Math.min(100, Math.trunc(input.limit || 20))) : 20;
+
+    const rows = this.db
+      .prepare(
+        `SELECT
+           target,
+           COALESCE(outbound_type, json_extract(metadata_json, '$.outbound_type'), '') AS outbound_type,
+           error_message,
+           request_count,
+           success_count,
+           occurred_at
+         FROM client_connect_logs
+         WHERE occurred_at >= ?
+         ORDER BY occurred_at DESC`,
+      )
+      .all(sinceIso) as Array<{
+      target: string | null;
+      outbound_type: string | null;
+      error_message: string | null;
+      request_count: number | null;
+      success_count: number | null;
+      occurred_at: string;
+    }>;
+
+    const aggregate = new Map<string, {
+      failures: number;
+      requests: number;
+      success: number;
+      lastError: string | null;
+      lastSeen: string;
+      outboundType: string;
+    }>();
+
+    for (const row of rows) {
+      const requestCount = Number(row.request_count || 0) > 0 ? Number(row.request_count || 0) : 1;
+      const successCount = Number(row.success_count || 0) > 0
+        ? Math.min(Number(row.success_count || 0), requestCount)
+        : row.error_message?.trim()
+          ? 0
+          : requestCount;
+      const failCount = Math.max(0, requestCount - successCount, row.error_message?.trim() ? 1 : 0);
+      if (failCount <= 0) continue;
+
+      const domain = this.normalizeTargetDomain(row.target);
+      const outboundType = this.normalizeOutboundType(row.outbound_type);
+      const existing = aggregate.get(domain) ?? {
+        failures: 0,
+        requests: 0,
+        success: 0,
+        lastError: null,
+        lastSeen: row.occurred_at,
+        outboundType,
+      };
+      existing.failures += failCount;
+      existing.requests += requestCount;
+      existing.success += successCount;
+      if (row.error_message?.trim() && !existing.lastError) {
+        existing.lastError = row.error_message.trim();
+      }
+      if (row.occurred_at > existing.lastSeen) {
+        existing.lastSeen = row.occurred_at;
+      }
+      existing.outboundType = outboundType;
+      aggregate.set(domain, existing);
+    }
+
+    return [...aggregate.entries()]
+      .sort((a, b) => b[1].failures - a[1].failures || b[1].requests - a[1].requests || a[0].localeCompare(b[0]))
+      .slice(0, limit)
+      .map(([domain, item]) => ({
+        domain,
+        failures: item.failures,
+        requests: item.requests,
+        successRate: item.requests > 0 ? Number(((item.success / item.requests) * 100).toFixed(2)) : 0,
+        lastError: item.lastError,
+        lastSeen: item.lastSeen,
+        outboundType: item.outboundType,
+      }));
   }
 
   getDashboardSummary(): DashboardSummaryItem {
