@@ -211,104 +211,6 @@ export const RoutingPage: React.FC = () => {
     [proxyGroups],
   );
 
-  const DOMAIN_X = 24;
-  const POLICY_X = 390;
-  const PROXY_X = 760;
-  const DOMAIN_Y_START = 40;
-  const POLICY_Y_START = 40;
-  const PROXY_Y_START = 40;
-  const DOMAIN_GAP = 96;
-  const POLICY_GAP = 110;
-  const PROXY_GAP = 96;
-
-  const domainIndex = React.useMemo(
-    () =>
-      new Map(
-        domainGroups.map((item, index) => [item.id, index] as const),
-      ),
-    [domainGroups],
-  );
-  const policyIndex = React.useMemo(
-    () =>
-      new Map(
-        policyNodes.map((item, index) => [item.id, index] as const),
-      ),
-    [policyNodes],
-  );
-  const proxyIndex = React.useMemo(
-    () =>
-      new Map(
-        proxyNodes.map((item, index) => [item.id, index] as const),
-      ),
-    [proxyNodes],
-  );
-
-  const parseMatchValues = (value: string) =>
-    value
-      .split(',')
-      .map((item) => item.trim())
-      .filter(Boolean);
-
-  const isPolicyMatchDomainGroup = (rule: RoutingRule, groupName: string): boolean => {
-    if (rule.matchType !== 'rule_set' && rule.matchType !== 'domain') return false;
-    const list = parseMatchValues(rule.matchExpr);
-    return list.includes(groupName);
-  };
-
-  const lineSegments = React.useMemo(() => {
-    const lines: Array<{ id: string; x1: number; y1: number; x2: number; y2: number; color: string }> = [];
-    const domainCenter = (id: string) => {
-      const index = domainIndex.get(id);
-      if (index === undefined) return null;
-      return { x: DOMAIN_X + 240, y: DOMAIN_Y_START + index * DOMAIN_GAP + 34 };
-    };
-    const policyCenter = (id: string) => {
-      const index = policyIndex.get(id);
-      if (index === undefined) return null;
-      return { x: POLICY_X + 280, y: POLICY_Y_START + index * POLICY_GAP + 44 };
-    };
-    const proxyCenter = (id: string) => {
-      const index = proxyIndex.get(id);
-      if (index === undefined) return null;
-      return { x: PROXY_X, y: PROXY_Y_START + index * PROXY_GAP + 34 };
-    };
-
-    for (const domain of domainGroups) {
-      for (const policy of policyNodes) {
-        if (!isPolicyMatchDomainGroup(policy.rule, domain.name)) continue;
-        const from = domainCenter(domain.id);
-        const to = policyCenter(policy.id);
-        if (!from || !to) continue;
-        lines.push({
-          id: `${domain.id}->${policy.id}`,
-          x1: from.x,
-          y1: from.y,
-          x2: to.x,
-          y2: to.y,
-          color: '#7dd3fc',
-        });
-      }
-    }
-
-    for (const policy of policyNodes) {
-      for (const proxy of proxyNodes) {
-        if (policy.rule.outbound !== proxy.name) continue;
-        const from = policyCenter(policy.id);
-        const to = proxyCenter(proxy.id);
-        if (!from || !to) continue;
-        lines.push({
-          id: `${policy.id}->${proxy.id}`,
-          x1: from.x,
-          y1: from.y,
-          x2: to.x,
-          y2: to.y,
-          color: '#34d399',
-        });
-      }
-    }
-    return lines;
-  }, [domainGroups, policyNodes, proxyNodes, domainIndex, policyIndex, proxyIndex]);
-
   const handleAdd = () => {
     setEditingPolicy(null);
     setIsPolicyModalOpen(true);
@@ -346,45 +248,12 @@ export const RoutingPage: React.FC = () => {
         </button>
       </div>
 
-      <SectionCard title="Routing Graph" description="Visual routing map with inline editable policies.">
-        <div
-          className="relative h-[760px] overflow-hidden rounded-2xl border border-slate-200 bg-[radial-gradient(circle_at_12%_18%,rgba(56,189,248,0.14),transparent_32%),radial-gradient(circle_at_88%_82%,rgba(16,185,129,0.10),transparent_30%),linear-gradient(180deg,#f8fafc,#eef2ff)]"
-        >
-          {isLoading ? <LoadingOverlay /> : null}
-          <svg className="absolute inset-0 h-full w-full pointer-events-none">
-            {lineSegments.map((line) => (
-              <line
-                key={line.id}
-                x1={line.x1}
-                y1={line.y1}
-                x2={line.x2}
-                y2={line.y2}
-                stroke={line.color}
-                strokeWidth={2}
-                strokeOpacity={0.65}
-              />
-            ))}
-          </svg>
-
-          <div className="absolute left-6 top-3 text-[11px] font-semibold uppercase tracking-[0.18em] text-sky-700/70">
-            Domain Groups
-          </div>
-          <div className="absolute left-[390px] top-3 text-[11px] font-semibold uppercase tracking-[0.18em] text-indigo-700/70">
-            Routing Policies
-          </div>
-          <div className="absolute left-[760px] top-3 text-[11px] font-semibold uppercase tracking-[0.18em] text-emerald-700/70">
-            Proxy Groups
-          </div>
-
-          {domainGroups.map((group) => {
-            const index = domainIndex.get(group.id);
-            if (index === undefined) return null;
-            return (
-              <div
-                key={group.id}
-                className="absolute w-[240px] rounded-2xl border border-sky-200 bg-white/90 p-4 shadow-[0_10px_24px_rgba(14,116,144,0.12)]"
-                style={{ left: DOMAIN_X, top: DOMAIN_Y_START + index * DOMAIN_GAP }}
-              >
+      <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
+        <SectionCard title="Domain Groups" description="Domain rules grouped by tag.">
+          <div className="space-y-3 max-h-[640px] overflow-y-auto pr-1">
+            {isLoading ? <LoadingOverlay /> : null}
+            {domainGroups.map((group) => (
+              <div key={group.id} className="rounded-xl border border-sky-200 bg-sky-50/40 p-4">
                 <div className="flex items-center justify-between">
                   <h3 className="text-sm font-semibold text-slate-900">{group.name}</h3>
                   <span className="text-[10px] rounded-full bg-sky-100 px-2 py-0.5 font-semibold text-sky-700">
@@ -393,60 +262,60 @@ export const RoutingPage: React.FC = () => {
                 </div>
                 <p className="mt-2 text-[11px] text-slate-500">actions: {group.actions || 'mixed'}</p>
               </div>
-            );
-          })}
+            ))}
+            {domainGroups.length === 0 ? (
+              <p className="text-xs text-slate-400">No domain groups.</p>
+            ) : null}
+          </div>
+        </SectionCard>
 
-          {policyNodes.map((policy, idx) => {
-            const index = policyIndex.get(policy.id);
-            if (index === undefined) return null;
-            const rule = policy.rule;
-            return (
-              <div
-                key={policy.id}
-                className="absolute w-[280px] rounded-2xl border border-indigo-200 bg-white/92 p-4 shadow-[0_12px_28px_rgba(67,56,202,0.14)]"
-                style={{ left: POLICY_X, top: POLICY_Y_START + index * POLICY_GAP }}
-              >
-                <div className="flex items-center justify-between gap-2">
-                  <div className="text-xs font-semibold text-indigo-700">#{idx + 1} Policy</div>
-                  <div className="flex items-center gap-1">
-                    <button
-                      onClick={() => handleEdit(rule)}
-                      className="rounded-md p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-900"
-                    >
-                      <Edit3 size={14} />
-                    </button>
-                    <button
-                      onClick={() => {
-                        if (!window.confirm(`Delete routing policy ${rule.matchExpr}?`)) return;
-                        deleteMutation.mutate(rule.id);
-                      }}
-                      className="rounded-md p-1.5 text-slate-400 hover:bg-rose-50 hover:text-rose-600"
-                    >
-                      <Trash2 size={14} />
-                    </button>
+        <SectionCard title="Routing Policies" description="Editable policy cards in execution order.">
+          <div className="space-y-3 max-h-[640px] overflow-y-auto pr-1">
+            {policyNodes.map((policy, idx) => {
+              const rule = policy.rule;
+              return (
+                <div key={policy.id} className="rounded-xl border border-indigo-200 bg-indigo-50/40 p-4">
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="text-xs font-semibold text-indigo-700">#{idx + 1} Policy</div>
+                    <div className="flex items-center gap-1">
+                      <button
+                        onClick={() => handleEdit(rule)}
+                        className="rounded-md p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-900"
+                      >
+                        <Edit3 size={14} />
+                      </button>
+                      <button
+                        onClick={() => {
+                          if (!window.confirm(`Delete routing policy ${rule.matchExpr}?`)) return;
+                          deleteMutation.mutate(rule.id);
+                        }}
+                        className="rounded-md p-1.5 text-slate-400 hover:bg-rose-50 hover:text-rose-600"
+                      >
+                        <Trash2 size={14} />
+                      </button>
+                    </div>
+                  </div>
+                  <div className="mt-2 text-sm font-semibold text-slate-900 break-all">{rule.matchExpr || '(empty)'}</div>
+                  <div className="mt-2 inline-flex items-center gap-1 rounded-md bg-indigo-100 px-2 py-1 text-[10px] font-semibold uppercase tracking-wide text-indigo-700">
+                    {rule.matchType}
+                  </div>
+                  <div className="mt-2 flex items-center text-xs text-slate-500">
+                    <Network size={12} className="mr-1" />
+                    outbound: <span className="ml-1 font-semibold text-blue-600">{rule.outbound}</span>
                   </div>
                 </div>
-                <div className="mt-2 text-sm font-semibold text-slate-900 break-all">{rule.matchExpr || '(empty)'}</div>
-                <div className="mt-2 inline-flex items-center gap-1 rounded-md bg-indigo-50 px-2 py-1 text-[10px] font-semibold uppercase tracking-wide text-indigo-700">
-                  {rule.matchType}
-                </div>
-                <div className="mt-2 flex items-center text-xs text-slate-500">
-                  <Network size={12} className="mr-1" />
-                  outbound: <span className="ml-1 font-semibold text-blue-600">{rule.outbound}</span>
-                </div>
-              </div>
-            );
-          })}
+              );
+            })}
+            {policyNodes.length === 0 ? (
+              <p className="text-xs text-slate-400">No routing policies.</p>
+            ) : null}
+          </div>
+        </SectionCard>
 
-          {proxyNodes.map((proxy) => {
-            const index = proxyIndex.get(proxy.id);
-            if (index === undefined) return null;
-            return (
-              <div
-                key={proxy.id}
-                className="absolute w-[220px] rounded-2xl border border-emerald-200 bg-white/92 p-4 shadow-[0_12px_28px_rgba(16,185,129,0.14)]"
-                style={{ left: PROXY_X, top: PROXY_Y_START + index * PROXY_GAP }}
-              >
+        <SectionCard title="Proxy Groups" description="Available proxy groups for outbound mapping.">
+          <div className="space-y-3 max-h-[640px] overflow-y-auto pr-1">
+            {proxyNodes.map((proxy) => (
+              <div key={proxy.id} className="rounded-xl border border-emerald-200 bg-emerald-50/40 p-4">
                 <div className="flex items-center justify-between">
                   <h3 className="text-sm font-semibold text-slate-900">{proxy.name}</h3>
                   <span className="text-[10px] rounded-full bg-emerald-100 px-2 py-0.5 font-semibold text-emerald-700">
@@ -455,10 +324,13 @@ export const RoutingPage: React.FC = () => {
                 </div>
                 <p className="mt-2 text-[11px] text-slate-500">members: {proxy.members}</p>
               </div>
-            );
-          })}
-        </div>
-      </SectionCard>
+            ))}
+            {proxyNodes.length === 0 ? (
+              <p className="text-xs text-slate-400">No proxy groups.</p>
+            ) : null}
+          </div>
+        </SectionCard>
+      </div>
 
       <RoutingPolicyModal
         isOpen={isPolicyModalOpen}
