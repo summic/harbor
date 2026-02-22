@@ -1,5 +1,5 @@
 
-import { DomainRule, ProxyNode, ProxyGroup, RoutingRule, DnsUpstream, HostsEntry, ConfigVersion, UnifiedProfile, User, ProtocolType, TrafficSimulationResult, ClientDeviceReportPayload, ClientConnectionReportPayload, UserTargetAggregate, UserTargetDetail } from './types';
+import { DomainRule, ProxyNode, ProxyGroup, RoutingRule, DnsUpstream, HostsEntry, ConfigVersion, UnifiedProfile, User, ProtocolType, TrafficSimulationResult, ClientDeviceReportPayload, ClientConnectionReportPayload, UserTargetAggregate, UserTargetDetail, UserProfileAudit } from './types';
 import { QualityObservability, normalizeObservabilityResponse } from './utils/quality';
 import { loadSession } from './auth';
 
@@ -1501,6 +1501,11 @@ export const mockApi = {
   getEffectiveUnifiedProfile: async (): Promise<UnifiedProfile> => {
     await sleep(180);
     return fetchJson<UnifiedProfile>('/api/v1/client/profile?scope=effective');
+  },
+
+  getMyProfileAudits: async (limit = 20): Promise<UserProfileAudit[]> => {
+    await sleep(120);
+    return fetchJson<UserProfileAudit[]>(`/api/v1/client/profile/audits?limit=${Math.max(1, Math.min(100, limit))}`);
   },
 
   saveUnifiedProfile: async (payload: { content: string; publicUrl?: string }): Promise<UnifiedProfile> => {

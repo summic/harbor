@@ -21,11 +21,18 @@ export const AccountSettingsPage: React.FC = () => {
   const [profileLoading, setProfileLoading] = React.useState(false);
   const [profileMessage, setProfileMessage] = React.useState<string | null>(null);
   const [profileError, setProfileError] = React.useState<string | null>(null);
+  const [profileAudits, setProfileAudits] = React.useState<Array<{
+    id: number;
+    timestamp: string;
+    summary: string;
+    contentSize: number;
+  }>>([]);
   const [domainSuffixText, setDomainSuffixText] = React.useState('');
   const [domainOutbound, setDomainOutbound] = React.useState<'proxy' | 'direct' | 'block'>('proxy');
   const [dnsHostsText, setDnsHostsText] = React.useState('');
 
   const prettify = (value: unknown) => JSON.stringify(value, null, 2);
+  const formatSize = (bytes: number) => `${(bytes / 1024).toFixed(1)} KB`;
 
   const parseProfile = React.useCallback((content: string) => {
     try {
@@ -137,10 +144,12 @@ export const AccountSettingsPage: React.FC = () => {
         mockApi.getMyUnifiedProfile(),
         mockApi.getEffectiveUnifiedProfile(),
       ]);
+      const audits = await mockApi.getMyProfileAudits(20);
       const myContent = myProfile.content || '{}';
       setProfileContent(myContent);
       hydrateVisualEditors(myContent);
       setEffectiveContent(effective.content || '{}');
+      setProfileAudits(audits);
     } catch (e) {
       setProfileError(e instanceof Error ? e.message : 'Failed to load profile.');
     } finally {
@@ -182,8 +191,12 @@ export const AccountSettingsPage: React.FC = () => {
       setProfileMessage(null);
       JSON.parse(profileContent);
       await mockApi.saveMyUnifiedProfile({ content: profileContent });
-      const effective = await mockApi.getEffectiveUnifiedProfile();
+      const [effective, audits] = await Promise.all([
+        mockApi.getEffectiveUnifiedProfile(),
+        mockApi.getMyProfileAudits(20),
+      ]);
       setEffectiveContent(effective.content || '{}');
+      setProfileAudits(audits);
       setProfileMessage('Personal profile saved.');
     } catch (e) {
       setProfileError(e instanceof Error ? e.message : 'Failed to save personal profile.');
@@ -330,6 +343,24 @@ export const AccountSettingsPage: React.FC = () => {
             <Save size={16} />
             {profileSaving ? 'Saving...' : 'Save Personal Config'}
           </button>
+        </div>
+
+        <div className="mt-6">
+          <h3 className="text-xs font-semibold text-slate-600 mb-2">Change Timeline</h3>
+          <div className="border border-slate-200 rounded-lg divide-y divide-slate-100">
+            {profileAudits.map((item) => (
+              <div key={item.id} className="px-3 py-2 text-xs flex items-center justify-between gap-3">
+                <div>
+                  <div className="font-semibold text-slate-700">{item.summary}</div>
+                  <div className="text-slate-500">{item.timestamp}</div>
+                </div>
+                <div className="text-slate-500 tabular-nums">{formatSize(item.contentSize)}</div>
+              </div>
+            ))}
+            {profileAudits.length === 0 && (
+              <div className="px-3 py-4 text-xs text-slate-400 text-center">No personal profile changes yet</div>
+            )}
+          </div>
         </div>
       </section>
     </div>

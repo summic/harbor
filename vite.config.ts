@@ -20,6 +20,7 @@ const USERS_PATH = '/api/v1/users';
 const CLIENT_CONNECT_REPORT_PATH = '/api/v1/client/connect';
 const CLIENT_CONNECTIONS_REPORT_PATH = '/api/v1/client/connections';
 const HEALTH_PATH = '/api/v1/health';
+const PROFILE_AUDITS_PATH = '/api/v1/client/profile/audits';
 const ADMIN_SUB = 'deeed4b7-748b-4301-8c9e-dfe0893a80cf';
 const SUBSCRIBE_TOKEN_COMPAT =
   (process.env.SAIL_SUBSCRIBE_TOKEN_COMPAT || '').trim().toLowerCase() === 'true';
@@ -227,6 +228,32 @@ const subscriptionHandler = async (req: IncomingMessage, res: ServerResponse, ne
       service: 'harbor',
       time: new Date().toISOString(),
     });
+    return;
+  }
+
+  if (url.pathname === PROFILE_AUDITS_PATH && req.method === 'GET') {
+    const accessToken = extractBearerToken(req);
+    if (!accessToken) {
+      sendProblem(res, 401, {
+        title: 'Authentication failed',
+        detail: 'Bearer token is required',
+        instance: url.pathname,
+        code: 'missing_bearer_token',
+      });
+      return;
+    }
+    const authInfo = await fetchAuthInfo(accessToken);
+    if (!authInfo?.sub) {
+      sendProblem(res, 401, {
+        title: 'Authentication failed',
+        detail: 'Invalid access token',
+        instance: url.pathname,
+        code: 'invalid_access_token',
+      });
+      return;
+    }
+    const limit = Number(url.searchParams.get('limit') ?? '20');
+    sendJson(res, 200, STORE.listUserProfileAudits(authInfo.sub, limit));
     return;
   }
 

@@ -182,6 +182,13 @@ export interface User {
   created: string;
 }
 
+export interface UserProfileAudit {
+  id: number;
+  timestamp: string;
+  summary: string;
+  contentSize: number;
+}
+
 export interface ClientDeviceReport {
   id: string;
   name?: string;

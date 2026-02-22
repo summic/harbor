@@ -121,6 +121,13 @@ export type ClientConnectionLogInput = {
   metadata?: Record<string, unknown>;
 };
 
+export type UserProfileAuditItem = {
+  id: number;
+  timestamp: string;
+  summary: string;
+  contentSize: number;
+};
+
 export type UserTargetAggregateItem = {
   target: string;
   requests: number;
@@ -242,6 +249,7 @@ export class ConfigStore {
   private runMigrations() {
     this.migrateClientConnectTelemetryV1();
     this.migrateClientConnectTelemetryV2();
+    this.migrateUserProfileAuditsV1();
     this.migrateImportSingboxConfigFromFile();
   }
 
@@ -303,6 +311,23 @@ export class ConfigStore {
     if (!names.has('outbound_type')) {
       this.db.exec(`ALTER TABLE client_connect_logs ADD COLUMN outbound_type TEXT`);
     }
+    this.markMigrationApplied(migrationId);
+  }
+
+  private migrateUserProfileAuditsV1() {
+    const migrationId = '20260222_user_profile_audits_v1';
+    if (this.isMigrationApplied(migrationId)) return;
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS user_profile_audits (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        user_id TEXT NOT NULL,
+        timestamp TEXT NOT NULL,
+        summary TEXT NOT NULL,
+        content_size INTEGER NOT NULL DEFAULT 0
+      );
+      CREATE INDEX IF NOT EXISTS idx_user_profile_audits_user_time
+        ON user_profile_audits(user_id, id DESC);
+    `);
     this.markMigrationApplied(migrationId);
   }
 
@@ -651,6 +676,15 @@ export class ConfigStore {
     return this.compileProfile(userId);
   }
 
+  private appendUserProfileAudit(userId: string, summary: string, contentSize: number, timestamp: string) {
+    this.db
+      .prepare(
+        `INSERT INTO user_profile_audits(user_id, timestamp, summary, content_size)
+         VALUES(?, ?, ?, ?)`,
+      )
+      .run(userId, timestamp, summary, contentSize);
+  }
+
   saveUserUnifiedProfile(userIdRaw: string, content: string): UnifiedProfilePayload {
     const userId = userIdRaw.trim();
     if (!userId) {
@@ -660,7 +694,39 @@ export class ConfigStore {
     const lastUpdated = new Date().toLocaleString();
     this.replaceUserProfile(userId, parsed, lastUpdated);
     this.setState('last_updated', lastUpdated);
+    this.appendUserProfileAudit(
+      userId,
+      'Updated personal profile',
+      Buffer.byteLength(JSON.stringify(parsed), 'utf8'),
+      lastUpdated,
+    );
     return this.getUnifiedProfile('http://localhost', userId, 'user');
+  }
+
+  listUserProfileAudits(userIdRaw: string, limitRaw = 20): UserProfileAuditItem[] {
+    const userId = userIdRaw.trim();
+    if (!userId) throw new Error('missing_user_id');
+    const limit = Number.isFinite(limitRaw) ? Math.max(1, Math.min(100, Math.trunc(limitRaw))) : 20;
+    const rows = this.db
+      .prepare(
+        `SELECT id, timestamp, summary, content_size
+         FROM user_profile_audits
+         WHERE user_id = ?
+         ORDER BY id DESC
+         LIMIT ?`,
+      )
+      .all(userId, limit) as Array<{
+      id: number;
+      timestamp: string;
+      summary: string;
+      content_size: number;
+    }>;
+    return rows.map((row) => ({
+      id: row.id,
+      timestamp: row.timestamp,
+      summary: row.summary,
+      contentSize: Number(row.content_size || 0),
+    }));
   }
 
   listVersions(limit = 30): ConfigVersionItem[] {
