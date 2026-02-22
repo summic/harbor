@@ -46,7 +46,7 @@ const App: React.FC = () => {
                 <Route path="/" element={<DashboardPage />} />
                 <Route path="/account" element={<AccountSettingsPage />} />
                 <Route path="/domain-groups" element={<AdminRoute><DomainGroupsPage /></AdminRoute>} />
-                <Route path="/domains" element={<AdminRoute><DomainsPage /></AdminRoute>} />
+                <Route path="/domain-groups/:groupName/domains" element={<AdminRoute><DomainsPage /></AdminRoute>} />
                 <Route path="/proxies" element={<AdminRoute><ProxiesPage /></AdminRoute>} />
                 <Route path="/routing" element={<AdminRoute><RoutingPage /></AdminRoute>} />
                 <Route path="/simulation" element={<AdminRoute><SimulationPage /></AdminRoute>} />

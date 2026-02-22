@@ -1,7 +1,7 @@
 import React from 'react';
-import { Link } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Edit2, Globe, Plus, Save, Search, Shield, Trash2, X } from 'lucide-react';
+import { Edit2, Plus, Save, Search, Shield, Trash2, X } from 'lucide-react';
 import { mockApi } from '../api';
 import { LoadingOverlay, SectionCard } from '../components/Common';
 import { ActionType, DomainGroup } from '../types';
@@ -76,6 +76,7 @@ const DomainGroupModal: React.FC<{
 };
 
 export const DomainGroupsPage: React.FC = () => {
+  const navigate = useNavigate();
   const queryClient = useQueryClient();
   const { data: groups, isLoading } = useQuery({ queryKey: ['domainGroups'], queryFn: mockApi.getDomainGroups });
   const [search, setSearch] = React.useState('');
@@ -118,13 +119,9 @@ export const DomainGroupsPage: React.FC = () => {
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold tracking-tight">Domain Groups</h1>
-          <p className="text-slate-500">Manage routing groups. Domains are edited on the Domains page.</p>
+          <p className="text-slate-500">Manage groups, then click a group row to manage its domains.</p>
         </div>
         <div className="flex items-center gap-2">
-          <Link to="/domains" className="inline-flex items-center px-3 py-2 border border-slate-200 rounded-lg text-sm text-slate-600 hover:bg-slate-50">
-            <Globe size={14} className="mr-1.5" />
-            Domains
-          </Link>
           <button
             onClick={() => {
               setEditing(null);
@@ -166,7 +163,11 @@ export const DomainGroupsPage: React.FC = () => {
             </thead>
             <tbody className="divide-y divide-slate-100">
               {filteredGroups.map((group) => (
-                <tr key={group.id} className="hover:bg-slate-50/50 transition-colors group">
+                <tr
+                  key={group.id}
+                  className="hover:bg-slate-50/50 transition-colors group cursor-pointer"
+                  onClick={() => navigate(`/domain-groups/${encodeURIComponent(group.name)}/domains`)}
+                >
                   <td className="px-6 py-4 font-medium text-slate-800 flex items-center gap-2">
                     <Shield size={14} className="text-slate-400" />
                     {group.name}
@@ -182,7 +183,8 @@ export const DomainGroupsPage: React.FC = () => {
                   <td className="px-6 py-4 text-right">
                     <div className="flex items-center justify-end gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
                       <button
-                        onClick={() => {
+                        onClick={(event) => {
+                          event.stopPropagation();
                           setEditing(group);
                           setIsModalOpen(true);
                         }}
@@ -191,7 +193,10 @@ export const DomainGroupsPage: React.FC = () => {
                         <Edit2 size={14} />
                       </button>
                       <button
-                        onClick={() => setDeleteTarget(group)}
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          setDeleteTarget(group);
+                        }}
                         className="p-1.5 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded transition-colors"
                       >
                         <Trash2 size={14} />
