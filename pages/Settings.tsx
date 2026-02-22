@@ -33,6 +33,7 @@ const defaultSettings: CoreSettings = {
 export const SettingsPage: React.FC = () => {
   const queryClient = useQueryClient();
   const { data, isLoading } = useQuery({ queryKey: ['settings'], queryFn: mockApi.getSettings });
+  const { data: outboundTags = [] } = useQuery({ queryKey: ['outboundTags'], queryFn: mockApi.getOutboundTags });
   const [form, setForm] = React.useState<CoreSettings>(defaultSettings);
 
   React.useEffect(() => {
@@ -130,7 +131,15 @@ export const SettingsPage: React.FC = () => {
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
           <label className="text-sm text-slate-600">
             Route Final
-            <input className="mt-1 w-full px-3 py-2 rounded-lg border border-slate-200 bg-slate-50" value={form.routeFinal} onChange={(e) => update('routeFinal', e.target.value)} />
+            <select
+              className="mt-1 w-full px-3 py-2 rounded-lg border border-slate-200 bg-slate-50"
+              value={form.routeFinal}
+              onChange={(e) => update('routeFinal', e.target.value)}
+            >
+              {[...new Set([...outboundTags, form.routeFinal])].map((tag) => (
+                <option key={tag} value={tag}>{tag}</option>
+              ))}
+            </select>
           </label>
           <label className="text-sm text-slate-600">
             Route Resolver

@@ -296,6 +296,14 @@ const loadConfig = async (): Promise<JsonObject> => {
   return parseJsonObject(profile.content);
 };
 
+const listOutboundTags = (config: JsonObject): string[] => {
+  const outbounds = Array.isArray(config.outbounds) ? config.outbounds : [];
+  const tags = outbounds
+    .map((item) => (typeof item?.tag === 'string' ? item.tag : ''))
+    .filter((tag) => !!tag);
+  return [...new Set(tags)].sort((a, b) => a.localeCompare(b));
+};
+
 const toCoreSettings = (config: JsonObject): CoreSettings => {
   const inbound = Array.isArray(config.inbounds) ? config.inbounds.find((item) => item?.type === 'tun') : undefined;
   const tunAddressRaw = Array.isArray(inbound?.address)
@@ -1649,6 +1657,12 @@ export const mockApi = {
     await sleep(120);
     const config = await loadConfig();
     return toCoreSettings(config);
+  },
+
+  getOutboundTags: async (): Promise<string[]> => {
+    await sleep(100);
+    const config = await loadConfig();
+    return listOutboundTags(config);
   },
 
   saveSettings: async (payload: CoreSettings): Promise<CoreSettings> => {
