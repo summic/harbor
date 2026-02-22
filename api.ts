@@ -1484,6 +1484,25 @@ export const mockApi = {
     }
   },
 
+  getMyUnifiedProfile: async (): Promise<UnifiedProfile> => {
+    await sleep(180);
+    return fetchJson<UnifiedProfile>('/api/v1/client/profile?scope=user');
+  },
+
+  saveMyUnifiedProfile: async (payload: { content: string }): Promise<UnifiedProfile> => {
+    await sleep(250);
+    return fetchJson<UnifiedProfile>('/api/v1/client/profile?scope=user', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+  },
+
+  getEffectiveUnifiedProfile: async (): Promise<UnifiedProfile> => {
+    await sleep(180);
+    return fetchJson<UnifiedProfile>('/api/v1/client/profile?scope=effective');
+  },
+
   saveUnifiedProfile: async (payload: { content: string; publicUrl?: string }): Promise<UnifiedProfile> => {
     await sleep(300);
     const remote = await fetchJson<UnifiedProfile>('/api/v1/client/profile?scope=global', {
