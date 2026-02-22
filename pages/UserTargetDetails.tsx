@@ -5,15 +5,6 @@ import { ArrowLeft, AlertTriangle } from 'lucide-react';
 import { mockApi } from '../api';
 import { SectionCard, LoadingOverlay } from '../components/Common';
 
-const formatBytes = (bytes: number, decimals = 2) => {
-  if (bytes === 0) return '0 B';
-  const k = 1024;
-  const dm = decimals < 0 ? 0 : decimals;
-  const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
-  const i = Math.floor(Math.log(bytes) / Math.log(k));
-  return parseFloat((bytes / Math.pow(k, i)).toFixed(dm)) + ' ' + sizes[i];
-};
-
 export const UserTargetDetailsPage: React.FC = () => {
   const { id, target } = useParams<{ id: string; target: string }>();
   const decodedTarget = decodeURIComponent(target || '');
@@ -44,6 +35,16 @@ export const UserTargetDetailsPage: React.FC = () => {
     );
   }
 
+  const maxRequestCount = detail.recent.reduce((max, row) => Math.max(max, row.requestCount), 0);
+  const outboundColor = (type: string) => {
+    const value = type.toLowerCase();
+    if (value.includes('proxy')) return 'bg-blue-500';
+    if (value.includes('direct')) return 'bg-emerald-500';
+    if (value.includes('block') || value.includes('reject')) return 'bg-rose-500';
+    if (value.includes('dns')) return 'bg-violet-500';
+    return 'bg-slate-500';
+  };
+
   return (
     <div className="space-y-6 animate-fade-in">
       <div>
@@ -54,66 +55,29 @@ export const UserTargetDetailsPage: React.FC = () => {
         <p className="text-sm text-slate-500 mt-1">Request aggregation by target</p>
       </div>
 
-      <SectionCard title="Summary">
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-          <div className="p-4 bg-slate-50 rounded-lg">
-            <p className="text-xs text-slate-500 mb-1">Requests</p>
-            <p className="text-xl font-bold tabular-nums">{detail.requests.toLocaleString()}</p>
-          </div>
-          <div className="p-4 bg-slate-50 rounded-lg">
-            <p className="text-xs text-slate-500 mb-1">Success Rate</p>
-            <p className="text-xl font-bold tabular-nums">{detail.successRate.toFixed(2)}%</p>
-          </div>
-          <div className="p-4 bg-slate-50 rounded-lg">
-            <p className="text-xs text-slate-500 mb-1">Upload</p>
-            <p className="text-xl font-bold tabular-nums">{formatBytes(detail.uploadBytes)}</p>
-          </div>
-          <div className="p-4 bg-slate-50 rounded-lg">
-            <p className="text-xs text-slate-500 mb-1">Download</p>
-            <p className="text-xl font-bold tabular-nums">{formatBytes(detail.downloadBytes)}</p>
-          </div>
-        </div>
-      </SectionCard>
-
-      <SectionCard title="Outbound Types">
-        <div className="flex flex-wrap gap-2">
-          {detail.outboundTypes.map((item) => (
-            <span key={item.type} className="text-xs bg-slate-100 text-slate-700 px-2 py-1 rounded">
-              {item.type}: {item.count}
-            </span>
-          ))}
-          {detail.outboundTypes.length === 0 && (
-            <span className="text-xs text-slate-400">No outbound distribution</span>
-          )}
-        </div>
+      <SectionCard title="All Fields">
+        <pre className="bg-slate-950 text-slate-100 rounded-lg p-4 text-xs leading-5 overflow-auto max-h-[480px]">
+          {JSON.stringify(detail, null, 2)}
+        </pre>
       </SectionCard>
 
       <SectionCard title="Recent Records">
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="text-left text-slate-500 border-b border-slate-200">
-                <th className="py-2 pr-4 font-semibold">Time</th>
-                <th className="py-2 pr-4 font-semibold">Outbound</th>
-                <th className="py-2 pr-4 font-semibold">Requests</th>
-                <th className="py-2 pr-4 font-semibold">Upload</th>
-                <th className="py-2 pr-4 font-semibold">Download</th>
-                <th className="py-2 font-semibold">Error</th>
-              </tr>
-            </thead>
-            <tbody>
-              {detail.recent.map((row, idx) => (
-                <tr key={`${row.occurredAt}-${idx}`} className="border-b border-slate-100 last:border-0">
-                  <td className="py-2 pr-4 text-slate-600">{row.occurredAt}</td>
-                  <td className="py-2 pr-4">{row.outboundType}</td>
-                  <td className="py-2 pr-4 tabular-nums">{row.requestCount}</td>
-                  <td className="py-2 pr-4 tabular-nums">{formatBytes(row.uploadBytes)}</td>
-                  <td className="py-2 pr-4 tabular-nums">{formatBytes(row.downloadBytes)}</td>
-                  <td className="py-2 text-slate-500">{row.error || '-'}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+        <div className="space-y-3">
+          {detail.recent.map((row, idx) => {
+            const widthPercent = maxRequestCount > 0 ? Math.max(2, (row.requestCount / maxRequestCount) * 100) : 0;
+            return (
+              <div key={`${row.occurredAt}-${idx}`} className="rounded-lg border border-slate-200 bg-white p-3">
+                <div className="mb-2 flex flex-wrap items-center justify-between gap-2 text-xs">
+                  <span className="font-mono text-slate-500">{row.occurredAt}</span>
+                  <span className="rounded bg-slate-100 px-2 py-0.5 text-slate-700">{row.outboundType}</span>
+                </div>
+                <div className="h-3 w-full overflow-hidden rounded bg-slate-100">
+                  <div className={`h-full ${outboundColor(row.outboundType)}`} style={{ width: `${widthPercent}%` }} />
+                </div>
+                <div className="mt-1 text-right text-xs tabular-nums text-slate-600">{row.requestCount.toLocaleString()}</div>
+              </div>
+            );
+          })}
           {detail.recent.length === 0 && (
             <div className="py-8 text-center text-xs text-slate-400">No records</div>
           )}
