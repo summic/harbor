@@ -5,7 +5,6 @@ import { mockApi } from '../api';
 import { SectionCard, LoadingOverlay } from '../components/Common';
 import { DomainRule, ProxyGroup, RoutingRule } from '../types';
 
-const protocolOptions = ['tcp', 'udp', 'dns', 'icmp', 'stun', 'dtls'];
 const matchTypeOptions: RoutingRule['matchType'][] = [
   'rule_set',
   'domain',
@@ -157,10 +156,6 @@ export const RoutingPage: React.FC = () => {
   const { data: proxyGroups = [] } = useQuery({ queryKey: ['proxyGroups'], queryFn: mockApi.getProxyGroups });
   const [isPolicyModalOpen, setIsPolicyModalOpen] = React.useState(false);
   const [editingPolicy, setEditingPolicy] = React.useState<RoutingRule | null>(null);
-  const [positions, setPositions] = React.useState<Record<string, { x: number; y: number }>>({});
-  const [draggingId, setDraggingId] = React.useState<string | null>(null);
-  const dragOffsetRef = React.useRef<{ x: number; y: number }>({ x: 0, y: 0 });
-  const canvasRef = React.useRef<HTMLDivElement | null>(null);
 
   const saveMutation = useMutation({
     mutationFn: mockApi.saveRoutingRule,
@@ -176,14 +171,6 @@ export const RoutingPage: React.FC = () => {
       queryClient.invalidateQueries({ queryKey: ['unifiedProfile'] });
     },
   });
-  const moveMutation = useMutation({
-    mutationFn: mockApi.moveRoutingRule,
-    onSuccess: (next) => {
-      queryClient.setQueryData(['routing'], next);
-      queryClient.invalidateQueries({ queryKey: ['unifiedProfile'] });
-    },
-  });
-
   const orderedRules = React.useMemo(
     () => (rules ? [...rules].sort((a, b) => a.priority - b.priority) : []),
     [rules],
@@ -224,21 +211,37 @@ export const RoutingPage: React.FC = () => {
     [proxyGroups],
   );
 
-  React.useEffect(() => {
-    setPositions((prev) => {
-      const next = { ...prev };
-      domainGroups.forEach((item, index) => {
-        if (!next[item.id]) next[item.id] = { x: 24, y: 40 + index * 96 };
-      });
-      policyNodes.forEach((item, index) => {
-        if (!next[item.id]) next[item.id] = { x: 390, y: 40 + index * 110 };
-      });
-      proxyNodes.forEach((item, index) => {
-        if (!next[item.id]) next[item.id] = { x: 760, y: 40 + index * 96 };
-      });
-      return next;
-    });
-  }, [domainGroups, policyNodes, proxyNodes]);
+  const DOMAIN_X = 24;
+  const POLICY_X = 390;
+  const PROXY_X = 760;
+  const DOMAIN_Y_START = 40;
+  const POLICY_Y_START = 40;
+  const PROXY_Y_START = 40;
+  const DOMAIN_GAP = 96;
+  const POLICY_GAP = 110;
+  const PROXY_GAP = 96;
+
+  const domainIndex = React.useMemo(
+    () =>
+      new Map(
+        domainGroups.map((item, index) => [item.id, index] as const),
+      ),
+    [domainGroups],
+  );
+  const policyIndex = React.useMemo(
+    () =>
+      new Map(
+        policyNodes.map((item, index) => [item.id, index] as const),
+      ),
+    [policyNodes],
+  );
+  const proxyIndex = React.useMemo(
+    () =>
+      new Map(
+        proxyNodes.map((item, index) => [item.id, index] as const),
+      ),
+    [proxyNodes],
+  );
 
   const parseMatchValues = (value: string) =>
     value
@@ -255,19 +258,19 @@ export const RoutingPage: React.FC = () => {
   const lineSegments = React.useMemo(() => {
     const lines: Array<{ id: string; x1: number; y1: number; x2: number; y2: number; color: string }> = [];
     const domainCenter = (id: string) => {
-      const pos = positions[id];
-      if (!pos) return null;
-      return { x: pos.x + 240, y: pos.y + 34 };
+      const index = domainIndex.get(id);
+      if (index === undefined) return null;
+      return { x: DOMAIN_X + 240, y: DOMAIN_Y_START + index * DOMAIN_GAP + 34 };
     };
     const policyCenter = (id: string) => {
-      const pos = positions[id];
-      if (!pos) return null;
-      return { x: pos.x + 280, y: pos.y + 44 };
+      const index = policyIndex.get(id);
+      if (index === undefined) return null;
+      return { x: POLICY_X + 280, y: POLICY_Y_START + index * POLICY_GAP + 44 };
     };
     const proxyCenter = (id: string) => {
-      const pos = positions[id];
-      if (!pos) return null;
-      return { x: pos.x, y: pos.y + 34 };
+      const index = proxyIndex.get(id);
+      if (index === undefined) return null;
+      return { x: PROXY_X, y: PROXY_Y_START + index * PROXY_GAP + 34 };
     };
 
     for (const domain of domainGroups) {
@@ -304,35 +307,7 @@ export const RoutingPage: React.FC = () => {
       }
     }
     return lines;
-  }, [domainGroups, policyNodes, proxyNodes, positions]);
-
-  React.useEffect(() => {
-    const onMove = (e: MouseEvent) => {
-      if (!draggingId || !canvasRef.current) return;
-      const rect = canvasRef.current.getBoundingClientRect();
-      const x = e.clientX - rect.left - dragOffsetRef.current.x;
-      const y = e.clientY - rect.top - dragOffsetRef.current.y;
-      setPositions((prev) => ({ ...prev, [draggingId]: { x: Math.max(8, x), y: Math.max(8, y) } }));
-    };
-    const onUp = () => setDraggingId(null);
-    window.addEventListener('mousemove', onMove);
-    window.addEventListener('mouseup', onUp);
-    return () => {
-      window.removeEventListener('mousemove', onMove);
-      window.removeEventListener('mouseup', onUp);
-    };
-  }, [draggingId]);
-
-  const startDrag = (id: string, e: React.MouseEvent<HTMLDivElement>) => {
-    const pos = positions[id];
-    if (!pos || !canvasRef.current) return;
-    const rect = canvasRef.current.getBoundingClientRect();
-    dragOffsetRef.current = {
-      x: e.clientX - rect.left - pos.x,
-      y: e.clientY - rect.top - pos.y,
-    };
-    setDraggingId(id);
-  };
+  }, [domainGroups, policyNodes, proxyNodes, domainIndex, policyIndex, proxyIndex]);
 
   const handleAdd = () => {
     setEditingPolicy(null);
@@ -371,9 +346,8 @@ export const RoutingPage: React.FC = () => {
         </button>
       </div>
 
-      <SectionCard title="Routing Graph" description="Drag cards to arrange your visual policy map.">
+      <SectionCard title="Routing Graph" description="Visual routing map with inline editable policies.">
         <div
-          ref={canvasRef}
           className="relative h-[760px] overflow-hidden rounded-2xl border border-slate-200 bg-[radial-gradient(circle_at_12%_18%,rgba(56,189,248,0.14),transparent_32%),radial-gradient(circle_at_88%_82%,rgba(16,185,129,0.10),transparent_30%),linear-gradient(180deg,#f8fafc,#eef2ff)]"
         >
           {isLoading ? <LoadingOverlay /> : null}
@@ -403,14 +377,13 @@ export const RoutingPage: React.FC = () => {
           </div>
 
           {domainGroups.map((group) => {
-            const pos = positions[group.id];
-            if (!pos) return null;
+            const index = domainIndex.get(group.id);
+            if (index === undefined) return null;
             return (
               <div
                 key={group.id}
-                onMouseDown={(e) => startDrag(group.id, e)}
-                className="absolute w-[240px] cursor-grab rounded-2xl border border-sky-200 bg-white/90 p-4 shadow-[0_10px_24px_rgba(14,116,144,0.12)] active:cursor-grabbing"
-                style={{ left: pos.x, top: pos.y }}
+                className="absolute w-[240px] rounded-2xl border border-sky-200 bg-white/90 p-4 shadow-[0_10px_24px_rgba(14,116,144,0.12)]"
+                style={{ left: DOMAIN_X, top: DOMAIN_Y_START + index * DOMAIN_GAP }}
               >
                 <div className="flex items-center justify-between">
                   <h3 className="text-sm font-semibold text-slate-900">{group.name}</h3>
@@ -424,28 +397,25 @@ export const RoutingPage: React.FC = () => {
           })}
 
           {policyNodes.map((policy, idx) => {
-            const pos = positions[policy.id];
-            if (!pos) return null;
+            const index = policyIndex.get(policy.id);
+            if (index === undefined) return null;
             const rule = policy.rule;
             return (
               <div
                 key={policy.id}
-                onMouseDown={(e) => startDrag(policy.id, e)}
-                className="absolute w-[280px] cursor-grab rounded-2xl border border-indigo-200 bg-white/92 p-4 shadow-[0_12px_28px_rgba(67,56,202,0.14)] active:cursor-grabbing"
-                style={{ left: pos.x, top: pos.y }}
+                className="absolute w-[280px] rounded-2xl border border-indigo-200 bg-white/92 p-4 shadow-[0_12px_28px_rgba(67,56,202,0.14)]"
+                style={{ left: POLICY_X, top: POLICY_Y_START + index * POLICY_GAP }}
               >
                 <div className="flex items-center justify-between gap-2">
                   <div className="text-xs font-semibold text-indigo-700">#{idx + 1} Policy</div>
                   <div className="flex items-center gap-1">
                     <button
-                      onMouseDown={(e) => e.stopPropagation()}
                       onClick={() => handleEdit(rule)}
                       className="rounded-md p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-900"
                     >
                       <Edit3 size={14} />
                     </button>
                     <button
-                      onMouseDown={(e) => e.stopPropagation()}
                       onClick={() => {
                         if (!window.confirm(`Delete routing policy ${rule.matchExpr}?`)) return;
                         deleteMutation.mutate(rule.id);
@@ -469,14 +439,13 @@ export const RoutingPage: React.FC = () => {
           })}
 
           {proxyNodes.map((proxy) => {
-            const pos = positions[proxy.id];
-            if (!pos) return null;
+            const index = proxyIndex.get(proxy.id);
+            if (index === undefined) return null;
             return (
               <div
                 key={proxy.id}
-                onMouseDown={(e) => startDrag(proxy.id, e)}
-                className="absolute w-[220px] cursor-grab rounded-2xl border border-emerald-200 bg-white/92 p-4 shadow-[0_12px_28px_rgba(16,185,129,0.14)] active:cursor-grabbing"
-                style={{ left: pos.x, top: pos.y }}
+                className="absolute w-[220px] rounded-2xl border border-emerald-200 bg-white/92 p-4 shadow-[0_12px_28px_rgba(16,185,129,0.14)]"
+                style={{ left: PROXY_X, top: PROXY_Y_START + index * PROXY_GAP }}
               >
                 <div className="flex items-center justify-between">
                   <h3 className="text-sm font-semibold text-slate-900">{proxy.name}</h3>
