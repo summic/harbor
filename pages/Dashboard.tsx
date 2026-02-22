@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Users, Zap, GitCommit, Activity, Globe, AlertTriangle } from 'lucide-react';
 import { SectionCard, LoadingOverlay } from '../components/Common';
@@ -94,7 +94,24 @@ const outboundToPathLabel = (outbound: string | undefined) => {
   return '其他';
 };
 
+type DomainTrafficScope = 'app' | 'dns' | 'all';
+
+const extractHostAndPort = (value: string): { host: string; port?: number } => {
+  const trimmed = value.trim();
+  const lastColon = trimmed.lastIndexOf(':');
+  if (lastColon <= 0) return { host: trimmed.toLowerCase() };
+  const host = trimmed.slice(0, lastColon).toLowerCase();
+  const portRaw = trimmed.slice(lastColon + 1);
+  const port = Number(portRaw);
+  if (Number.isFinite(port)) return { host, port };
+  return { host: trimmed.toLowerCase() };
+};
+
+const isVirtualInternalTarget = (host: string): boolean =>
+  host === '172.19.0.2' || host === '172.19.0.1' || host === '198.18.0.1' || host === '198.18.0.2';
+
 export const DashboardPage: React.FC = () => {
+  const [domainScope, setDomainScope] = useState<DomainTrafficScope>('app');
   const { data, isLoading } = useQuery({
     queryKey: ['dashboard-summary'],
     queryFn: () => mockApi.getDashboardSummary(),
@@ -111,7 +128,19 @@ export const DashboardPage: React.FC = () => {
   const deviceSeries = data?.devices.series ?? Array.from({ length: 24 }, () => 0);
   const totalUpload = uploadSeries.reduce((sum, value) => sum + value, 0);
   const totalDownload = downloadSeries.reduce((sum, value) => sum + value, 0);
-  const allDomainTotal = (qualityData?.topDomains ?? []).reduce((sum, item) => sum + item.count, 0);
+  const filteredDomains = useMemo(() => {
+    const list = qualityData?.topDomains ?? [];
+    return list.filter((item) => {
+      const policy = (item.policy || item.category || 'unknown').toLowerCase();
+      const { host, port } = extractHostAndPort(item.domain);
+      const dnsLike = policy === 'dns' || port === 53 || host.endsWith('.local');
+      if (domainScope === 'dns') return dnsLike;
+      if (domainScope === 'all') return true;
+      return !dnsLike && !isVirtualInternalTarget(host);
+    });
+  }, [qualityData?.topDomains, domainScope]);
+
+  const allDomainTotal = filteredDomains.reduce((sum, item) => sum + item.count, 0);
   const proxyFailureTotal = (qualityData?.failureReasons ?? []).reduce((sum, item) => sum + item.count, 0);
 
   const stats = [
@@ -181,9 +210,28 @@ export const DashboardPage: React.FC = () => {
           <div className="lg:col-span-2">
             <SectionCard
               title="Top Domains (All Requests)"
-              description="过去 24 小时所有请求命中的域名（按请求数倒序）"
+              description="按请求量排序，可切换看应用流量或 DNS 流量"
               actions={<Globe size={16} className="text-slate-400" />}
             >
+              <div className="mb-3 inline-flex rounded-lg border border-slate-200 bg-white p-1 text-xs">
+                {([
+                  { key: 'app', label: 'App Traffic' },
+                  { key: 'dns', label: 'DNS' },
+                  { key: 'all', label: 'All' },
+                ] as Array<{ key: DomainTrafficScope; label: string }>).map((item) => (
+                  <button
+                    key={item.key}
+                    onClick={() => setDomainScope(item.key)}
+                    className={`rounded-md px-2.5 py-1 transition-colors ${
+                      domainScope === item.key
+                        ? 'bg-slate-900 text-white'
+                        : 'text-slate-500 hover:bg-slate-100'
+                    }`}
+                  >
+                    {item.label}
+                  </button>
+                ))}
+              </div>
               <div className="overflow-x-auto">
                 <table className="w-full text-sm text-left">
                   <thead className="bg-slate-50 text-slate-500 font-medium border-b border-slate-100">
@@ -197,7 +245,7 @@ export const DashboardPage: React.FC = () => {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-50">
-                    {(qualityData?.topDomains ?? []).map((item, index) => {
+                    {filteredDomains.map((item, index) => {
                       const ratio = allDomainTotal > 0 ? (item.count / allDomainTotal) * 100 : 0;
                       const policy = (item.policy || item.category || 'unknown').toLowerCase();
                       return (
@@ -211,7 +259,7 @@ export const DashboardPage: React.FC = () => {
                         </tr>
                       );
                     })}
-                    {(qualityData?.topDomains ?? []).length === 0 ? (
+                    {filteredDomains.length === 0 ? (
                       <tr>
                         <td colSpan={6} className="px-4 py-8 text-center text-xs text-slate-400">No domain requests yet</td>
                       </tr>
