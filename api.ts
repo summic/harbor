@@ -1,5 +1,5 @@
 
-import { DomainRule, ProxyNode, ProxyGroup, RoutingRule, DnsUpstream, HostsEntry, ConfigVersion, UnifiedProfile, User, ProtocolType, TrafficSimulationResult, ClientDeviceReportPayload, ClientConnectionReportPayload, UserTargetAggregate, UserTargetDetail, UserProfileAudit, DashboardSummary } from './types';
+import { DomainRule, DomainGroup, ProxyNode, ProxyGroup, RoutingRule, DnsUpstream, HostsEntry, ConfigVersion, UnifiedProfile, User, ProtocolType, TrafficSimulationResult, ClientDeviceReportPayload, ClientConnectionReportPayload, UserTargetAggregate, UserTargetDetail, UserProfileAudit, DashboardSummary } from './types';
 import { QualityObservability, normalizeObservabilityResponse } from './utils/quality';
 import { loadSession } from './auth';
 
@@ -479,6 +479,117 @@ const deleteDomainInConfig = (config: JsonObject, ruleId: string): JsonObject =>
       return keys.some((k) => Array.isArray(item[k]) && item[k].length > 0);
     });
 
+  return next;
+};
+
+const toDomainGroups = (config: JsonObject): DomainGroup[] => {
+  const routeSetOutbounds = collectRouteSetOutbounds(config);
+  const rules = toDomainRules(config);
+  const countByGroup = new Map<string, number>();
+  for (const rule of rules) {
+    countByGroup.set(rule.group, (countByGroup.get(rule.group) ?? 0) + 1);
+  }
+  const ruleSets = Array.isArray(config.route?.rule_set) ? config.route.rule_set : [];
+  const groups = ruleSets
+    .filter((set: JsonObject) => set?.type === 'inline' && typeof set?.tag === 'string')
+    .map((set: JsonObject) => {
+      const name = String(set.tag);
+      return {
+        id: `domain-group:${encodeURIComponent(name)}`,
+        name,
+        action: outboundToAction(routeSetOutbounds.get(name)),
+        ruleCount: countByGroup.get(name) ?? 0,
+      } as DomainGroup;
+    })
+    .sort((a, b) => a.name.localeCompare(b.name));
+  return groups;
+};
+
+const ensureDomainGroupInConfig = (
+  config: JsonObject,
+  name: string,
+  action: DomainGroup['action'],
+): JsonObject => {
+  const next = JSON.parse(JSON.stringify(config)) as JsonObject;
+  next.route = next.route ?? {};
+  next.route.rule_set = Array.isArray(next.route.rule_set) ? next.route.rule_set : [];
+  next.route.rules = Array.isArray(next.route.rules) ? next.route.rules : [];
+
+  const ruleSets = next.route.rule_set as JsonObject[];
+  const routeRules = next.route.rules as JsonObject[];
+  const outbound = domainActionToOutbound(action);
+
+  const set = ruleSets.find((item) => item?.type === 'inline' && item?.tag === name);
+  if (!set) {
+    ruleSets.push({ type: 'inline', tag: name, rules: [] });
+  }
+
+  const mapping = routeRules.find((item) => Array.isArray(item?.rule_set) && item.rule_set.includes(name));
+  if (mapping) {
+    mapping.outbound = outbound;
+  } else {
+    routeRules.push({ rule_set: [name], outbound });
+  }
+
+  return next;
+};
+
+const renameDomainGroupInConfig = (
+  config: JsonObject,
+  from: string,
+  to: string,
+): JsonObject => {
+  if (!from || !to || from === to) return config;
+  const next = JSON.parse(JSON.stringify(config)) as JsonObject;
+  next.route = next.route ?? {};
+  next.route.rule_set = Array.isArray(next.route.rule_set) ? next.route.rule_set : [];
+  next.route.rules = Array.isArray(next.route.rules) ? next.route.rules : [];
+
+  const ruleSets = next.route.rule_set as JsonObject[];
+  const routeRules = next.route.rules as JsonObject[];
+  for (const item of ruleSets) {
+    if (item?.type === 'inline' && item?.tag === from) {
+      item.tag = to;
+    }
+  }
+  for (const item of routeRules) {
+    if (!Array.isArray(item?.rule_set)) continue;
+    item.rule_set = item.rule_set.map((value: unknown) => (value === from ? to : value));
+  }
+  return next;
+};
+
+const updateDomainGroupActionInConfig = (
+  config: JsonObject,
+  name: string,
+  action: DomainGroup['action'],
+): JsonObject => {
+  const next = JSON.parse(JSON.stringify(config)) as JsonObject;
+  next.route = next.route ?? {};
+  next.route.rules = Array.isArray(next.route.rules) ? next.route.rules : [];
+  const routeRules = next.route.rules as JsonObject[];
+  const outbound = domainActionToOutbound(action);
+  const mapping = routeRules.find((item) => Array.isArray(item?.rule_set) && item.rule_set.includes(name));
+  if (mapping) {
+    mapping.outbound = outbound;
+  } else {
+    routeRules.push({ rule_set: [name], outbound });
+  }
+  return next;
+};
+
+const deleteDomainGroupInConfig = (config: JsonObject, name: string): JsonObject => {
+  const next = JSON.parse(JSON.stringify(config)) as JsonObject;
+  next.route = next.route ?? {};
+  next.route.rule_set = Array.isArray(next.route.rule_set) ? next.route.rule_set : [];
+  next.route.rules = Array.isArray(next.route.rules) ? next.route.rules : [];
+
+  next.route.rule_set = (next.route.rule_set as JsonObject[]).filter(
+    (item) => !(item?.type === 'inline' && item?.tag === name),
+  );
+  next.route.rules = (next.route.rules as JsonObject[]).filter(
+    (item) => !(Array.isArray(item?.rule_set) && item.rule_set.includes(name)),
+  );
   return next;
 };
 
@@ -1167,6 +1278,47 @@ export const mockApi = {
     await sleep(200);
     const config = await loadConfig();
     return toDomainRules(config);
+  },
+
+  getDomainGroups: async (): Promise<DomainGroup[]> => {
+    await sleep(160);
+    const config = await loadConfig();
+    return toDomainGroups(config);
+  },
+
+  saveDomainGroup: async (payload: {
+    id?: string;
+    name: string;
+    action: DomainGroup['action'];
+    previousName?: string;
+  }): Promise<DomainGroup[]> => {
+    await sleep(180);
+    const targetName = payload.name.trim();
+    if (!targetName) throw new Error('group name is required');
+
+    let config = await loadConfig();
+    config = ensureDomainGroupInConfig(config, targetName, payload.action);
+
+    const fromName = payload.previousName?.trim();
+    if (fromName && fromName !== targetName) {
+      config = renameDomainGroupInConfig(config, fromName, targetName);
+    }
+    config = updateDomainGroupActionInConfig(config, targetName, payload.action);
+
+    await replaceModuleRows('route.rule_set', Array.isArray(config.route?.rule_set) ? config.route.rule_set : [], 'tag');
+    await replaceModuleRows('route.rules', Array.isArray(config.route?.rules) ? config.route.rules : []);
+    const synced = await loadConfig();
+    return toDomainGroups(synced);
+  },
+
+  deleteDomainGroup: async (name: string): Promise<DomainGroup[]> => {
+    await sleep(160);
+    const config = await loadConfig();
+    const nextConfig = deleteDomainGroupInConfig(config, name);
+    await replaceModuleRows('route.rule_set', Array.isArray(nextConfig.route?.rule_set) ? nextConfig.route.rule_set : [], 'tag');
+    await replaceModuleRows('route.rules', Array.isArray(nextConfig.route?.rules) ? nextConfig.route.rules : []);
+    const synced = await loadConfig();
+    return toDomainGroups(synced);
   },
 
   saveDomainRule: async (payload: Partial<DomainRule> & { id?: string }): Promise<DomainRule[]> => {

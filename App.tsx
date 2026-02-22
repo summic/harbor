@@ -7,6 +7,7 @@ import { AppShell } from './components/Layout';
 import { AuthGate } from './components/AuthGate';
 import { DashboardPage } from './pages/Dashboard';
 import { DomainsPage } from './pages/Domains';
+import { DomainGroupsPage } from './pages/DomainGroups';
 import { ProxiesPage } from './pages/Proxies';
 import { RoutingPage } from './pages/Routing';
 import { SimulationPage } from './pages/Simulation';
@@ -44,6 +45,7 @@ const App: React.FC = () => {
               <Routes>
                 <Route path="/" element={<DashboardPage />} />
                 <Route path="/account" element={<AccountSettingsPage />} />
+                <Route path="/domain-groups" element={<AdminRoute><DomainGroupsPage /></AdminRoute>} />
                 <Route path="/domains" element={<AdminRoute><DomainsPage /></AdminRoute>} />
                 <Route path="/proxies" element={<AdminRoute><ProxiesPage /></AdminRoute>} />
                 <Route path="/routing" element={<AdminRoute><RoutingPage /></AdminRoute>} />

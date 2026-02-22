@@ -15,6 +15,13 @@ export interface DomainRule {
   note?: string;
 }
 
+export interface DomainGroup {
+  id: string;
+  name: string;
+  action: ActionType;
+  ruleCount: number;
+}
+
 export interface ProxyNode {
   id: string;
   name: string;

@@ -13,6 +13,7 @@ import {
   Anchor,
   FileJson,
   Users,
+  Shield,
   ChevronDown,
   LogOut,
   Bell
@@ -23,6 +24,7 @@ import { buildInfo } from '../utils/build-info';
 
 const navItems = [
   { path: '/', label: 'Dashboard', icon: LayoutDashboard },
+  { path: '/domain-groups', label: 'Domain Groups', icon: Shield },
   { path: '/domains', label: 'Domains', icon: Globe },
   { path: '/proxies', label: 'Proxies', icon: Zap },
   { path: '/routing', label: 'Routing', icon: Shuffle },
