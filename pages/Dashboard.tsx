@@ -1,8 +1,9 @@
 import React from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { Users, Zap, GitCommit, Activity, History } from 'lucide-react';
+import { Users, Zap, GitCommit, Activity, History, Globe, AlertTriangle } from 'lucide-react';
 import { SectionCard, LoadingOverlay } from '../components/Common';
-import { mockApi } from '../api';
+import { mockApi, qualityApi } from '../api';
+import { standardizeFailureReason } from '../utils/quality';
 
 const ChartContainer: React.FC<{
   title: string;
@@ -90,6 +91,11 @@ export const DashboardPage: React.FC = () => {
     queryFn: () => mockApi.getDashboardSummary(),
     refetchInterval: 30_000,
   });
+  const { data: qualityData } = useQuery({
+    queryKey: ['dashboard-quality-observability', '24h', 10],
+    queryFn: () => qualityApi.getObservability({ window: '24h', topN: 10, bucket: '1h' }),
+    refetchInterval: 30_000,
+  });
 
   const uploadSeries = data?.traffic.uploadSeries ?? Array.from({ length: 24 }, () => 0);
   const downloadSeries = data?.traffic.downloadSeries ?? Array.from({ length: 24 }, () => 0);
@@ -100,6 +106,8 @@ export const DashboardPage: React.FC = () => {
   const syncTotal = syncSeries.reduce((sum, value) => sum + value, 0);
   const totalUpload = uploadSeries.reduce((sum, value) => sum + value, 0);
   const totalDownload = downloadSeries.reduce((sum, value) => sum + value, 0);
+  const proxyDomainTotal = (qualityData?.topDomains ?? []).reduce((sum, item) => sum + item.count, 0);
+  const proxyFailureTotal = (qualityData?.failureReasons ?? []).reduce((sum, item) => sum + item.count, 0);
 
   const stats = [
     { icon: Users, label: 'Active Users', value: String(data?.stats.activeUsers ?? 0), sub: '24h', color: 'blue' },
@@ -218,8 +226,79 @@ export const DashboardPage: React.FC = () => {
             </SectionCard>
           </div>
         </div>
+
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mt-6">
+          <div className="lg:col-span-2">
+            <SectionCard
+              title="Proxy Domains Top"
+              description="过去 24 小时命中代理链路的域名（按请求数倒序）"
+              actions={<Globe size={16} className="text-slate-400" />}
+            >
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm text-left">
+                  <thead className="bg-slate-50 text-slate-500 font-medium border-b border-slate-100">
+                    <tr>
+                      <th className="px-4 py-3 w-16">#</th>
+                      <th className="px-4 py-3">Domain</th>
+                      <th className="px-4 py-3 text-right">Requests</th>
+                      <th className="px-4 py-3 text-right">Share</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-50">
+                    {(qualityData?.topDomains ?? []).map((item, index) => {
+                      const ratio = proxyDomainTotal > 0 ? (item.count / proxyDomainTotal) * 100 : 0;
+                      return (
+                        <tr key={`${item.domain}-${index}`} className="hover:bg-slate-50/50">
+                          <td className="px-4 py-3 text-xs font-mono text-slate-400">{index + 1}</td>
+                          <td className="px-4 py-3 font-semibold text-slate-700">{item.domain}</td>
+                          <td className="px-4 py-3 text-right text-slate-600 tabular-nums">{item.count.toLocaleString()}</td>
+                          <td className="px-4 py-3 text-right text-slate-500 tabular-nums">{ratio.toFixed(1)}%</td>
+                        </tr>
+                      );
+                    })}
+                    {(qualityData?.topDomains ?? []).length === 0 ? (
+                      <tr>
+                        <td colSpan={4} className="px-4 py-8 text-center text-xs text-slate-400">No proxied domains yet</td>
+                      </tr>
+                    ) : null}
+                  </tbody>
+                </table>
+              </div>
+            </SectionCard>
+          </div>
+          <div className="lg:col-span-1">
+            <SectionCard
+              title="Proxy Failures"
+              description="连接失败原因标准化统计"
+              actions={<AlertTriangle size={16} className="text-slate-400" />}
+            >
+              <div className="space-y-3">
+                {(qualityData?.failureReasons ?? []).slice(0, 6).map((item, index) => {
+                  const standardized = standardizeFailureReason(item.code);
+                  const ratio = proxyFailureTotal > 0 ? (item.count / proxyFailureTotal) * 100 : 0;
+                  return (
+                    <div key={`${item.code}-${index}`} className="rounded-lg border border-slate-200 px-3 py-2">
+                      <div className="flex items-center justify-between gap-3">
+                        <div>
+                          <p className="text-sm font-semibold text-slate-800">{standardized.label}</p>
+                          <p className="text-[10px] uppercase tracking-wider text-slate-400">{standardized.code}</p>
+                        </div>
+                        <div className="text-right">
+                          <p className="text-sm font-bold text-slate-900 tabular-nums">{item.count.toLocaleString()}</p>
+                          <p className="text-xs text-slate-500 tabular-nums">{ratio.toFixed(1)}%</p>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+                {(qualityData?.failureReasons ?? []).length === 0 ? (
+                  <p className="text-xs text-slate-400">No failure reasons yet</p>
+                ) : null}
+              </div>
+            </SectionCard>
+          </div>
+        </div>
       </div>
     </div>
   );
 };
-

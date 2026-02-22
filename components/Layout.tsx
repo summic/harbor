@@ -3,7 +3,6 @@ import React from 'react';
 import { useLocation, Link, useNavigate } from 'react-router-dom';
 import { 
   LayoutDashboard, 
-  Activity,
   Globe, 
   Zap, 
   Shuffle, 
@@ -24,7 +23,6 @@ import { buildInfo } from '../utils/build-info';
 
 const navItems = [
   { path: '/', label: 'Dashboard', icon: LayoutDashboard },
-  { path: '/quality', label: 'Quality', icon: Activity },
   { path: '/domains', label: 'Domains', icon: Globe },
   { path: '/proxies', label: 'Proxies', icon: Zap },
   { path: '/routing', label: 'Routing', icon: Shuffle },
