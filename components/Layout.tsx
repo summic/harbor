@@ -22,6 +22,7 @@ import { buildInfo } from '../utils/build-info';
 
 const navItems = [
   { path: '/', label: 'Dashboard', icon: LayoutDashboard },
+  { path: '/settings', label: 'Settings', icon: Settings2 },
   { path: '/policy', label: 'Policy', icon: Shield },
   { path: '/proxies', label: 'Proxies', icon: Zap },
   { path: '/dns-hosts', label: 'DNS', icon: Settings2 },
