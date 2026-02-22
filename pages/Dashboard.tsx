@@ -1,6 +1,6 @@
 import React from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { Users, Zap, GitCommit, Activity, History, Globe, AlertTriangle } from 'lucide-react';
+import { Users, Zap, GitCommit, Activity, Globe, AlertTriangle } from 'lucide-react';
 import { SectionCard, LoadingOverlay } from '../components/Common';
 import { mockApi, qualityApi } from '../api';
 import { standardizeFailureReason } from '../utils/quality';
@@ -100,10 +100,6 @@ export const DashboardPage: React.FC = () => {
   const uploadSeries = data?.traffic.uploadSeries ?? Array.from({ length: 24 }, () => 0);
   const downloadSeries = data?.traffic.downloadSeries ?? Array.from({ length: 24 }, () => 0);
   const deviceSeries = data?.devices.series ?? Array.from({ length: 24 }, () => 0);
-  const syncSeries = data?.syncRequests.series ?? Array.from({ length: 24 }, () => 0);
-
-  const syncMax = Math.max(...syncSeries, 1);
-  const syncTotal = syncSeries.reduce((sum, value) => sum + value, 0);
   const totalUpload = uploadSeries.reduce((sum, value) => sum + value, 0);
   const totalDownload = downloadSeries.reduce((sum, value) => sum + value, 0);
   const proxyDomainTotal = (qualityData?.topDomains ?? []).reduce((sum, item) => sum + item.count, 0);
@@ -169,61 +165,6 @@ export const DashboardPage: React.FC = () => {
             >
               <DeviceTrendChart data={deviceSeries} />
             </ChartContainer>
-          </div>
-        </div>
-
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mt-6">
-          <div className="lg:col-span-1">
-            <SectionCard title="Sync Requests" description={`Subscription pull hits · total ${syncTotal}`}>
-              <div className="h-48 flex items-end gap-1 px-1 pt-4">
-                {syncSeries.map((value, i) => {
-                  const heightPercent = (value / syncMax) * 100;
-                  const isPeak = value > syncMax * 0.7;
-                  return (
-                    <div key={i} className="flex-1 flex flex-col justify-end gap-1 group relative h-full">
-                      <div className={`w-full rounded-sm transition-all ${isPeak ? 'bg-blue-600' : 'bg-slate-200'}`} style={{ height: `${heightPercent}%` }} />
-                    </div>
-                  );
-                })}
-              </div>
-              <div className="flex justify-between text-[10px] text-slate-400 mt-2 font-mono">
-                <span>-23h</span>
-                <span>-12h</span>
-                <span>now</span>
-              </div>
-            </SectionCard>
-          </div>
-
-          <div className="lg:col-span-2">
-            <SectionCard title="Admin Audit Log" actions={<History size={16} className="text-slate-400" />}>
-              <div className="overflow-x-auto">
-                <table className="w-full text-sm text-left">
-                  <thead className="bg-slate-50 text-slate-500 font-medium border-b border-slate-100">
-                    <tr>
-                      <th className="px-4 py-3">Event</th>
-                      <th className="px-4 py-3">Admin</th>
-                      <th className="px-4 py-3">Time</th>
-                      <th className="px-4 py-3 text-right">Target</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-50">
-                    {(data?.auditLogs ?? []).map((log, i) => (
-                      <tr key={`${log.event}-${i}`} className="hover:bg-slate-50/50">
-                        <td className="px-4 py-3 font-semibold text-slate-700">{log.event}</td>
-                        <td className="px-4 py-3 text-slate-600 font-mono text-xs">{log.admin}</td>
-                        <td className="px-4 py-3 text-slate-500 text-xs">{log.time}</td>
-                        <td className="px-4 py-3 text-right text-xs text-blue-600 font-medium">{log.target}</td>
-                      </tr>
-                    ))}
-                    {(data?.auditLogs ?? []).length === 0 ? (
-                      <tr>
-                        <td colSpan={4} className="px-4 py-8 text-center text-xs text-slate-400">No audit logs yet</td>
-                      </tr>
-                    ) : null}
-                  </tbody>
-                </table>
-              </div>
-            </SectionCard>
           </div>
         </div>
 
