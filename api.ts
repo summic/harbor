@@ -32,7 +32,8 @@ const resolveSubscriptionUrl = () => {
 };
 
 const fetchJson = async <T>(path: string, init?: RequestInit): Promise<T> => {
-  const token = loadSession()?.accessToken;
+  const session = loadSession();
+  const token = session?.accessToken || session?.idToken;
   const response = await fetch(`${API_BASE}${path}`, {
     headers: {
       Accept: 'application/json',

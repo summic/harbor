@@ -109,9 +109,28 @@ export const loadSession = (): Nullable<AuthSession> => {
   const raw = localStorage.getItem(STORAGE_KEY);
   if (!raw) return null;
   try {
-    const parsed = JSON.parse(raw) as AuthSession;
-    if (!parsed.accessToken) return null;
-    return parsed;
+    const parsed = JSON.parse(raw) as AuthSession & {
+      access_token?: string;
+      id_token?: string;
+      refresh_token?: string;
+      token_type?: string;
+      expires_at?: number;
+    };
+    const accessToken = parsed.accessToken || parsed.access_token || parsed.idToken || parsed.id_token;
+    if (!accessToken) return null;
+    const normalized: AuthSession = {
+      accessToken,
+      idToken: parsed.idToken || parsed.id_token,
+      refreshToken: parsed.refreshToken || parsed.refresh_token,
+      tokenType: parsed.tokenType || parsed.token_type || 'Bearer',
+      scope: parsed.scope,
+      expiresAt: parsed.expiresAt ?? parsed.expires_at,
+      user: parsed.user,
+    };
+    if (parsed.accessToken !== normalized.accessToken || parsed.tokenType !== normalized.tokenType) {
+      saveSession(normalized);
+    }
+    return normalized;
   } catch {
     return null;
   }
