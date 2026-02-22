@@ -1392,7 +1392,7 @@ export class ConfigStore {
         userId,
         input.device?.id?.trim() || null,
         input.connected === true ? 1 : 0,
-        input.target?.trim() || '(unknown)',
+        this.targetFromConnectionInput(input),
         input.outboundType?.trim() || null,
         Number.isFinite(input.latencyMs) ? Number(input.latencyMs) : null,
         input.error?.trim() || null,
@@ -1470,6 +1470,27 @@ export class ConfigStore {
       const hostPort = first.startsWith('[') ? first : first.split(':')[0];
       return (hostPort || raw).toLowerCase();
     }
+  }
+
+  private isIpAddressLike(value: string): boolean {
+    const v = value.trim();
+    if (!v) return false;
+    if (/^\d{1,3}(\.\d{1,3}){3}$/.test(v)) return true;
+    if (v.includes(':') && /^[0-9a-fA-F:]+$/.test(v)) return true;
+    return false;
+  }
+
+  private targetFromConnectionInput(input: ClientConnectionLogInput): string {
+    const direct = input.target?.trim();
+    const metadata = input.metadata as Record<string, unknown> | undefined;
+    const mdDomain = typeof metadata?.domain === 'string' ? metadata.domain.trim() : '';
+    const mdHost = typeof metadata?.host === 'string' ? metadata.host.trim() : '';
+    const mdSni = typeof metadata?.sni === 'string' ? metadata.sni.trim() : '';
+    const metadataTarget = mdDomain || mdHost || mdSni;
+    if (!direct) return metadataTarget || '(unknown)';
+    const normalized = this.normalizeTargetDomain(direct);
+    if (this.isIpAddressLike(normalized) && metadataTarget) return metadataTarget;
+    return direct;
   }
 
   private isBlockedOutbound(outboundType: string): boolean {
@@ -1682,7 +1703,8 @@ export class ConfigStore {
            error_message,
            request_count,
            success_count,
-           occurred_at
+           occurred_at,
+           metadata_json
          FROM client_connect_logs
          WHERE occurred_at >= ?
          ORDER BY occurred_at DESC`,
@@ -1695,6 +1717,7 @@ export class ConfigStore {
       request_count: number | null;
       success_count: number | null;
       occurred_at: string;
+      metadata_json: string | null;
     }>;
 
     const aggregate = new Map<string, {
@@ -1720,7 +1743,20 @@ export class ConfigStore {
       const failCount = Math.max(0, requestCount - successCount, row.error_message?.trim() ? 1 : 0);
       if (failCount <= 0) continue;
 
-      const domain = this.normalizeTargetDomain(row.target);
+      let domain = this.normalizeTargetDomain(row.target);
+      if (this.isIpAddressLike(domain)) {
+        try {
+          const metadata = row.metadata_json ? (JSON.parse(row.metadata_json) as Record<string, unknown>) : null;
+          const mdDomain = typeof metadata?.domain === 'string' ? metadata.domain.trim() : '';
+          const mdHost = typeof metadata?.host === 'string' ? metadata.host.trim() : '';
+          const mdSni = typeof metadata?.sni === 'string' ? metadata.sni.trim() : '';
+          if (mdDomain || mdHost || mdSni) {
+            domain = this.normalizeTargetDomain(mdDomain || mdHost || mdSni);
+          }
+        } catch {
+          // ignore malformed metadata
+        }
+      }
       const outboundType = rowOutboundType;
       const existing = aggregate.get(domain) ?? {
         failures: 0,
