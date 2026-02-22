@@ -128,6 +128,31 @@ export interface TrafficStats {
   total: number; // bytes
 }
 
+export interface DashboardSummary {
+  stats: {
+    activeUsers: number;
+    activeNodes: number;
+    systemLoadPercent: number;
+    configVersion: string;
+  };
+  traffic: {
+    uploadSeries: number[];
+    downloadSeries: number[];
+  };
+  devices: {
+    series: number[];
+  };
+  syncRequests: {
+    series: number[];
+  };
+  auditLogs: Array<{
+    event: string;
+    admin: string;
+    time: string;
+    target: string;
+  }>;
+}
+
 export interface AccessLogSummary {
   totalRequests: number;
   successRate: number; // percentage

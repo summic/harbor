@@ -19,6 +19,7 @@ const AUTH_SYNC_USER_PATH = '/api/v1/auth/sync-user';
 const USERS_PATH = '/api/v1/users';
 const CLIENT_CONNECT_REPORT_PATH = '/api/v1/client/connect';
 const CLIENT_CONNECTIONS_REPORT_PATH = '/api/v1/client/connections';
+const DASHBOARD_PATH = '/api/v1/dashboard';
 const HEALTH_PATH = '/api/v1/health';
 const PROFILE_AUDITS_PATH = '/api/v1/client/profile/audits';
 const ADMIN_SUB = 'deeed4b7-748b-4301-8c9e-dfe0893a80cf';
@@ -193,6 +194,19 @@ const logSubscribeAudit = (
   extra: Record<string, unknown> = {},
 ) => {
   const token = extractBearerToken(req);
+  const snapshot = tokenSnapshot(token);
+  const statusCode = event === 'success' || event === 'token_compat' ? 200 : 401;
+  STORE.ingestApiRequestLog({
+    path: SUBSCRIPTION_PATH,
+    method: req.method || 'GET',
+    statusCode,
+    userId:
+      (typeof extra.userSub === 'string' ? extra.userSub : undefined) ||
+      (typeof snapshot.sub === 'string' ? snapshot.sub : undefined),
+    ip: requestIP(req),
+    userAgent: typeof req.headers['user-agent'] === 'string' ? req.headers['user-agent'] : '',
+    occurredAt: new Date().toISOString(),
+  });
   const payload = {
     ts: new Date().toISOString(),
     event,
@@ -201,7 +215,7 @@ const logSubscribeAudit = (
     host: req.headers.host ?? '',
     ip: requestIP(req),
     ua: req.headers['user-agent'] ?? '',
-    token: tokenSnapshot(token),
+    token: snapshot,
     ...extra,
   };
   if (event === 'success') {
@@ -626,6 +640,11 @@ const subscriptionHandler = async (req: IncomingMessage, res: ServerResponse, ne
 
   if (url.pathname === USERS_PATH && req.method === 'GET') {
     sendJson(res, 200, STORE.listUsers());
+    return;
+  }
+
+  if (url.pathname === DASHBOARD_PATH && req.method === 'GET') {
+    sendJson(res, 200, STORE.getDashboardSummary());
     return;
   }
 

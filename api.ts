@@ -1,5 +1,5 @@
 
-import { DomainRule, ProxyNode, ProxyGroup, RoutingRule, DnsUpstream, HostsEntry, ConfigVersion, UnifiedProfile, User, ProtocolType, TrafficSimulationResult, ClientDeviceReportPayload, ClientConnectionReportPayload, UserTargetAggregate, UserTargetDetail, UserProfileAudit } from './types';
+import { DomainRule, ProxyNode, ProxyGroup, RoutingRule, DnsUpstream, HostsEntry, ConfigVersion, UnifiedProfile, User, ProtocolType, TrafficSimulationResult, ClientDeviceReportPayload, ClientConnectionReportPayload, UserTargetAggregate, UserTargetDetail, UserProfileAudit, DashboardSummary } from './types';
 import { QualityObservability, normalizeObservabilityResponse } from './utils/quality';
 import { loadSession } from './auth';
 
@@ -18,6 +18,7 @@ const AUTH_SYNC_USER_PATH = '/api/v1/auth/sync-user';
 const USERS_PATH = '/api/v1/users';
 const CLIENT_CONNECT_REPORT_PATH = '/api/v1/client/connect';
 const CLIENT_CONNECTIONS_REPORT_PATH = '/api/v1/client/connections';
+const DASHBOARD_PATH = '/api/v1/dashboard';
 const userTargetsPath = (id: string) => `${USERS_PATH}/${encodeURIComponent(id)}/targets`;
 const userTargetDetailPath = (id: string, target: string) =>
   `${USERS_PATH}/${encodeURIComponent(id)}/targets/${encodeURIComponent(target)}`;
@@ -1525,6 +1526,37 @@ export const mockApi = {
       return await fetchJson<User[]>(USERS_PATH);
     } catch {
       return [...mockUsers];
+    }
+  },
+
+  getDashboardSummary: async (): Promise<DashboardSummary> => {
+    await sleep(120);
+    try {
+      return await fetchJson<DashboardSummary>(DASHBOARD_PATH);
+    } catch {
+      const users = await mockApi.getUsers();
+      const activeUsers = users.filter((user) => user.status === 'active').length;
+      const upload = users.reduce((sum, user) => sum + user.traffic.upload, 0);
+      const download = users.reduce((sum, user) => sum + user.traffic.download, 0);
+      return {
+        stats: {
+          activeUsers,
+          activeNodes: 0,
+          systemLoadPercent: 0,
+          configVersion: 'v0.0.0',
+        },
+        traffic: {
+          uploadSeries: Array.from({ length: 24 }, (_, index) => Math.floor((upload / 24) * (index / 23))),
+          downloadSeries: Array.from({ length: 24 }, (_, index) => Math.floor((download / 24) * (index / 23))),
+        },
+        devices: {
+          series: Array.from({ length: 24 }, () => users.reduce((sum, user) => sum + user.devices.length, 0)),
+        },
+        syncRequests: {
+          series: Array.from({ length: 24 }, () => 0),
+        },
+        auditLogs: [],
+      };
     }
   },
 

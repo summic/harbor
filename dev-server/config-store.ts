@@ -160,6 +160,31 @@ export type UserTargetDetailItem = {
   }>;
 };
 
+export type DashboardSummaryItem = {
+  stats: {
+    activeUsers: number;
+    activeNodes: number;
+    systemLoadPercent: number;
+    configVersion: string;
+  };
+  traffic: {
+    uploadSeries: number[];
+    downloadSeries: number[];
+  };
+  devices: {
+    series: number[];
+  };
+  syncRequests: {
+    series: number[];
+  };
+  auditLogs: Array<{
+    event: string;
+    admin: string;
+    time: string;
+    target: string;
+  }>;
+};
+
 export class ConfigStore {
   private db: CompatibleDb;
   private readonly storePath: string;
@@ -250,6 +275,7 @@ export class ConfigStore {
     this.migrateClientConnectTelemetryV1();
     this.migrateClientConnectTelemetryV2();
     this.migrateUserProfileAuditsV1();
+    this.migrateApiRequestLogsV1();
     this.migrateImportSingboxConfigFromFile();
   }
 
@@ -327,6 +353,26 @@ export class ConfigStore {
       );
       CREATE INDEX IF NOT EXISTS idx_user_profile_audits_user_time
         ON user_profile_audits(user_id, id DESC);
+    `);
+    this.markMigrationApplied(migrationId);
+  }
+
+  private migrateApiRequestLogsV1() {
+    const migrationId = '20260223_api_request_logs_v1';
+    if (this.isMigrationApplied(migrationId)) return;
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS api_request_logs (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        path TEXT NOT NULL,
+        method TEXT NOT NULL,
+        status_code INTEGER NOT NULL,
+        user_id TEXT,
+        ip TEXT,
+        user_agent TEXT,
+        occurred_at TEXT NOT NULL
+      );
+      CREATE INDEX IF NOT EXISTS idx_api_request_logs_path_time
+        ON api_request_logs(path, occurred_at DESC);
     `);
     this.markMigrationApplied(migrationId);
   }
@@ -1326,6 +1372,142 @@ export class ConfigStore {
       );
 
     return this.getUser(userId);
+  }
+
+  ingestApiRequestLog(input: {
+    path: string;
+    method: string;
+    statusCode: number;
+    userId?: string | null;
+    ip?: string | null;
+    userAgent?: string | null;
+    occurredAt?: string;
+  }) {
+    const path = input.path.trim();
+    const method = input.method.trim() || 'GET';
+    if (!path) return;
+    this.db
+      .prepare(
+        `INSERT INTO api_request_logs(path, method, status_code, user_id, ip, user_agent, occurred_at)
+         VALUES(?, ?, ?, ?, ?, ?, ?)`,
+      )
+      .run(
+        path,
+        method,
+        Number.isFinite(input.statusCode) ? input.statusCode : 0,
+        input.userId?.trim() || null,
+        input.ip?.trim() || null,
+        input.userAgent?.trim() || null,
+        input.occurredAt?.trim() || new Date().toISOString(),
+      );
+  }
+
+  getDashboardSummary(): DashboardSummaryItem {
+    const users = this.listUsers();
+    const profile = this.compileProfile(DEFAULT_USER_ID) as JsonObject;
+    const outbounds = Array.isArray(profile.outbounds) ? profile.outbounds : [];
+    const activeNodes = outbounds.filter((item) => {
+      const type = String(item?.type ?? '').toLowerCase();
+      const tag = String(item?.tag ?? '').toLowerCase();
+      return !['direct', 'block', 'dns', 'selector', 'urltest', 'fallback'].includes(type) &&
+        !['direct', 'reject', 'dns-out', 'dns', 'auto', 'proxy'].includes(tag);
+    }).length;
+
+    const latestRevision = this.db
+      .prepare(`SELECT version FROM revisions ORDER BY id DESC LIMIT 1`)
+      .get() as { version: string } | undefined;
+
+    const now = Date.now();
+    const hourMs = 60 * 60 * 1000;
+    const bucketStarts = Array.from({ length: 24 }, (_, idx) => now - (23 - idx) * hourMs);
+    const uploadSeries = Array.from({ length: 24 }, () => 0);
+    const downloadSeries = Array.from({ length: 24 }, () => 0);
+    const syncSeries = Array.from({ length: 24 }, () => 0);
+    const deviceSets = Array.from({ length: 24 }, () => new Set<string>());
+
+    const logs = this.db
+      .prepare(
+        `SELECT device_id, upload_bytes, download_bytes, occurred_at
+         FROM client_connect_logs
+         ORDER BY id DESC
+         LIMIT 20000`,
+      )
+      .all() as Array<{
+      device_id: string | null;
+      upload_bytes: number;
+      download_bytes: number;
+      occurred_at: string;
+    }>;
+
+    for (const row of logs) {
+      const ts = Date.parse(row.occurred_at);
+      if (!Number.isFinite(ts)) continue;
+      const offset = Math.floor((ts - bucketStarts[0]) / hourMs);
+      if (offset < 0 || offset >= 24) continue;
+      uploadSeries[offset] += Number(row.upload_bytes || 0);
+      downloadSeries[offset] += Number(row.download_bytes || 0);
+      if (row.device_id?.trim()) {
+        deviceSets[offset].add(row.device_id.trim());
+      }
+    }
+
+    const syncRows = this.db
+      .prepare(
+        `SELECT occurred_at
+         FROM api_request_logs
+         WHERE path = '/api/v1/client/subscribe'
+         ORDER BY id DESC
+         LIMIT 20000`,
+      )
+      .all() as Array<{ occurred_at: string }>;
+    for (const row of syncRows) {
+      const ts = Date.parse(row.occurred_at);
+      if (!Number.isFinite(ts)) continue;
+      const offset = Math.floor((ts - bucketStarts[0]) / hourMs);
+      if (offset < 0 || offset >= 24) continue;
+      syncSeries[offset] += 1;
+    }
+
+    const recentLogRows = this.db
+      .prepare(
+        `SELECT summary, author, timestamp
+         FROM revisions
+         ORDER BY id DESC
+         LIMIT 8`,
+      )
+      .all() as Array<{ summary: string; author: string; timestamp: string }>;
+    const auditLogs = recentLogRows.map((item) => ({
+      event: item.summary || 'Profile updated',
+      admin: item.author || 'console',
+      time: item.timestamp || '-',
+      target: latestRevision?.version || '-',
+    }));
+
+    const lastHourIndex = 23;
+    const lastHourUpload = uploadSeries[lastHourIndex] || 0;
+    const lastHourDownload = downloadSeries[lastHourIndex] || 0;
+    const lastHourTotal = lastHourUpload + lastHourDownload;
+    const systemLoadPercent = Math.max(1, Math.min(100, Math.round(lastHourTotal / (1024 * 1024))));
+
+    return {
+      stats: {
+        activeUsers: users.filter((user) => user.status === 'active').length,
+        activeNodes,
+        systemLoadPercent,
+        configVersion: latestRevision?.version || 'v0.0.0',
+      },
+      traffic: {
+        uploadSeries,
+        downloadSeries,
+      },
+      devices: {
+        series: deviceSets.map((set) => set.size),
+      },
+      syncRequests: {
+        series: syncSeries,
+      },
+      auditLogs,
+    };
   }
 
   private ensureUserExists(userId: string, now: string) {
