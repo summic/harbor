@@ -2,16 +2,43 @@ import React, { useMemo } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Activity, AlertTriangle, TrendingDown, TrendingUp, Globe, ShieldAlert } from 'lucide-react';
 import { SectionCard, EmptyState, LoadingOverlay } from '../components/Common';
-import { qualityApi } from '../api';
+import { mockApi, qualityApi } from '../api';
 import {
   QualityFailureReason,
   QualityStabilityPoint,
   QualityTopDomain,
   standardizeFailureReason,
 } from '../utils/quality';
+import { RoutingRule, User } from '../types';
 
 const formatPercent = (value: number, digits = 1) => `${value.toFixed(digits)}%`;
 const formatCount = (value: number) => value.toLocaleString();
+
+const extractMatchValues = (expr: string): string[] => {
+  const value = expr.includes(':') ? expr.split(':').slice(1).join(':') : expr;
+  return value
+    .split(',')
+    .map((item) => item.trim())
+    .filter(Boolean);
+};
+
+const estimateRuleHits = (rule: RoutingRule, domainCounts: Map<string, number>) => {
+  const values = extractMatchValues(rule.matchExpr);
+  if (values.length === 0) return 0;
+  if (rule.matchType === 'domain') {
+    let total = 0;
+    for (const [domain, count] of domainCounts.entries()) {
+      if (values.some((value) => domain === value || domain.endsWith(`.${value}`) || domain.endsWith(value))) {
+        total += count;
+      }
+    }
+    return total;
+  }
+  if (rule.matchType === 'rule_set' || rule.matchType === 'geosite') {
+    return values.reduce((sum, value) => sum + (domainCounts.get(value) ?? 0), 0);
+  }
+  return 0;
+};
 
 const StabilityChart: React.FC<{ points: QualityStabilityPoint[] }> = ({ points }) => {
   if (points.length < 2) {
@@ -121,6 +148,14 @@ export const QualityObservabilityPage: React.FC = () => {
     queryKey: ['quality-observability', '24h', 10],
     queryFn: () => qualityApi.getObservability({ window: '24h', topN: 10, bucket: '1h' }),
   });
+  const { data: users = [] } = useQuery({
+    queryKey: ['quality-observability-users'],
+    queryFn: () => mockApi.getUsers(),
+  });
+  const { data: routingRules = [] } = useQuery({
+    queryKey: ['quality-observability-routing'],
+    queryFn: () => mockApi.getRouting(),
+  });
 
   const summary = useMemo(() => {
     const points = data?.stability.points ?? [];
@@ -136,6 +171,51 @@ export const QualityObservabilityPage: React.FC = () => {
       updatedAt: data?.updatedAt ? new Date(data.updatedAt).toLocaleString() : '—',
     };
   }, [data]);
+
+  const dnsLens = useMemo(() => {
+    const totals = (users as User[]).reduce(
+      (acc, user) => {
+        const direct = user.logs.topDirect.reduce((sum, item) => sum + item.count, 0);
+        const blocked = user.logs.topBlocked.reduce((sum, item) => sum + item.count, 0);
+        const proxy = user.logs.topAllowed.reduce((sum, item) => sum + item.count, 0);
+        return {
+          direct: acc.direct + direct,
+          blocked: acc.blocked + blocked,
+          proxy: acc.proxy + proxy,
+        };
+      },
+      { direct: 0, blocked: 0, proxy: 0 },
+    );
+    const total = Math.max(1, totals.direct + totals.blocked + totals.proxy);
+    return {
+      ...totals,
+      total,
+      directPct: (totals.direct / total) * 100,
+      proxyPct: (totals.proxy / total) * 100,
+      blockedPct: (totals.blocked / total) * 100,
+    };
+  }, [users]);
+
+  const policyHitMap = useMemo(() => {
+    const domainCounts = new Map<string, number>();
+    for (const user of users as User[]) {
+      for (const row of [...user.logs.topAllowed, ...user.logs.topDirect, ...user.logs.topBlocked]) {
+        domainCounts.set(row.domain, (domainCounts.get(row.domain) ?? 0) + row.count);
+      }
+    }
+    const rows = (routingRules as RoutingRule[]).map((rule) => ({
+      id: rule.id,
+      matchType: rule.matchType,
+      matchExpr: rule.matchExpr,
+      outbound: rule.outbound,
+      hits: estimateRuleHits(rule, domainCounts),
+    }));
+    const maxHits = rows.reduce((max, row) => Math.max(max, row.hits), 0);
+    return {
+      rows: rows.sort((a, b) => b.hits - a.hits).slice(0, 12),
+      maxHits,
+    };
+  }, [routingRules, users]);
 
   if (isLoading) {
     return (
@@ -239,6 +319,69 @@ export const QualityObservabilityPage: React.FC = () => {
               description="Backend did not return failure breakdown data yet."
             />
           )}
+        </SectionCard>
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <SectionCard
+          title="DNS Lens"
+          description="Estimated DNS path distribution from uploaded request logs."
+        >
+          <div className="space-y-4">
+            <div className="h-4 rounded-full bg-slate-100 overflow-hidden flex">
+              <div className="h-full bg-emerald-500" style={{ width: `${dnsLens.directPct}%` }} />
+              <div className="h-full bg-blue-500" style={{ width: `${dnsLens.proxyPct}%` }} />
+              <div className="h-full bg-rose-500" style={{ width: `${dnsLens.blockedPct}%` }} />
+            </div>
+            <div className="grid grid-cols-3 gap-3 text-xs">
+              <div className="rounded-lg border border-emerald-100 bg-emerald-50 p-3">
+                <div className="text-emerald-700 font-semibold uppercase">Direct</div>
+                <div className="text-slate-900 font-bold mt-1">{formatCount(dnsLens.direct)}</div>
+                <div className="text-emerald-700">{formatPercent(dnsLens.directPct)}</div>
+              </div>
+              <div className="rounded-lg border border-blue-100 bg-blue-50 p-3">
+                <div className="text-blue-700 font-semibold uppercase">Proxy</div>
+                <div className="text-slate-900 font-bold mt-1">{formatCount(dnsLens.proxy)}</div>
+                <div className="text-blue-700">{formatPercent(dnsLens.proxyPct)}</div>
+              </div>
+              <div className="rounded-lg border border-rose-100 bg-rose-50 p-3">
+                <div className="text-rose-700 font-semibold uppercase">Blocked</div>
+                <div className="text-slate-900 font-bold mt-1">{formatCount(dnsLens.blocked)}</div>
+                <div className="text-rose-700">{formatPercent(dnsLens.blockedPct)}</div>
+              </div>
+            </div>
+          </div>
+        </SectionCard>
+
+        <SectionCard
+          title="Policy Hit Map"
+          description="Top routing policies by estimated hit count."
+        >
+          <div className="space-y-2">
+            {policyHitMap.rows.map((row) => {
+              const intensity = policyHitMap.maxHits > 0 ? row.hits / policyHitMap.maxHits : 0;
+              const alpha = 0.1 + intensity * 0.35;
+              return (
+                <div
+                  key={row.id}
+                  className="rounded-lg border border-slate-200 px-3 py-2"
+                  style={{ backgroundColor: `rgba(37, 99, 235, ${alpha})` }}
+                >
+                  <div className="flex items-center justify-between gap-2 text-xs">
+                    <span className="font-semibold text-slate-800 truncate">{row.matchType}: {row.matchExpr || '-'}</span>
+                    <span className="font-mono text-slate-700">{formatCount(row.hits)}</span>
+                  </div>
+                  <div className="mt-1 text-[11px] text-slate-600 uppercase">outbound: {row.outbound}</div>
+                </div>
+              );
+            })}
+            {policyHitMap.rows.length === 0 ? (
+              <EmptyState
+                title="No routing policies"
+                description="Routing rules are required to build policy hit map."
+              />
+            ) : null}
+          </div>
         </SectionCard>
       </div>
     </div>

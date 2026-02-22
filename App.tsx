@@ -9,6 +9,7 @@ import { DashboardPage } from './pages/Dashboard';
 import { DomainsPage } from './pages/Domains';
 import { ProxiesPage } from './pages/Proxies';
 import { RoutingPage } from './pages/Routing';
+import { SimulationPage } from './pages/Simulation';
 import { DnsHostsPage } from './pages/DnsHosts';
 import { PublishPage } from './pages/Publish';
 import { UnifiedProfilePage } from './pages/UnifiedProfile';
@@ -48,6 +49,7 @@ const App: React.FC = () => {
                 <Route path="/domains" element={<AdminRoute><DomainsPage /></AdminRoute>} />
                 <Route path="/proxies" element={<AdminRoute><ProxiesPage /></AdminRoute>} />
                 <Route path="/routing" element={<AdminRoute><RoutingPage /></AdminRoute>} />
+                <Route path="/simulation" element={<AdminRoute><SimulationPage /></AdminRoute>} />
                 <Route path="/dns-hosts" element={<AdminRoute><DnsHostsPage /></AdminRoute>} />
                 <Route path="/users" element={<AdminRoute><UsersPage /></AdminRoute>} />
                 <Route path="/users/:id" element={<AdminRoute><UserDetailsPage /></AdminRoute>} />
