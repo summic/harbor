@@ -20,6 +20,7 @@ const USERS_PATH = '/api/v1/users';
 const CLIENT_CONNECT_REPORT_PATH = '/api/v1/client/connect';
 const CLIENT_CONNECTIONS_REPORT_PATH = '/api/v1/client/connections';
 const DASHBOARD_PATH = '/api/v1/dashboard';
+const QUALITY_OBSERVABILITY_V1_PATH = '/api/v1/quality/observability';
 const QUALITY_OBSERVABILITY_PATH = '/api/quality/observability';
 const HEALTH_PATH = '/api/v1/health';
 const PROFILE_AUDITS_PATH = '/api/v1/client/profile/audits';
@@ -649,7 +650,10 @@ const subscriptionHandler = async (req: IncomingMessage, res: ServerResponse, ne
     return;
   }
 
-  if (url.pathname === QUALITY_OBSERVABILITY_PATH && req.method === 'GET') {
+  if (
+    (url.pathname === QUALITY_OBSERVABILITY_PATH || url.pathname === QUALITY_OBSERVABILITY_V1_PATH) &&
+    req.method === 'GET'
+  ) {
     const window = url.searchParams.get('window') ?? undefined;
     const topNRaw = Number(url.searchParams.get('topN') ?? '10');
     const bucket = url.searchParams.get('bucket') ?? undefined;

@@ -8,6 +8,7 @@ const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 const API_BASE = import.meta.env.VITE_API_BASE_URL ?? '';
 const RULES_PATH = '/api/v1/rules';
 const QUALITY_MOCK_FALLBACK = import.meta.env.VITE_QUALITY_MOCK_FALLBACK === 'true';
+const QUALITY_OBSERVABILITY_PATH = '/api/v1/quality/observability';
 const DEFAULT_SUBSCRIPTION_PATH = '/api/v1/client/subscribe';
 const SIMULATE_TRAFFIC_PATH = '/api/v1/simulate/traffic';
 const PROXY_LATENCY_PATH = '/api/v1/proxies/latency';
@@ -1632,7 +1633,7 @@ export const qualityApi = {
     const query = search.toString();
 
     try {
-      const payload = await fetchJson<unknown>(`/api/quality/observability${query ? `?${query}` : ''}`);
+      const payload = await fetchJson<unknown>(`${QUALITY_OBSERVABILITY_PATH}${query ? `?${query}` : ''}`);
       return normalizeObservabilityResponse(payload);
     } catch (error) {
       if (QUALITY_MOCK_FALLBACK) {
