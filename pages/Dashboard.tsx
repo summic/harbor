@@ -102,7 +102,7 @@ export const DashboardPage: React.FC = () => {
   const deviceSeries = data?.devices.series ?? Array.from({ length: 24 }, () => 0);
   const totalUpload = uploadSeries.reduce((sum, value) => sum + value, 0);
   const totalDownload = downloadSeries.reduce((sum, value) => sum + value, 0);
-  const proxyDomainTotal = (qualityData?.topDomains ?? []).reduce((sum, item) => sum + item.count, 0);
+  const allDomainTotal = (qualityData?.topDomains ?? []).reduce((sum, item) => sum + item.count, 0);
   const proxyFailureTotal = (qualityData?.failureReasons ?? []).reduce((sum, item) => sum + item.count, 0);
 
   const stats = [
@@ -171,8 +171,8 @@ export const DashboardPage: React.FC = () => {
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mt-6">
           <div className="lg:col-span-2">
             <SectionCard
-              title="Proxy Domains Top"
-              description="过去 24 小时命中代理链路的域名（按请求数倒序）"
+              title="Top Domains (All Requests)"
+              description="过去 24 小时所有请求命中的域名（按请求数倒序）"
               actions={<Globe size={16} className="text-slate-400" />}
             >
               <div className="overflow-x-auto">
@@ -187,7 +187,7 @@ export const DashboardPage: React.FC = () => {
                   </thead>
                   <tbody className="divide-y divide-slate-50">
                     {(qualityData?.topDomains ?? []).map((item, index) => {
-                      const ratio = proxyDomainTotal > 0 ? (item.count / proxyDomainTotal) * 100 : 0;
+                      const ratio = allDomainTotal > 0 ? (item.count / allDomainTotal) * 100 : 0;
                       return (
                         <tr key={`${item.domain}-${index}`} className="hover:bg-slate-50/50">
                           <td className="px-4 py-3 text-xs font-mono text-slate-400">{index + 1}</td>
@@ -199,7 +199,7 @@ export const DashboardPage: React.FC = () => {
                     })}
                     {(qualityData?.topDomains ?? []).length === 0 ? (
                       <tr>
-                        <td colSpan={4} className="px-4 py-8 text-center text-xs text-slate-400">No proxied domains yet</td>
+                        <td colSpan={4} className="px-4 py-8 text-center text-xs text-slate-400">No domain requests yet</td>
                       </tr>
                     ) : null}
                   </tbody>

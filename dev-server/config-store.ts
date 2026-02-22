@@ -1561,10 +1561,8 @@ export class ConfigStore {
         });
       }
 
-      if (outboundType === 'proxy') {
-        const target = (row.target || '').trim() || '(unknown)';
-        topDomainMap.set(target, (topDomainMap.get(target) || 0) + requestCount);
-      }
+      const target = (row.target || '').trim() || '(unknown)';
+      topDomainMap.set(target, (topDomainMap.get(target) || 0) + requestCount);
 
       const failCount = Math.max(
         0,
