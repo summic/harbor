@@ -24,11 +24,10 @@ import { buildInfo } from '../utils/build-info';
 
 const navItems = [
   { path: '/', label: 'Dashboard', icon: LayoutDashboard },
-  { path: '/domain-groups', label: 'Domain Groups', icon: Shield },
+  { path: '/domain-groups', label: 'Domains', icon: Shield },
   { path: '/proxies', label: 'Proxies', icon: Zap },
-  { path: '/routing', label: 'Routing', icon: Shuffle },
+  { path: '/dns-hosts', label: 'DNS', icon: Settings2 },
   { path: '/simulation', label: 'Simulation', icon: Orbit },
-  { path: '/dns-hosts', label: 'DNS & Hosts', icon: Settings2 },
   { path: '/users', label: 'Users', icon: Users },
   { path: '/profile', label: 'Unified Profile', icon: FileJson },
 ];
