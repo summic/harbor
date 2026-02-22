@@ -34,6 +34,13 @@ const navItems = [
   { path: '/publish', label: 'Publish', icon: Send },
 ];
 
+const isRouteActive = (itemPath: string, currentPath: string): boolean => {
+  if (itemPath === '/') {
+    return currentPath === '/';
+  }
+  return currentPath === itemPath || currentPath.startsWith(`${itemPath}/`);
+};
+
 export const AppShell: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { isSidebarOpen, toggleSidebar } = useAppStore();
   const location = useLocation();
@@ -99,7 +106,7 @@ export const AppShell: React.FC<{ children: React.ReactNode }> = ({ children }) 
 
             <nav className="flex-1 overflow-y-auto p-4 space-y-1">
               {navItems.map((item) => {
-                const isActive = location.pathname === item.path;
+                const isActive = isRouteActive(item.path, location.pathname);
                 const Icon = item.icon;
                 return (
                   <Link

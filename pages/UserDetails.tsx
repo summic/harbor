@@ -124,10 +124,6 @@ export const UserDetailsPage: React.FC = () => {
            <SectionCard title="Access Logs Overview" actions={
               <span className="text-xs font-mono bg-emerald-50 px-2 py-1 rounded text-emerald-700">All requests</span>
            }>
-             <div className="mb-4 rounded-lg border border-emerald-100 bg-emerald-50/60 px-4 py-3 text-xs text-emerald-800">
-               Metrics below are calculated from all uploaded requests (direct, proxy, block, and others).
-             </div>
-
              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
                 <div className="p-4 bg-slate-50 rounded-lg">
                    <p className="text-xs text-slate-500 mb-1">All Requests</p>
