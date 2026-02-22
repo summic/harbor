@@ -510,6 +510,12 @@ export class ConfigStore {
     this.db
       .prepare(`INSERT INTO revisions(version, timestamp, author, summary, content) VALUES(?, ?, ?, ?, ?)`)
       .run(version, ts, author, summary, content);
+    this.db.exec(`
+      DELETE FROM revisions
+      WHERE id NOT IN (
+        SELECT id FROM revisions ORDER BY id DESC LIMIT 50
+      );
+    `);
     const row = this.db.prepare(`SELECT id FROM revisions ORDER BY id DESC LIMIT 1`).get() as { id: number };
     return {
       id: `v${row.id}`,
@@ -795,7 +801,7 @@ export class ConfigStore {
     }));
   }
 
-  listVersions(limit = 30): ConfigVersionItem[] {
+  listVersions(limit = 50): ConfigVersionItem[] {
     const rows = this.db
       .prepare(`SELECT id, version, timestamp, author, summary, content FROM revisions ORDER BY id DESC LIMIT ?`)
       .all(limit) as Array<{

@@ -2,8 +2,8 @@
 import React, { useState, useEffect } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { 
-  Save, Copy, Globe, FileJson, Check, AlertTriangle, 
-  RotateCcw, ExternalLink, Download, Braces
+  Save, FileJson, Check, AlertTriangle, 
+  RotateCcw, Braces, History
 } from 'lucide-react';
 import CodeMirror from '@uiw/react-codemirror';
 import { json } from '@codemirror/lang-json';
@@ -16,19 +16,20 @@ export const UnifiedProfilePage: React.FC = () => {
     queryKey: ['unifiedProfile'], 
     queryFn: mockApi.getUnifiedProfile 
   });
+  const { data: versions = [] } = useQuery({
+    queryKey: ['profileVersions'],
+    queryFn: mockApi.getVersions,
+  });
 
   const [jsonContent, setJsonContent] = useState('');
   const [isDirty, setIsDirty] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
-  const [copied, setCopied] = useState(false);
-  const [subscriptionUrl, setSubscriptionUrl] = useState('');
 
   // Initialize content
   useEffect(() => {
     if (profile) {
       setJsonContent(profile.content);
-      setSubscriptionUrl(profile.publicUrl || '');
       setIsDirty(false);
       setError(null);
       setSaveError(null);
@@ -44,10 +45,26 @@ export const UnifiedProfilePage: React.FC = () => {
       setIsDirty(false);
       setError(null);
       setSaveError(null);
-      setSubscriptionUrl(data.publicUrl || '');
+      queryClient.invalidateQueries({ queryKey: ['profileVersions'] });
     },
     onError: (err) => {
       const message = err instanceof Error ? err.message : 'Save failed';
+      setSaveError(message);
+    },
+  });
+  const rollbackMutation = useMutation({
+    mutationFn: mockApi.rollbackVersion,
+    onSuccess: (data) => {
+      queryClient.setQueryData(['unifiedProfile'], data);
+      queryClient.invalidateQueries({ queryKey: ['unifiedProfile'] });
+      queryClient.invalidateQueries({ queryKey: ['profileVersions'] });
+      setJsonContent(data.content);
+      setIsDirty(false);
+      setError(null);
+      setSaveError(null);
+    },
+    onError: (err) => {
+      const message = err instanceof Error ? err.message : 'Rollback failed';
       setSaveError(message);
     },
   });
@@ -74,7 +91,6 @@ export const UnifiedProfilePage: React.FC = () => {
     setSaveError(null);
     saveMutation.mutate({
       content: jsonContent,
-      publicUrl: subscriptionUrl
     });
   };
 
@@ -88,23 +104,6 @@ export const UnifiedProfilePage: React.FC = () => {
     } catch (e) {
       // Ignore format errors
     }
-  };
-
-  const handleCopyUrl = () => {
-    if (subscriptionUrl) {
-      navigator.clipboard.writeText(subscriptionUrl);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-    }
-  };
-
-  const handleDownload = () => {
-    const blob = new Blob([jsonContent], { type: 'application/json;charset=utf-8' });
-    const link = document.createElement('a');
-    link.href = URL.createObjectURL(blob);
-    link.download = 'profile.json';
-    link.click();
-    URL.revokeObjectURL(link.href);
   };
 
   return (
@@ -219,50 +218,6 @@ export const UnifiedProfilePage: React.FC = () => {
             </div>
           </SectionCard>
 
-          <SectionCard title="Remote Access" description="Use this URL to subscribe to this profile in your clients.">
-             <div className="space-y-4">
-               <div className="p-4 bg-slate-50 border border-slate-200 rounded-xl group relative">
-                 <div className="flex items-center gap-2 mb-2 text-xs font-bold text-slate-500 uppercase tracking-wider">
-                   <Globe size={12} />
-                   Public Subscription URL
-                 </div>
-                 <input
-                   value={subscriptionUrl}
-                   onChange={(e) => {
-                     setSubscriptionUrl(e.target.value);
-                     setIsDirty(true);
-                   }}
-                   placeholder="https://harbor.beforeve.com/api/v1/client/subscribe"
-                   className="w-full font-mono text-sm text-slate-700 bg-white border border-slate-200 rounded-md px-2.5 py-2 pr-9 focus:outline-none focus:ring-2 focus:ring-blue-200"
-                 />
-                 <button 
-                   onClick={handleCopyUrl}
-                   className="absolute top-3 right-3 p-1.5 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded transition-colors"
-                   title="Copy to clipboard"
-                 >
-                   {copied ? <Check size={16} className="text-emerald-500" /> : <Copy size={16} />}
-                 </button>
-               </div>
-
-               <div className="flex gap-2">
-                 <a 
-                   href={subscriptionUrl || undefined} 
-                   target="_blank" 
-                   rel="noreferrer"
-                   className={`flex-1 flex items-center justify-center gap-2 px-4 py-2 border border-slate-200 rounded-lg text-sm font-semibold text-slate-600 hover:bg-slate-50 transition-colors ${!subscriptionUrl ? 'pointer-events-none opacity-50' : ''}`}
-                 >
-                   <ExternalLink size={16} /> Open
-                 </a>
-                 <button
-                   onClick={handleDownload}
-                   className="flex-1 flex items-center justify-center gap-2 px-4 py-2 border border-slate-200 rounded-lg text-sm font-semibold text-slate-600 hover:bg-slate-50 transition-colors"
-                 >
-                   <Download size={16} /> Download
-                 </button>
-               </div>
-             </div>
-          </SectionCard>
-
           <SectionCard title="Profile Status">
             <div className="space-y-4">
               <div className="flex justify-between items-center py-2 border-b border-slate-50">
@@ -277,6 +232,34 @@ export const UnifiedProfilePage: React.FC = () => {
                 <span className="text-sm text-slate-500">Sync Status</span>
                 <span className="text-xs bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded-full font-bold uppercase">Live</span>
               </div>
+            </div>
+          </SectionCard>
+
+          <SectionCard title="Versions" description="Click one version to restore. Keep up to 50 versions.">
+            <div className="space-y-2 max-h-72 overflow-y-auto pr-1">
+              {versions.map((version) => (
+                <button
+                  key={version.id}
+                  onClick={() => {
+                    if (!window.confirm(`Restore ${version.version}?`)) return;
+                    rollbackMutation.mutate(version.id);
+                  }}
+                  disabled={rollbackMutation.isPending}
+                  className="w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-left hover:bg-slate-50 disabled:opacity-60"
+                >
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-semibold text-slate-700">{version.version}</span>
+                    <span className="text-[11px] text-slate-400">{version.timestamp}</span>
+                  </div>
+                  <div className="mt-1 flex items-center gap-1 text-[11px] text-slate-500">
+                    <History size={12} />
+                    {version.summary}
+                  </div>
+                </button>
+              ))}
+              {versions.length === 0 ? (
+                <p className="text-xs text-slate-400">No versions yet.</p>
+              ) : null}
             </div>
           </SectionCard>
           
