@@ -100,7 +100,7 @@ export const SimulationPage: React.FC = () => {
                       <div className="z-10 w-6 h-6 rounded-full bg-blue-100 flex items-center justify-center border-2 border-white shadow-sm">
                         <Target size={12} className="text-blue-600" />
                       </div>
-                      <div className="ml-4 pt-0.5">
+                      <div className="ml-4">
                         <p className="text-xs font-bold uppercase text-slate-400">Input</p>
                         <p className="text-sm font-medium">{result.input.target}</p>
                         <p className="text-xs text-slate-500">protocol: {result.input.protocol}{result.input.port ? `:${result.input.port}` : ''}</p>
@@ -111,7 +111,7 @@ export const SimulationPage: React.FC = () => {
                       <div className="z-10 w-6 h-6 rounded-full bg-cyan-100 flex items-center justify-center border-2 border-white shadow-sm">
                         <Search size={12} className="text-cyan-700" />
                       </div>
-                      <div className="ml-4 pt-0.5">
+                      <div className="ml-4">
                         <p className="text-xs font-bold uppercase text-slate-400">DNS Decision</p>
                         <p className="text-sm font-medium">server: {result.dns.selectedServer}</p>
                         {result.dns.matchedRule ? (
@@ -124,7 +124,7 @@ export const SimulationPage: React.FC = () => {
                       <div className="z-10 w-6 h-6 rounded-full bg-emerald-100 flex items-center justify-center border-2 border-white shadow-sm">
                         <Server size={12} className="text-emerald-700" />
                       </div>
-                      <div className="ml-4 pt-0.5 w-full">
+                      <div className="ml-4 w-full">
                         <p className="text-xs font-bold uppercase text-slate-400">Matched Rules</p>
                         {result.route.matchedRules.length === 0 ? (
                           <p className="text-sm text-slate-500">No explicit rule matched.</p>
@@ -145,7 +145,7 @@ export const SimulationPage: React.FC = () => {
                       <div className="z-10 w-6 h-6 rounded-full bg-amber-100 flex items-center justify-center border-2 border-white shadow-sm">
                         <Route size={12} className="text-amber-700" />
                       </div>
-                      <div className="ml-4 pt-0.5">
+                      <div className="ml-4">
                         <p className="text-xs font-bold uppercase text-slate-400">Final Outbound</p>
                         <p className="text-sm font-bold text-blue-700 uppercase">{result.route.finalOutbound}</p>
                         {result.route.usedFinalFallback ? (
@@ -158,7 +158,7 @@ export const SimulationPage: React.FC = () => {
                       <div className="z-10 w-6 h-6 rounded-full bg-violet-100 flex items-center justify-center border-2 border-white shadow-sm">
                         <Shuffle size={12} className="text-violet-700" />
                       </div>
-                      <div className="ml-4 pt-0.5">
+                      <div className="ml-4">
                         <p className="text-xs font-bold uppercase text-slate-400">Normalized</p>
                         <p className="text-xs text-slate-600 break-all">
                           domain: {result.normalized.domain || '-'} | ip: {result.normalized.ip || '-'}
