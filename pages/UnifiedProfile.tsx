@@ -20,6 +20,7 @@ export const UnifiedProfilePage: React.FC = () => {
   const [jsonContent, setJsonContent] = useState('');
   const [isDirty, setIsDirty] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [saveError, setSaveError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
   const [subscriptionUrl, setSubscriptionUrl] = useState('');
 
@@ -30,6 +31,7 @@ export const UnifiedProfilePage: React.FC = () => {
       setSubscriptionUrl(profile.publicUrl || '');
       setIsDirty(false);
       setError(null);
+      setSaveError(null);
     }
   }, [profile]);
 
@@ -38,10 +40,16 @@ export const UnifiedProfilePage: React.FC = () => {
     mutationFn: mockApi.saveUnifiedProfile,
     onSuccess: (data) => {
       queryClient.setQueryData(['unifiedProfile'], data);
+      queryClient.invalidateQueries({ queryKey: ['unifiedProfile'] });
       setIsDirty(false);
       setError(null);
+      setSaveError(null);
       setSubscriptionUrl(data.publicUrl || '');
-    }
+    },
+    onError: (err) => {
+      const message = err instanceof Error ? err.message : 'Save failed';
+      setSaveError(message);
+    },
   });
 
   const handleJsonChange = (newVal: string) => {
@@ -63,6 +71,7 @@ export const UnifiedProfilePage: React.FC = () => {
 
   const handleSave = () => {
     if (error) return; 
+    setSaveError(null);
     saveMutation.mutate({
       content: jsonContent,
       publicUrl: subscriptionUrl
@@ -158,6 +167,11 @@ export const UnifiedProfilePage: React.FC = () => {
             {error && (
               <div className="px-4 py-2 bg-rose-900/10 border-t border-rose-900/50 text-rose-400 text-xs font-mono truncate z-20">
                 <span className="font-bold mr-2">ERROR:</span>{error}
+              </div>
+            )}
+            {saveError && !error && (
+              <div className="px-4 py-2 bg-amber-900/10 border-t border-amber-900/50 text-amber-300 text-xs font-mono truncate z-20">
+                <span className="font-bold mr-2">SAVE:</span>{saveError}
               </div>
             )}
           </div>

@@ -1484,13 +1484,9 @@ export const mockApi = {
 
   getUnifiedProfile: async (): Promise<UnifiedProfile> => {
     await sleep(200);
-    try {
-      const remote = await fetchJson<UnifiedProfile>('/api/v1/client/profile?scope=global');
-      mockProfileData = { ...remote };
-      return remote;
-    } catch {
-      return refreshUnifiedProfile();
-    }
+    const remote = await fetchJson<UnifiedProfile>('/api/v1/client/profile?scope=global');
+    mockProfileData = { ...remote };
+    return remote;
   },
 
   getMyUnifiedProfile: async (): Promise<UnifiedProfile> => {
