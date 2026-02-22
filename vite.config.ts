@@ -157,6 +157,60 @@ const extractBearerToken = (req: IncomingMessage): string | null => {
   return token ? token : null;
 };
 
+const requestIP = (req: IncomingMessage): string => {
+  const forwarded = req.headers['x-forwarded-for'];
+  if (typeof forwarded === 'string' && forwarded.trim()) {
+    return forwarded.split(',')[0].trim();
+  }
+  if (Array.isArray(forwarded) && forwarded.length > 0) {
+    return forwarded[0];
+  }
+  return req.socket.remoteAddress ?? 'unknown';
+};
+
+const tokenSnapshot = (token: string | null) => {
+  if (!token) {
+    return { present: false };
+  }
+  const payload = parseJwtPayload(token);
+  const exp = typeof payload?.exp === 'number' ? payload.exp : undefined;
+  return {
+    present: true,
+    prefix: token.slice(0, 6),
+    suffix: token.slice(-6),
+    length: token.length,
+    jwtLike: token.split('.').length >= 3,
+    sub: typeof payload?.sub === 'string' ? payload.sub : undefined,
+    iss: typeof payload?.iss === 'string' ? payload.iss : undefined,
+    exp,
+    expired: typeof exp === 'number' ? Date.now() >= exp * 1000 : undefined,
+  };
+};
+
+const logSubscribeAudit = (
+  req: IncomingMessage,
+  event: 'success' | 'auth_failed' | 'token_compat',
+  extra: Record<string, unknown> = {},
+) => {
+  const token = extractBearerToken(req);
+  const payload = {
+    ts: new Date().toISOString(),
+    event,
+    method: req.method,
+    path: req.url ?? SUBSCRIPTION_PATH,
+    host: req.headers.host ?? '',
+    ip: requestIP(req),
+    ua: req.headers['user-agent'] ?? '',
+    token: tokenSnapshot(token),
+    ...extra,
+  };
+  if (event === 'success') {
+    console.info('[harbor][subscribe]', JSON.stringify(payload));
+  } else {
+    console.warn('[harbor][subscribe]', JSON.stringify(payload));
+  }
+};
+
 const fetchAuthInfo = async (accessToken: string): Promise<AuthInfo | null> => {
   const cached = tokenSubCache.get(accessToken);
   if (cached && cached.expiresAt > Date.now()) {
@@ -847,6 +901,7 @@ const subscriptionHandler = async (req: IncomingMessage, res: ServerResponse, ne
   if (accessToken) {
     const authInfo = await fetchAuthInfo(accessToken);
     if (!authInfo?.sub) {
+      logSubscribeAudit(req, 'auth_failed', { reason: 'invalid_access_token' });
       sendProblem(res, 401, {
         title: 'Authentication failed',
         detail: 'Invalid access token',
@@ -855,11 +910,13 @@ const subscriptionHandler = async (req: IncomingMessage, res: ServerResponse, ne
       });
       return;
     }
+    logSubscribeAudit(req, 'success', { userSub: authInfo.sub, authMode: 'bearer' });
     sendJson(res, 200, STORE.getSubscriptionProfileByUser(authInfo.sub));
     return;
   }
 
   if (!SUBSCRIBE_TOKEN_COMPAT) {
+    logSubscribeAudit(req, 'auth_failed', { reason: 'missing_bearer_token', compatMode: false });
     sendProblem(res, 401, {
       title: 'Authentication failed',
       detail: 'Bearer token is required',
@@ -870,6 +927,7 @@ const subscriptionHandler = async (req: IncomingMessage, res: ServerResponse, ne
   }
   const token = url.searchParams.get('token');
   if (!token) {
+    logSubscribeAudit(req, 'auth_failed', { reason: 'missing_bearer_token', compatMode: true });
     sendProblem(res, 401, {
       title: 'Authentication failed',
       detail: 'Bearer token is required',
@@ -881,6 +939,7 @@ const subscriptionHandler = async (req: IncomingMessage, res: ServerResponse, ne
 
   const profile = STORE.getSubscriptionProfile(token);
   if (!profile) {
+    logSubscribeAudit(req, 'auth_failed', { reason: 'invalid_token_query', compatMode: true });
     sendProblem(res, 401, {
       title: 'Authentication failed',
       detail: 'token is invalid',
@@ -889,6 +948,7 @@ const subscriptionHandler = async (req: IncomingMessage, res: ServerResponse, ne
     });
     return;
   }
+  logSubscribeAudit(req, 'token_compat', { compatMode: true });
   sendJson(res, 200, profile);
 };
 
