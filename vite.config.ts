@@ -20,6 +20,7 @@ const USERS_PATH = '/api/v1/users';
 const CLIENT_CONNECT_REPORT_PATH = '/api/v1/client/connect';
 const CLIENT_CONNECTIONS_REPORT_PATH = '/api/v1/client/connections';
 const DASHBOARD_PATH = '/api/v1/dashboard';
+const QUALITY_OBSERVABILITY_PATH = '/api/quality/observability';
 const HEALTH_PATH = '/api/v1/health';
 const PROFILE_AUDITS_PATH = '/api/v1/client/profile/audits';
 const ADMIN_SUB = 'deeed4b7-748b-4301-8c9e-dfe0893a80cf';
@@ -645,6 +646,22 @@ const subscriptionHandler = async (req: IncomingMessage, res: ServerResponse, ne
 
   if (url.pathname === DASHBOARD_PATH && req.method === 'GET') {
     sendJson(res, 200, STORE.getDashboardSummary());
+    return;
+  }
+
+  if (url.pathname === QUALITY_OBSERVABILITY_PATH && req.method === 'GET') {
+    const window = url.searchParams.get('window') ?? undefined;
+    const topNRaw = Number(url.searchParams.get('topN') ?? '10');
+    const bucket = url.searchParams.get('bucket') ?? undefined;
+    sendJson(
+      res,
+      200,
+      STORE.getQualityObservability({
+        window,
+        topN: Number.isFinite(topNRaw) ? topNRaw : 10,
+        bucket,
+      }),
+    );
     return;
   }
 

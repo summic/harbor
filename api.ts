@@ -7,7 +7,7 @@ const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL ?? '';
 const RULES_PATH = '/api/v1/rules';
-const QUALITY_MOCK_FALLBACK = import.meta.env.VITE_QUALITY_MOCK_FALLBACK !== 'false';
+const QUALITY_MOCK_FALLBACK = import.meta.env.VITE_QUALITY_MOCK_FALLBACK === 'true';
 const DEFAULT_SUBSCRIPTION_PATH = '/api/v1/client/subscribe';
 const SIMULATE_TRAFFIC_PATH = '/api/v1/simulate/traffic';
 const PROXY_LATENCY_PATH = '/api/v1/proxies/latency';

@@ -185,6 +185,26 @@ export type DashboardSummaryItem = {
   }>;
 };
 
+type QualityObservabilityPoint = {
+  timestamp: string;
+  total: number;
+  successRate: number;
+  errorRate: number;
+  p95LatencyMs?: number;
+};
+
+type QualityObservabilityPayload = {
+  window: string;
+  updatedAt: string;
+  stability: {
+    points: QualityObservabilityPoint[];
+    totalRequests: number;
+    avgSuccessRate: number;
+  };
+  topDomains: Array<{ domain: string; count: number }>;
+  failureReasons: Array<{ code: string; count: number; ratio: number }>;
+};
+
 export class ConfigStore {
   private db: CompatibleDb;
   private readonly storePath: string;
@@ -1400,6 +1420,201 @@ export class ConfigStore {
         input.userAgent?.trim() || null,
         input.occurredAt?.trim() || new Date().toISOString(),
       );
+  }
+
+  private parseDurationToMs(raw: string | undefined, fallbackMs: number): number {
+    if (!raw) return fallbackMs;
+    const value = raw.trim().toLowerCase();
+    const match = value.match(/^(\d+)\s*([smhd])$/);
+    if (!match) return fallbackMs;
+    const amount = Number(match[1]);
+    if (!Number.isFinite(amount) || amount <= 0) return fallbackMs;
+    const unit = match[2];
+    if (unit === 's') return amount * 1000;
+    if (unit === 'm') return amount * 60 * 1000;
+    if (unit === 'h') return amount * 60 * 60 * 1000;
+    if (unit === 'd') return amount * 24 * 60 * 60 * 1000;
+    return fallbackMs;
+  }
+
+  private normalizeOutboundType(value: string | null | undefined): string {
+    const type = (value || '').trim().toLowerCase();
+    return type || 'unknown';
+  }
+
+  private isBlockedOutbound(outboundType: string): boolean {
+    return outboundType === 'block' || outboundType === 'reject';
+  }
+
+  private classifyFailureReason(outboundType: string, errorMessage: string | null | undefined): string {
+    if (this.isBlockedOutbound(outboundType)) return 'BLOCKED_POLICY';
+    const message = (errorMessage || '').trim().toLowerCase();
+    if (!message) return 'UNKNOWN';
+    if (/(dns).*(timeout|timed out)|resolve timeout/.test(message)) return 'DNS_TIMEOUT';
+    if (/(dns).*(refused|denied|forbidden)/.test(message)) return 'DNS_REFUSED';
+    if (/tls|handshake|certificate/.test(message)) return 'TLS_HANDSHAKE';
+    if (/auth|unauthorized|forbidden|invalid token/.test(message)) return 'AUTH_FAILED';
+    if (/too many requests|rate limit|429/.test(message)) return 'RATE_LIMITED';
+    if (/\b5\d\d\b/.test(message)) return 'UPSTREAM_5XX';
+    if (/\b4\d\d\b/.test(message)) return 'UPSTREAM_4XX';
+    if (/reset|broken pipe|econnreset/.test(message)) return 'CONNECTION_RESET';
+    if (/timeout|timed out|i\/o timeout/.test(message)) return 'CONNECT_TIMEOUT';
+    return 'UNKNOWN';
+  }
+
+  private weightedP95(samples: Array<{ latency: number; weight: number }>): number | undefined {
+    if (!samples.length) return undefined;
+    const sorted = [...samples].sort((a, b) => a.latency - b.latency);
+    const totalWeight = sorted.reduce((sum, item) => sum + Math.max(1, item.weight), 0);
+    if (totalWeight <= 0) return undefined;
+    const threshold = totalWeight * 0.95;
+    let accumulated = 0;
+    for (const item of sorted) {
+      accumulated += Math.max(1, item.weight);
+      if (accumulated >= threshold) return Math.round(item.latency);
+    }
+    return Math.round(sorted[sorted.length - 1].latency);
+  }
+
+  getQualityObservability(input: {
+    window?: string;
+    topN?: number;
+    bucket?: string;
+  }): QualityObservabilityPayload {
+    const windowMs = this.parseDurationToMs(input.window, 24 * 60 * 60 * 1000);
+    const bucketMs = Math.max(60 * 1000, this.parseDurationToMs(input.bucket, 60 * 60 * 1000));
+    const topN = Number.isFinite(input.topN) ? Math.max(1, Math.min(100, Math.trunc(input.topN || 10))) : 10;
+    const now = Date.now();
+    const start = now - windowMs;
+    const bucketCount = Math.max(1, Math.ceil(windowMs / bucketMs));
+    const points: Array<{
+      ts: number;
+      total: number;
+      success: number;
+      latency: Array<{ latency: number; weight: number }>;
+    }> = Array.from({ length: bucketCount }, (_, index) => ({
+      ts: start + index * bucketMs,
+      total: 0,
+      success: 0,
+      latency: [],
+    }));
+
+    const rows = this.db
+      .prepare(
+        `SELECT
+           occurred_at,
+           target,
+           COALESCE(outbound_type, json_extract(metadata_json, '$.outbound_type'), '') AS outbound_type,
+           error_message,
+           latency_ms,
+           request_count,
+           success_count,
+           blocked_count
+         FROM client_connect_logs
+         WHERE occurred_at >= ?
+         ORDER BY occurred_at ASC`,
+      )
+      .all(new Date(start).toISOString()) as Array<{
+      occurred_at: string;
+      target: string | null;
+      outbound_type: string | null;
+      error_message: string | null;
+      latency_ms: number | null;
+      request_count: number | null;
+      success_count: number | null;
+      blocked_count: number | null;
+    }>;
+
+    const topDomainMap = new Map<string, number>();
+    const failureMap = new Map<string, number>();
+    let totalRequests = 0;
+    let totalSuccess = 0;
+
+    for (const row of rows) {
+      const ts = Date.parse(row.occurred_at);
+      if (!Number.isFinite(ts) || ts < start || ts > now + bucketMs) continue;
+      const index = Math.floor((ts - start) / bucketMs);
+      if (index < 0 || index >= points.length) continue;
+      const point = points[index];
+      const outboundType = this.normalizeOutboundType(row.outbound_type);
+      const requestCount = Number(row.request_count || 0) > 0 ? Number(row.request_count || 0) : 1;
+      const blockedCount = Number(row.blocked_count || 0);
+      const blockedByType = this.isBlockedOutbound(outboundType);
+      const hasError = !!row.error_message?.trim();
+      const successCount = Number(row.success_count || 0) > 0
+        ? Number(row.success_count || 0)
+        : blockedByType
+          ? 0
+          : hasError
+            ? 0
+            : requestCount;
+
+      point.total += requestCount;
+      point.success += Math.min(successCount, requestCount);
+      totalRequests += requestCount;
+      totalSuccess += Math.min(successCount, requestCount);
+
+      if (Number.isFinite(row.latency_ms) && Number(row.latency_ms) >= 0) {
+        point.latency.push({
+          latency: Number(row.latency_ms),
+          weight: Math.max(1, requestCount),
+        });
+      }
+
+      const target = (row.target || '').trim() || '(unknown)';
+      topDomainMap.set(target, (topDomainMap.get(target) || 0) + requestCount);
+
+      const failCount = Math.max(
+        0,
+        requestCount - Math.min(successCount, requestCount),
+        blockedCount,
+        hasError ? 1 : 0,
+      );
+      if (failCount > 0) {
+        const code = this.classifyFailureReason(outboundType, row.error_message);
+        failureMap.set(code, (failureMap.get(code) || 0) + failCount);
+      }
+    }
+
+    const stabilityPoints: QualityObservabilityPoint[] = points.map((point) => {
+      const successRate = point.total > 0 ? Number(((point.success / point.total) * 100).toFixed(2)) : 100;
+      const errorRate = Number((100 - successRate).toFixed(2));
+      const p95LatencyMs = this.weightedP95(point.latency);
+      return {
+        timestamp: new Date(point.ts).toISOString(),
+        total: point.total,
+        successRate,
+        errorRate,
+        ...(typeof p95LatencyMs === 'number' ? { p95LatencyMs } : {}),
+      };
+    });
+
+    const topDomains = [...topDomainMap.entries()]
+      .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+      .slice(0, topN)
+      .map(([domain, count]) => ({ domain, count }));
+
+    const failureTotal = [...failureMap.values()].reduce((sum, count) => sum + count, 0);
+    const failureReasons = [...failureMap.entries()]
+      .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+      .slice(0, topN)
+      .map(([code, count]) => ({
+        code,
+        count,
+        ratio: failureTotal > 0 ? Number(((count / failureTotal) * 100).toFixed(2)) : 0,
+      }));
+
+    return {
+      window: input.window?.trim() || '24h',
+      updatedAt: new Date().toISOString(),
+      stability: {
+        points: stabilityPoints,
+        totalRequests,
+        avgSuccessRate: totalRequests > 0 ? Number(((totalSuccess / totalRequests) * 100).toFixed(2)) : 100,
+      },
+      topDomains,
+      failureReasons,
+    };
   }
 
   getDashboardSummary(): DashboardSummaryItem {
