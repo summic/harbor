@@ -15,8 +15,9 @@ const RuleDrawer: React.FC<{
   isOpen: boolean;
   onClose: () => void;
   initialData?: DomainRule | null;
+  initialGroup?: string;
   onSave: (rule: Partial<DomainRule>) => void;
-}> = ({ isOpen, onClose, initialData, onSave }) => {
+}> = ({ isOpen, onClose, initialData, initialGroup, onSave }) => {
   const isEdit = !!initialData;
   const [formData, setFormData] = useState<Partial<DomainRule>>({
     type: 'suffix',
@@ -33,13 +34,13 @@ const RuleDrawer: React.FC<{
       setFormData(initialData || {
         type: 'suffix',
         value: '',
-        group: 'ProxyGroup',
+        group: initialGroup || 'ProxyGroup',
         action: 'PROXY',
         enabled: true,
         note: ''
       });
     }
-  }, [isOpen, initialData]);
+  }, [isOpen, initialData, initialGroup]);
 
   if (!isOpen) return null;
 
@@ -245,7 +246,9 @@ export const DomainsPage: React.FC = () => {
   const [search, setSearch] = useState('');
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
   const [editingRule, setEditingRule] = useState<DomainRule | null>(null);
+  const [createGroup, setCreateGroup] = useState<string>('ProxyGroup');
   const [deleteTarget, setDeleteTarget] = useState<string | null>(null);
+  const [selectedGroup, setSelectedGroup] = useState<string>('');
 
   // Simulation States
   const [testDomain, setTestDomain] = useState('');
@@ -260,6 +263,37 @@ export const DomainsPage: React.FC = () => {
     ).sort((a,b) => b.priority - a.priority);
   }, [rules, search]);
 
+  const groupedRules = useMemo(() => {
+    const groups = new Map<string, DomainRule[]>();
+    for (const rule of filteredRules ?? []) {
+      const key = rule.group || 'ungrouped';
+      const list = groups.get(key) ?? [];
+      list.push(rule);
+      groups.set(key, list);
+    }
+    return [...groups.entries()]
+      .map(([name, list]) => ({
+        name,
+        rules: list.sort((a, b) => b.priority - a.priority),
+      }))
+      .sort((a, b) => a.name.localeCompare(b.name));
+  }, [filteredRules]);
+
+  const selectedGroupRules = useMemo(() => {
+    if (!selectedGroup) return [];
+    return groupedRules.find((group) => group.name === selectedGroup)?.rules ?? [];
+  }, [groupedRules, selectedGroup]);
+
+  React.useEffect(() => {
+    if (!groupedRules.length) {
+      if (selectedGroup) setSelectedGroup('');
+      return;
+    }
+    if (!selectedGroup || !groupedRules.some((group) => group.name === selectedGroup)) {
+      setSelectedGroup(groupedRules[0].name);
+    }
+  }, [groupedRules, selectedGroup]);
+
   // Handlers
   const handleEdit = (rule: DomainRule) => {
     setEditingRule(rule);
@@ -268,6 +302,7 @@ export const DomainsPage: React.FC = () => {
 
   const handleCreate = () => {
     setEditingRule(null);
+    setCreateGroup(selectedGroup || 'ProxyGroup');
     setIsDrawerOpen(true);
   };
 
@@ -344,16 +379,17 @@ export const DomainsPage: React.FC = () => {
         </div>
       </div>
 
-      {/* Main Table Card */}
-      <SectionCard 
-        title="Rule Management" 
+      {/* Group List */}
+      <SectionCard
+        title="Groups"
+        description="Click a group to view the domains it contains."
         actions={
           <div className="flex items-center gap-2">
             <div className="relative group">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 group-focus-within:text-blue-500 transition-colors" size={14} />
               <input 
-                type="text" 
-                placeholder="Search rules..." 
+                type="text"
+                placeholder="Search group/domain..."
                 className="pl-9 pr-4 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:bg-white focus:ring-2 focus:ring-blue-500/20 transition-all w-full sm:w-64 outline-none"
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
@@ -368,14 +404,47 @@ export const DomainsPage: React.FC = () => {
           </div>
         }
       >
+        <div className="relative px-6 pb-6">
+          {isLoading && <LoadingOverlay />}
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+            {(groupedRules ?? []).map((group) => (
+              <button
+                key={group.name}
+                onClick={() => setSelectedGroup(group.name)}
+                className={`text-left rounded-xl border px-4 py-3 transition-all ${
+                  selectedGroup === group.name
+                    ? 'border-blue-200 bg-blue-50 shadow-sm'
+                    : 'border-slate-200 bg-white hover:border-slate-300 hover:bg-slate-50'
+                }`}
+              >
+                <div className="flex items-center justify-between gap-3">
+                  <p className="text-sm font-semibold text-slate-900 truncate">{group.name}</p>
+                  <span className="text-xs px-2 py-0.5 rounded-full bg-slate-100 text-slate-600 tabular-nums">
+                    {group.rules.length}
+                  </span>
+                </div>
+                <p className="text-xs text-slate-500 mt-1">domains in group</p>
+              </button>
+            ))}
+          </div>
+          {groupedRules.length === 0 && (
+            <div className="text-center text-slate-400 text-sm py-10">No groups found.</div>
+          )}
+        </div>
+      </SectionCard>
+
+      {/* Selected Group Domains */}
+      <SectionCard
+        title={selectedGroup ? `${selectedGroup} Domains` : 'Domains'}
+        description={selectedGroup ? `Domains contained in ${selectedGroup}.` : 'Select a group to view domains.'}
+      >
         <div className="relative overflow-x-auto -mx-6">
           {isLoading && <LoadingOverlay />}
-          <table className="w-full text-sm text-left border-collapse min-w-[800px]">
+          <table className="w-full text-sm text-left border-collapse min-w-[760px]">
             <thead className="bg-slate-50/50 text-slate-500 font-medium">
               <tr>
                 <th className="px-6 py-3 border-y border-slate-100">Type</th>
                 <th className="px-6 py-3 border-y border-slate-100">Value</th>
-                <th className="px-6 py-3 border-y border-slate-100">Group</th>
                 <th className="px-6 py-3 border-y border-slate-100 text-center">Action</th>
                 <th className="px-6 py-3 border-y border-slate-100 text-right">Priority</th>
                 <th className="px-6 py-3 border-y border-slate-100 text-center">Status</th>
@@ -383,15 +452,12 @@ export const DomainsPage: React.FC = () => {
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
-              {filteredRules?.map((rule) => (
+              {selectedGroupRules.map((rule) => (
                 <tr key={rule.id} className="hover:bg-slate-50/50 transition-colors group">
                   <td className="px-6 py-4">
                     <code className="text-[10px] font-mono bg-slate-100 text-slate-600 border border-slate-200 px-1.5 py-0.5 rounded uppercase">{rule.type}</code>
                   </td>
                   <td className="px-6 py-4 font-medium truncate max-w-[200px] text-slate-700">{rule.value}</td>
-                  <td className="px-6 py-4 text-slate-500">
-                    {rule.group && <span className="flex items-center gap-1.5"><Shield size={12}/> {rule.group}</span>}
-                  </td>
                   <td className="px-6 py-4 text-center">
                     <span className={`
                       px-2 py-1 rounded text-[10px] font-bold inline-flex items-center gap-1
@@ -423,10 +489,10 @@ export const DomainsPage: React.FC = () => {
                   </td>
                 </tr>
               ))}
-              {filteredRules?.length === 0 && (
+              {selectedGroupRules.length === 0 && (
                  <tr>
-                   <td colSpan={7} className="px-6 py-12 text-center text-slate-400">
-                     No rules found matching your search.
+                   <td colSpan={6} className="px-6 py-12 text-center text-slate-400">
+                     {selectedGroup ? 'No domains in this group.' : 'Select a group to view domains.'}
                    </td>
                  </tr>
               )}
@@ -565,6 +631,7 @@ export const DomainsPage: React.FC = () => {
         isOpen={isDrawerOpen} 
         onClose={() => setIsDrawerOpen(false)} 
         initialData={editingRule} 
+        initialGroup={createGroup}
         onSave={handleSave}
       />
       <DeleteDialog 
