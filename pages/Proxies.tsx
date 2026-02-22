@@ -167,30 +167,46 @@ const GroupModal: React.FC<GroupModalProps> = ({ isOpen, onClose, onSave, initia
   const isEdit = !!initial;
   const [name, setName] = React.useState('');
   const [type, setType] = React.useState<ProxyGroup['type']>('manual');
-  const [membersText, setMembersText] = React.useState('');
+  const [members, setMembers] = React.useState<string[]>([]);
   const [defaultOutbound, setDefaultOutbound] = React.useState('');
   const [url, setUrl] = React.useState('https://www.gstatic.com/generate_204');
   const [interval, setInterval] = React.useState('3m');
   const [error, setError] = React.useState<string | null>(null);
+  const memberOptions = React.useMemo(
+    () => Array.from(new Set([...(allNodeNames ?? []), ...(initial?.outbounds ?? [])]).values()).sort(),
+    [allNodeNames, initial?.outbounds],
+  );
 
   React.useEffect(() => {
     if (!isOpen) return;
     setName(initial?.name ?? '');
     setType(initial?.type ?? 'manual');
-    setMembersText((initial?.outbounds ?? []).join('\n'));
+    setMembers(initial?.outbounds ?? []);
     setDefaultOutbound(initial?.defaultOutbound ?? '');
     setUrl(initial?.url ?? 'https://www.gstatic.com/generate_204');
     setInterval(initial?.interval ?? '3m');
     setError(null);
   }, [isOpen, initial]);
 
+  React.useEffect(() => {
+    if (type !== 'manual') return;
+    if (!defaultOutbound) return;
+    if (members.includes(defaultOutbound)) return;
+    setDefaultOutbound(members[0] ?? '');
+  }, [type, members, defaultOutbound]);
+
   if (!isOpen) return null;
 
+  const toggleMember = (value: string) => {
+    setMembers((current) => {
+      if (current.includes(value)) {
+        return current.filter((item) => item !== value);
+      }
+      return [...current, value];
+    });
+  };
+
   const submit = () => {
-    const members = membersText
-      .split(/\n|,/)
-      .map((item) => item.trim())
-      .filter(Boolean);
     if (!name.trim()) {
       setError('Group name is required.');
       return;
@@ -250,25 +266,44 @@ const GroupModal: React.FC<GroupModalProps> = ({ isOpen, onClose, onSave, initia
           </div>
 
           <div>
-            <label className="block text-xs font-semibold text-slate-500 mb-1.5 uppercase">Members (one per line)</label>
-            <textarea
-              value={membersText}
-              onChange={(e) => setMembersText(e.target.value)}
-              className="w-full h-28 px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm font-mono focus:bg-white focus:ring-2 focus:ring-blue-500/20 outline-none resize-y"
-              placeholder={allNodeNames.join('\n')}
-            />
+            <label className="block text-xs font-semibold text-slate-500 mb-1.5 uppercase">
+              Members (linked with Nodes List)
+            </label>
+            <div className="max-h-48 overflow-y-auto rounded-lg border border-slate-200 bg-slate-50 divide-y divide-slate-100">
+              {memberOptions.length === 0 ? (
+                <p className="px-3 py-3 text-xs text-slate-400">No nodes available yet.</p>
+              ) : (
+                memberOptions.map((option) => (
+                  <label key={option} className="flex items-center gap-2 px-3 py-2 text-sm cursor-pointer hover:bg-white">
+                    <input
+                      type="checkbox"
+                      checked={members.includes(option)}
+                      onChange={() => toggleMember(option)}
+                      className="h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500/30"
+                    />
+                    <span className="font-mono text-xs text-slate-700">{option}</span>
+                  </label>
+                ))
+              )}
+            </div>
+            <p className="text-[11px] text-slate-400 mt-1">Selected: {members.length}</p>
           </div>
 
           {type === 'manual' ? (
             <div>
               <label className="block text-xs font-semibold text-slate-500 mb-1.5 uppercase">Default Outbound</label>
-              <input
-                type="text"
+              <select
                 value={defaultOutbound}
                 onChange={(e) => setDefaultOutbound(e.target.value)}
                 className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:bg-white focus:ring-2 focus:ring-blue-500/20 outline-none"
-                placeholder="Default member name"
-              />
+              >
+                <option value="">Auto use first member</option>
+                {members.map((item) => (
+                  <option key={item} value={item}>
+                    {item}
+                  </option>
+                ))}
+              </select>
             </div>
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
