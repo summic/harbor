@@ -20,6 +20,7 @@ const USERS_PATH = '/api/v1/users';
 const CLIENT_CONNECT_REPORT_PATH = '/api/v1/client/connect';
 const CLIENT_CONNECTIONS_REPORT_PATH = '/api/v1/client/connections';
 const HEALTH_PATH = '/api/v1/health';
+const ADMIN_SUB = 'deeed4b7-748b-4301-8c9e-dfe0893a80cf';
 
 const STORE = new ConfigStore({
   dbPath: process.env.SAIL_DB_PATH || path.resolve(__dirname, '.local-data', 'sail.sqlite'),
@@ -228,12 +229,62 @@ const subscriptionHandler = async (req: IncomingMessage, res: ServerResponse, ne
   }
 
   if (url.pathname === PROFILE_PATH && req.method === 'GET') {
-    sendJson(res, 200, STORE.getUnifiedProfile(getOrigin(req)));
+    const accessToken = extractBearerToken(req);
+    if (!accessToken) {
+      sendProblem(res, 401, {
+        title: 'Authentication failed',
+        detail: 'Bearer token is required',
+        instance: url.pathname,
+        code: 'missing_bearer_token',
+      });
+      return;
+    }
+    const authInfo = await fetchAuthInfo(accessToken);
+    if (!authInfo?.sub) {
+      sendProblem(res, 401, {
+        title: 'Authentication failed',
+        detail: 'Invalid access token',
+        instance: url.pathname,
+        code: 'invalid_access_token',
+      });
+      return;
+    }
+    const scope = (url.searchParams.get('scope') as 'effective' | 'global' | 'user' | null) || 'effective';
+    if (scope === 'global' && authInfo.sub !== ADMIN_SUB) {
+      sendProblem(res, 403, {
+        title: 'Forbidden',
+        detail: 'Admin scope required',
+        instance: url.pathname,
+        code: 'forbidden',
+      });
+      return;
+    }
+    sendJson(res, 200, STORE.getUnifiedProfile(getOrigin(req), authInfo.sub, scope));
     return;
   }
 
   if (url.pathname === PROFILE_PATH && req.method === 'PUT') {
     try {
+      const accessToken = extractBearerToken(req);
+      if (!accessToken) {
+        sendProblem(res, 401, {
+          title: 'Authentication failed',
+          detail: 'Bearer token is required',
+          instance: url.pathname,
+          code: 'missing_bearer_token',
+        });
+        return;
+      }
+      const authInfo = await fetchAuthInfo(accessToken);
+      if (!authInfo?.sub) {
+        sendProblem(res, 401, {
+          title: 'Authentication failed',
+          detail: 'Invalid access token',
+          instance: url.pathname,
+          code: 'invalid_access_token',
+        });
+        return;
+      }
       const raw = await readBody(req);
       const payload = JSON.parse(raw) as { content?: string; publicUrl?: string };
       if (typeof payload.content !== 'string') {
@@ -245,10 +296,25 @@ const subscriptionHandler = async (req: IncomingMessage, res: ServerResponse, ne
         });
         return;
       }
-      const updated = STORE.saveUnifiedProfile(payload.content, payload.publicUrl);
+      const scope = (url.searchParams.get('scope') as 'effective' | 'global' | 'user' | null) || 'user';
+      let updated;
+      if (scope === 'global') {
+        if (authInfo.sub !== ADMIN_SUB) {
+          sendProblem(res, 403, {
+            title: 'Forbidden',
+            detail: 'Admin scope required',
+            instance: url.pathname,
+            code: 'forbidden',
+          });
+          return;
+        }
+        updated = STORE.saveUnifiedProfile(payload.content, payload.publicUrl);
+      } else {
+        updated = STORE.saveUserUnifiedProfile(authInfo.sub, payload.content);
+      }
       const origin = getOrigin(req);
       if (origin.startsWith('http')) {
-        updated.publicUrl = `${origin}${SUBSCRIPTION_PATH}?token=${new URL(updated.publicUrl).searchParams.get('token')}`;
+        updated.publicUrl = `${origin}${SUBSCRIPTION_PATH}`;
       }
       sendJson(res, 200, updated);
       return;
@@ -748,13 +814,29 @@ const subscriptionHandler = async (req: IncomingMessage, res: ServerResponse, ne
     return;
   }
 
+  const accessToken = extractBearerToken(req);
+  if (accessToken) {
+    const authInfo = await fetchAuthInfo(accessToken);
+    if (!authInfo?.sub) {
+      sendProblem(res, 401, {
+        title: 'Authentication failed',
+        detail: 'Invalid access token',
+        instance: url.pathname,
+        code: 'invalid_access_token',
+      });
+      return;
+    }
+    sendJson(res, 200, STORE.getSubscriptionProfileByUser(authInfo.sub));
+    return;
+  }
+
   const token = url.searchParams.get('token');
   if (!token) {
-    sendProblem(res, 400, {
-      title: 'Validation failed',
-      detail: 'token is required',
+    sendProblem(res, 401, {
+      title: 'Authentication failed',
+      detail: 'Bearer token is required',
       instance: url.pathname,
-      code: 'missing_token',
+      code: 'missing_bearer_token',
     });
     return;
   }

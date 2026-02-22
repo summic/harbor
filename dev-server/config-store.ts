@@ -439,22 +439,31 @@ export class ConfigStore {
       .run(scope, userId, module, ruleKey ?? null, priority, JSON.stringify(payload));
   }
 
-  private replaceGlobalProfile(profile: Record<string, unknown>, timestamp: string) {
-    this.db.prepare(`DELETE FROM rule_entries WHERE scope = 'global'`).run();
+  private replaceScopedProfile(
+    scope: 'global' | 'user',
+    userId: string | null,
+    profile: Record<string, unknown>,
+    timestamp: string,
+  ) {
+    if (scope == 'global') {
+      this.db.prepare(`DELETE FROM rule_entries WHERE scope = 'global'`).run();
+    } else {
+      this.db.prepare(`DELETE FROM rule_entries WHERE scope = 'user' AND user_id = ?`).run(userId);
+    }
 
     const p = profile as JsonObject;
     const dns = (p.dns ?? {}) as JsonObject;
     const route = (p.route ?? {}) as JsonObject;
     let priority = 0;
 
-    this.insertRule('global', null, 'meta.log', p.log ?? {}, priority++);
-    this.insertRule('global', null, 'meta.ntp', p.ntp ?? {}, priority++);
-    this.insertRule('global', null, 'meta.dns', {
+    this.insertRule(scope, userId, 'meta.log', p.log ?? {}, priority++);
+    this.insertRule(scope, userId, 'meta.ntp', p.ntp ?? {}, priority++);
+    this.insertRule(scope, userId, 'meta.dns', {
       final: dns.final ?? 'dns_direct',
       independent_cache: dns.independent_cache ?? false,
       strategy: dns.strategy ?? 'prefer_ipv4',
     }, priority++);
-    this.insertRule('global', null, 'meta.route', {
+    this.insertRule(scope, userId, 'meta.route', {
       auto_detect_interface: route.auto_detect_interface ?? false,
       final: route.final ?? 'direct',
       default_domain_resolver: route.default_domain_resolver,
@@ -473,10 +482,19 @@ export class ConfigStore {
       for (const row of item.data) {
         const asObject = (row ?? {}) as JsonObject;
         const key = item.tagKey && typeof asObject[item.tagKey] === 'string' ? String(asObject[item.tagKey]) : null;
-        this.insertRule('global', null, item.module, row, priority++, key);
+        this.insertRule(scope, userId, item.module, row, priority++, key);
       }
     }
+  }
 
+  private replaceGlobalProfile(profile: Record<string, unknown>, timestamp: string) {
+    this.replaceScopedProfile('global', null, profile, timestamp);
+    this.setState('last_updated', timestamp);
+    this.persistLegacySnapshot(timestamp);
+  }
+
+  private replaceUserProfile(userId: string, profile: Record<string, unknown>, timestamp: string) {
+    this.replaceScopedProfile('user', userId, profile, timestamp);
     this.setState('last_updated', timestamp);
     this.persistLegacySnapshot(timestamp);
   }
@@ -490,6 +508,27 @@ export class ConfigStore {
          ORDER BY CASE scope WHEN 'global' THEN 0 ELSE 1 END, priority ASC, id ASC`,
       )
       .all(userId) as RuleRow[];
+  }
+
+  private listScopedRows(scope: 'global' | 'user', userId?: string): RuleRow[] {
+    if (scope === 'global') {
+      return this.db
+        .prepare(
+          `SELECT id, scope, user_id, module, rule_key, priority, enabled, payload_json
+           FROM rule_entries
+           WHERE enabled = 1 AND scope = 'global'
+           ORDER BY priority ASC, id ASC`,
+        )
+        .all() as RuleRow[];
+    }
+    return this.db
+      .prepare(
+        `SELECT id, scope, user_id, module, rule_key, priority, enabled, payload_json
+         FROM rule_entries
+         WHERE enabled = 1 AND scope = 'user' AND user_id = ?
+         ORDER BY priority ASC, id ASC`,
+      )
+      .all(userId || DEFAULT_USER_ID) as RuleRow[];
   }
 
   private parseRowPayload(row: RuleRow): JsonObject {
@@ -510,8 +549,7 @@ export class ConfigStore {
     return [...map.values(), ...list];
   }
 
-  compileProfile(userId: string = DEFAULT_USER_ID): Record<string, unknown> {
-    const rows = this.listCompiledRows(userId);
+  private compileProfileFromRows(rows: RuleRow[]): Record<string, unknown> {
     const byModule = new Map<string, RuleRow[]>();
     for (const row of rows) {
       const group = byModule.get(row.module) ?? [];
@@ -543,6 +581,14 @@ export class ConfigStore {
     return profile;
   }
 
+  compileProfile(userId: string = DEFAULT_USER_ID): Record<string, unknown> {
+    return this.compileProfileFromRows(this.listCompiledRows(userId));
+  }
+
+  compileScopedProfile(scope: 'global' | 'user', userId?: string): Record<string, unknown> {
+    return this.compileProfileFromRows(this.listScopedRows(scope, userId));
+  }
+
   private persistLegacySnapshot(lastUpdated: string) {
     const profile = this.compileProfile(DEFAULT_USER_ID);
     const token = this.getState('subscription_token') || DEFAULT_SUBSCRIPTION_TOKEN;
@@ -558,14 +604,22 @@ export class ConfigStore {
     return this.getState('subscription_token') || DEFAULT_SUBSCRIPTION_TOKEN;
   }
 
-  getUnifiedProfile(origin: string): UnifiedProfilePayload {
-    const profile = this.compileProfile(DEFAULT_USER_ID);
+  getUnifiedProfile(
+    origin: string,
+    userId: string = DEFAULT_USER_ID,
+    scope: 'effective' | 'global' | 'user' = 'effective',
+  ): UnifiedProfilePayload {
+    const profile =
+      scope === 'global'
+        ? this.compileScopedProfile('global')
+        : scope === 'user'
+          ? this.compileScopedProfile('user', userId)
+          : this.compileProfile(userId);
     const content = JSON.stringify(profile, null, 2);
-    const token = this.getToken();
     const lastUpdated = this.getState('last_updated') || new Date().toLocaleString();
     return {
       content,
-      publicUrl: `${origin}/api/v1/client/subscribe?token=${token}`,
+      publicUrl: `${origin}/api/v1/client/subscribe`,
       lastUpdated,
       size: `${(Buffer.byteLength(JSON.stringify(profile), 'utf8') / 1024).toFixed(1)} KB`,
     };
@@ -591,6 +645,22 @@ export class ConfigStore {
   getSubscriptionProfile(token: string): Record<string, unknown> | null {
     if (token !== this.getToken()) return null;
     return this.compileProfile(DEFAULT_USER_ID);
+  }
+
+  getSubscriptionProfileByUser(userId: string): Record<string, unknown> {
+    return this.compileProfile(userId);
+  }
+
+  saveUserUnifiedProfile(userIdRaw: string, content: string): UnifiedProfilePayload {
+    const userId = userIdRaw.trim();
+    if (!userId) {
+      throw new Error('missing_user_id');
+    }
+    const parsed = JSON.parse(content) as Record<string, unknown>;
+    const lastUpdated = new Date().toLocaleString();
+    this.replaceUserProfile(userId, parsed, lastUpdated);
+    this.setState('last_updated', lastUpdated);
+    return this.getUnifiedProfile('http://localhost', userId, 'user');
   }
 
   listVersions(limit = 30): ConfigVersionItem[] {

@@ -218,7 +218,7 @@ export const UnifiedProfilePage: React.FC = () => {
                      setSubscriptionUrl(e.target.value);
                      setIsDirty(true);
                    }}
-                   placeholder="https://beforeve.com/api/v1/client/subscribe?token=..."
+                   placeholder="https://harbor.beforeve.com/api/v1/client/subscribe"
                    className="w-full font-mono text-sm text-slate-700 bg-white border border-slate-200 rounded-md px-2.5 py-2 pr-9 focus:outline-none focus:ring-2 focus:ring-blue-200"
                  />
                  <button 

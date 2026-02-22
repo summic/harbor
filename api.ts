@@ -8,7 +8,7 @@ const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 const API_BASE = import.meta.env.VITE_API_BASE_URL ?? '';
 const RULES_PATH = '/api/v1/rules';
 const QUALITY_MOCK_FALLBACK = import.meta.env.VITE_QUALITY_MOCK_FALLBACK !== 'false';
-const DEFAULT_SUBSCRIPTION_PATH = '/api/v1/client/subscribe?token=u1-alice-7f8a9d2b';
+const DEFAULT_SUBSCRIPTION_PATH = '/api/v1/client/subscribe';
 const SIMULATE_TRAFFIC_PATH = '/api/v1/simulate/traffic';
 const PROXY_LATENCY_PATH = '/api/v1/proxies/latency';
 const VERSIONS_PATH = '/api/v1/client/versions';
@@ -1475,12 +1475,18 @@ export const mockApi = {
 
   getUnifiedProfile: async (): Promise<UnifiedProfile> => {
     await sleep(200);
-    return refreshUnifiedProfile();
+    try {
+      const remote = await fetchJson<UnifiedProfile>('/api/v1/client/profile?scope=global');
+      mockProfileData = { ...remote };
+      return remote;
+    } catch {
+      return refreshUnifiedProfile();
+    }
   },
 
   saveUnifiedProfile: async (payload: { content: string; publicUrl?: string }): Promise<UnifiedProfile> => {
     await sleep(300);
-    const remote = await fetchJson<UnifiedProfile>('/api/v1/client/profile', {
+    const remote = await fetchJson<UnifiedProfile>('/api/v1/client/profile?scope=global', {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
