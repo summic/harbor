@@ -96,7 +96,7 @@ export const SimulationPage: React.FC = () => {
                 <div className="relative rounded-2xl border border-slate-200 bg-white p-4">
                   <div className="absolute left-[22px] top-12 bottom-6 w-px bg-slate-200"></div>
                   <div className="space-y-6 relative">
-                    <div className="flex items-start">
+                    <div className="flex items-center">
                       <div className="z-10 w-6 h-6 rounded-full bg-blue-100 flex items-center justify-center border-2 border-white shadow-sm">
                         <Target size={12} className="text-blue-600" />
                       </div>
@@ -107,7 +107,7 @@ export const SimulationPage: React.FC = () => {
                       </div>
                     </div>
 
-                    <div className="flex items-start">
+                    <div className="flex items-center">
                       <div className="z-10 w-6 h-6 rounded-full bg-cyan-100 flex items-center justify-center border-2 border-white shadow-sm">
                         <Search size={12} className="text-cyan-700" />
                       </div>
@@ -120,7 +120,7 @@ export const SimulationPage: React.FC = () => {
                       </div>
                     </div>
 
-                    <div className="flex items-start">
+                    <div className="flex items-center">
                       <div className="z-10 w-6 h-6 rounded-full bg-emerald-100 flex items-center justify-center border-2 border-white shadow-sm">
                         <Server size={12} className="text-emerald-700" />
                       </div>
@@ -141,7 +141,7 @@ export const SimulationPage: React.FC = () => {
                       </div>
                     </div>
 
-                    <div className="flex items-start">
+                    <div className="flex items-center">
                       <div className="z-10 w-6 h-6 rounded-full bg-amber-100 flex items-center justify-center border-2 border-white shadow-sm">
                         <Route size={12} className="text-amber-700" />
                       </div>
@@ -154,7 +154,7 @@ export const SimulationPage: React.FC = () => {
                       </div>
                     </div>
 
-                    <div className="flex items-start">
+                    <div className="flex items-center">
                       <div className="z-10 w-6 h-6 rounded-full bg-violet-100 flex items-center justify-center border-2 border-white shadow-sm">
                         <Shuffle size={12} className="text-violet-700" />
                       </div>
