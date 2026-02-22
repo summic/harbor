@@ -1,5 +1,5 @@
 
-import { DomainRule, DomainGroup, ProxyNode, ProxyGroup, RoutingRule, DnsUpstream, HostsEntry, ConfigVersion, UnifiedProfile, User, ProtocolType, TrafficSimulationResult, ClientDeviceReportPayload, ClientConnectionReportPayload, UserTargetAggregate, UserTargetDetail, UserProfileAudit, DashboardSummary } from './types';
+import { DomainRule, DomainGroup, ProxyNode, ProxyGroup, RoutingRule, DnsUpstream, HostsEntry, ConfigVersion, UnifiedProfile, User, ProtocolType, TrafficSimulationResult, ClientDeviceReportPayload, ClientConnectionReportPayload, UserTargetAggregate, UserTargetDetail, UserProfileAudit, DashboardSummary, CoreSettings } from './types';
 import { QualityObservability, normalizeObservabilityResponse } from './utils/quality';
 import { loadSession } from './auth';
 
@@ -294,6 +294,86 @@ const refreshUnifiedProfile = async (): Promise<UnifiedProfile> => {
 const loadConfig = async (): Promise<JsonObject> => {
   const profile = await refreshUnifiedProfile();
   return parseJsonObject(profile.content);
+};
+
+const toCoreSettings = (config: JsonObject): CoreSettings => {
+  const inbound = Array.isArray(config.inbounds) ? config.inbounds.find((item) => item?.type === 'tun') : undefined;
+  const tunAddressRaw = Array.isArray(inbound?.address)
+    ? inbound.address[0]
+    : inbound?.address ?? inbound?.inet4_address ?? '172.19.0.1/30';
+  return {
+    logDisabled: Boolean(config.log?.disabled),
+    logLevel: (config.log?.level ?? 'info') as CoreSettings['logLevel'],
+    logOutput: String(config.log?.output ?? ''),
+    logTimestamp: config.log?.timestamp !== false,
+    ntpEnabled: config.ntp?.enabled !== false,
+    ntpServer: String(config.ntp?.server ?? 'time.apple.com'),
+    ntpServerPort: Number(config.ntp?.server_port ?? 123),
+    ntpInterval: String(config.ntp?.interval ?? '30m'),
+    ntpDetour: String(config.ntp?.detour ?? 'direct'),
+    ntpDomainResolver: String(config.ntp?.domain_resolver ?? 'dns_direct'),
+    tunTag: String(inbound?.tag ?? 'tun-in'),
+    tunAddress: String(tunAddressRaw ?? '172.19.0.1/30'),
+    tunAutoRoute: inbound?.auto_route !== false,
+    tunStrictRoute: inbound?.strict_route !== false,
+    tunStack: (inbound?.stack ?? 'mixed') as CoreSettings['tunStack'],
+    routeFinal: String(config.route?.final ?? 'proxy'),
+    routeAutoDetectInterface: config.route?.auto_detect_interface !== false,
+    routeDefaultDomainResolver: String(config.route?.default_domain_resolver ?? 'dns_direct'),
+    dnsFinal: String(config.dns?.final ?? 'dns_direct'),
+    dnsIndependentCache: config.dns?.independent_cache !== false,
+    dnsStrategy: (config.dns?.strategy ?? 'prefer_ipv4') as CoreSettings['dnsStrategy'],
+  };
+};
+
+const applyCoreSettings = (config: JsonObject, payload: CoreSettings): JsonObject => {
+  const next = JSON.parse(JSON.stringify(config)) as JsonObject;
+  next.log = {
+    ...(next.log ?? {}),
+    disabled: payload.logDisabled,
+    level: payload.logLevel,
+    output: payload.logOutput,
+    timestamp: payload.logTimestamp,
+  };
+  next.ntp = {
+    ...(next.ntp ?? {}),
+    enabled: payload.ntpEnabled,
+    server: payload.ntpServer,
+    server_port: payload.ntpServerPort,
+    interval: payload.ntpInterval,
+    detour: payload.ntpDetour,
+    domain_resolver: payload.ntpDomainResolver,
+  };
+  const inbounds = Array.isArray(next.inbounds) ? next.inbounds : [];
+  const tunIndex = inbounds.findIndex((item) => item?.type === 'tun');
+  const tunInbound = {
+    ...(tunIndex >= 0 ? inbounds[tunIndex] : {}),
+    type: 'tun',
+    tag: payload.tunTag,
+    auto_route: payload.tunAutoRoute,
+    strict_route: payload.tunStrictRoute,
+    stack: payload.tunStack,
+    address: [payload.tunAddress],
+  };
+  if (tunIndex >= 0) {
+    inbounds[tunIndex] = tunInbound;
+  } else {
+    inbounds.unshift(tunInbound);
+  }
+  next.inbounds = inbounds;
+  next.route = {
+    ...(next.route ?? {}),
+    final: payload.routeFinal,
+    auto_detect_interface: payload.routeAutoDetectInterface,
+    default_domain_resolver: payload.routeDefaultDomainResolver,
+  };
+  next.dns = {
+    ...(next.dns ?? {}),
+    final: payload.dnsFinal,
+    independent_cache: payload.dnsIndependentCache,
+    strategy: payload.dnsStrategy,
+  };
+  return next;
 };
 
 const listModuleRules = async (module: string): Promise<RuleEntryItem[]> => {
@@ -1503,6 +1583,33 @@ export const mockApi = {
     await sleep(180);
     const config = await loadConfig();
     return toDnsServers(config);
+  },
+
+  getSettings: async (): Promise<CoreSettings> => {
+    await sleep(120);
+    const config = await loadConfig();
+    return toCoreSettings(config);
+  },
+
+  saveSettings: async (payload: CoreSettings): Promise<CoreSettings> => {
+    await sleep(160);
+    const config = await loadConfig();
+    const nextConfig = applyCoreSettings(config, payload);
+    await replaceMetaRow('meta.log', nextConfig.log ?? {});
+    await replaceMetaRow('meta.ntp', nextConfig.ntp ?? {});
+    await replaceMetaRow('meta.dns', {
+      final: nextConfig.dns?.final ?? 'dns_direct',
+      independent_cache: nextConfig.dns?.independent_cache ?? false,
+      strategy: nextConfig.dns?.strategy ?? 'prefer_ipv4',
+    });
+    await replaceMetaRow('meta.route', {
+      final: nextConfig.route?.final ?? 'proxy',
+      auto_detect_interface: nextConfig.route?.auto_detect_interface ?? true,
+      default_domain_resolver: nextConfig.route?.default_domain_resolver ?? 'dns_direct',
+    });
+    await replaceModuleRows('inbounds', Array.isArray(nextConfig.inbounds) ? nextConfig.inbounds : [], 'tag');
+    const synced = await loadConfig();
+    return toCoreSettings(synced);
   },
 
   saveDnsServer: async (payload: {

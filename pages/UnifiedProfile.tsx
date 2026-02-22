@@ -1,9 +1,10 @@
 
 import React, { useState, useEffect } from 'react';
+import { Link } from 'react-router-dom';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { 
   Save, FileJson, Check, AlertTriangle, 
-  RotateCcw, Braces, History
+  RotateCcw, Braces, History, Settings2
 } from 'lucide-react';
 import CodeMirror from '@uiw/react-codemirror';
 import { json } from '@codemirror/lang-json';
@@ -114,6 +115,13 @@ export const UnifiedProfilePage: React.FC = () => {
           <h1 className="text-2xl font-bold tracking-tight text-balance">Unified Profile</h1>
           <p className="text-slate-500 text-pretty">Edit the core JSON configuration directly and access it remotely.</p>
         </div>
+        <Link
+          to="/settings"
+          className="inline-flex items-center gap-2 px-3 py-2 border border-slate-200 rounded-lg text-sm text-slate-600 hover:bg-slate-50"
+        >
+          <Settings2 size={14} />
+          Settings
+        </Link>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 lg:items-start gap-6 min-h-[500px]">

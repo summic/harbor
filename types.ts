@@ -63,6 +63,30 @@ export interface DnsUpstream {
   enabled: boolean;
 }
 
+export interface CoreSettings {
+  logDisabled: boolean;
+  logLevel: 'trace' | 'debug' | 'info' | 'warn' | 'error';
+  logOutput: string;
+  logTimestamp: boolean;
+  ntpEnabled: boolean;
+  ntpServer: string;
+  ntpServerPort: number;
+  ntpInterval: string;
+  ntpDetour: string;
+  ntpDomainResolver: string;
+  tunTag: string;
+  tunAddress: string;
+  tunAutoRoute: boolean;
+  tunStrictRoute: boolean;
+  tunStack: 'mixed' | 'system';
+  routeFinal: string;
+  routeAutoDetectInterface: boolean;
+  routeDefaultDomainResolver: string;
+  dnsFinal: string;
+  dnsIndependentCache: boolean;
+  dnsStrategy: 'ipv4_only' | 'ipv6_only' | 'prefer_ipv4' | 'prefer_ipv6' | 'auto';
+}
+
 export interface HostsEntry {
   id: string;
   hostname: string;
