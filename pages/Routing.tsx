@@ -2,8 +2,8 @@ import React from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Plus, Trash2, Edit3, Network, X } from 'lucide-react';
 import { mockApi } from '../api';
-import { SectionCard, LoadingOverlay } from '../components/Common';
-import { DomainRule, ProxyGroup, RoutingRule } from '../types';
+import { SectionCard } from '../components/Common';
+import { RoutingRule } from '../types';
 
 const matchTypeOptions: RoutingRule['matchType'][] = [
   'rule_set',
@@ -151,9 +151,7 @@ const RoutingPolicyModal: React.FC<{
 
 export const RoutingPage: React.FC = () => {
   const queryClient = useQueryClient();
-  const { data: rules, isLoading } = useQuery({ queryKey: ['routing'], queryFn: mockApi.getRouting });
-  const { data: domains = [] } = useQuery({ queryKey: ['domains'], queryFn: mockApi.getDomains });
-  const { data: proxyGroups = [] } = useQuery({ queryKey: ['proxyGroups'], queryFn: mockApi.getProxyGroups });
+  const { data: rules } = useQuery({ queryKey: ['routing'], queryFn: mockApi.getRouting });
   const [isPolicyModalOpen, setIsPolicyModalOpen] = React.useState(false);
   const [editingPolicy, setEditingPolicy] = React.useState<RoutingRule | null>(null);
 
@@ -175,21 +173,6 @@ export const RoutingPage: React.FC = () => {
     () => (rules ? [...rules].sort((a, b) => a.priority - b.priority) : []),
     [rules],
   );
-  const domainGroups = React.useMemo(() => {
-    const grouped = new Map<string, DomainRule[]>();
-    for (const rule of domains) {
-      const key = rule.group || 'default';
-      const list = grouped.get(key) ?? [];
-      list.push(rule);
-      grouped.set(key, list);
-    }
-    return [...grouped.entries()].map(([name, list]) => ({
-      id: `domain:${name}`,
-      name,
-      count: list.length,
-      actions: Array.from(new Set(list.map((item) => item.action))).join(', ').toLowerCase(),
-    }));
-  }, [domains]);
 
   const policyNodes = React.useMemo(
     () =>
@@ -198,17 +181,6 @@ export const RoutingPage: React.FC = () => {
         rule,
       })),
     [orderedRules],
-  );
-
-  const proxyNodes = React.useMemo(
-    () =>
-      (proxyGroups as ProxyGroup[]).map((group) => ({
-        id: `proxy:${group.name}`,
-        name: group.name,
-        type: group.type,
-        members: group.outbounds.length,
-      })),
-    [proxyGroups],
   );
 
   const handleAdd = () => {
@@ -263,27 +235,7 @@ export const RoutingPage: React.FC = () => {
         </button>
       </div>
 
-      <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
-        <SectionCard title="Domain Groups" description="Domain rules grouped by tag.">
-          <div className="space-y-3 max-h-[640px] overflow-y-auto pr-1">
-            {isLoading ? <LoadingOverlay /> : null}
-            {domainGroups.map((group) => (
-              <div key={group.id} className="rounded-xl border border-sky-200 bg-sky-50/40 p-4">
-                <div className="flex items-center justify-between">
-                  <h3 className="text-sm font-semibold text-slate-900">{group.name}</h3>
-                  <span className="text-[10px] rounded-full bg-sky-100 px-2 py-0.5 font-semibold text-sky-700">
-                    {group.count} rules
-                  </span>
-                </div>
-                <p className="mt-2 text-[11px] text-slate-500">actions: {group.actions || 'mixed'}</p>
-              </div>
-            ))}
-            {domainGroups.length === 0 ? (
-              <p className="text-xs text-slate-400">No domain groups.</p>
-            ) : null}
-          </div>
-        </SectionCard>
-
+      <div className="grid grid-cols-1 gap-6">
         <SectionCard title="Routing Policies" description="Editable policy cards in execution order.">
           <div className="rounded-2xl bg-slate-100 p-4">
             <div className="mb-3 text-[11px] font-semibold uppercase tracking-[0.18em] text-sky-700/80">
@@ -330,25 +282,6 @@ export const RoutingPage: React.FC = () => {
               </button>
             </div>
             {policyNodes.length === 0 ? <p className="mt-4 text-xs text-slate-400">No routing policies.</p> : null}
-          </div>
-        </SectionCard>
-
-        <SectionCard title="Proxy Groups" description="Available proxy groups for outbound mapping.">
-          <div className="space-y-3 max-h-[640px] overflow-y-auto pr-1">
-            {proxyNodes.map((proxy) => (
-              <div key={proxy.id} className="rounded-xl border border-emerald-200 bg-emerald-50/40 p-4">
-                <div className="flex items-center justify-between">
-                  <h3 className="text-sm font-semibold text-slate-900">{proxy.name}</h3>
-                  <span className="text-[10px] rounded-full bg-emerald-100 px-2 py-0.5 font-semibold text-emerald-700">
-                    {proxy.type}
-                  </span>
-                </div>
-                <p className="mt-2 text-[11px] text-slate-500">members: {proxy.members}</p>
-              </div>
-            ))}
-            {proxyNodes.length === 0 ? (
-              <p className="text-xs text-slate-400">No proxy groups.</p>
-            ) : null}
           </div>
         </SectionCard>
       </div>
