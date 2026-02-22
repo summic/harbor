@@ -1561,14 +1561,20 @@ export class ConfigStore {
         });
       }
 
-      const target = (row.target || '').trim() || '(unknown)';
-      const targetEntry = topDomainMap.get(target) ?? { count: 0, outboundCounts: new Map<string, number>() };
+      const rawTarget = (row.target || '').trim();
+      const targetHost = extractHost(rawTarget || '(unknown)').toLowerCase();
+      const isIpLiteral = isIPv4(targetHost) || (/^[0-9a-f:]+$/i.test(targetHost) && targetHost.includes(':'));
+      if (!targetHost || targetHost === '(unknown)' || isIpLiteral) {
+        continue;
+      }
+
+      const targetEntry = topDomainMap.get(targetHost) ?? { count: 0, outboundCounts: new Map<string, number>() };
       targetEntry.count += requestCount;
       targetEntry.outboundCounts.set(
         outboundType,
         (targetEntry.outboundCounts.get(outboundType) || 0) + requestCount,
       );
-      topDomainMap.set(target, targetEntry);
+      topDomainMap.set(targetHost, targetEntry);
 
       const failCount = Math.max(
         0,
