@@ -21,6 +21,8 @@ const CLIENT_CONNECT_REPORT_PATH = '/api/v1/client/connect';
 const CLIENT_CONNECTIONS_REPORT_PATH = '/api/v1/client/connections';
 const HEALTH_PATH = '/api/v1/health';
 const ADMIN_SUB = 'deeed4b7-748b-4301-8c9e-dfe0893a80cf';
+const SUBSCRIBE_TOKEN_COMPAT =
+  (process.env.SAIL_SUBSCRIBE_TOKEN_COMPAT || '').trim().toLowerCase() === 'true';
 
 const STORE = new ConfigStore({
   dbPath: process.env.SAIL_DB_PATH || path.resolve(__dirname, '.local-data', 'sail.sqlite'),
@@ -830,6 +832,15 @@ const subscriptionHandler = async (req: IncomingMessage, res: ServerResponse, ne
     return;
   }
 
+  if (!SUBSCRIBE_TOKEN_COMPAT) {
+    sendProblem(res, 401, {
+      title: 'Authentication failed',
+      detail: 'Bearer token is required',
+      instance: url.pathname,
+      code: 'missing_bearer_token',
+    });
+    return;
+  }
   const token = url.searchParams.get('token');
   if (!token) {
     sendProblem(res, 401, {
@@ -877,6 +888,11 @@ export default defineConfig(({ mode }) => {
   };
   const buildTime = readGitValue('git log -1 --format=%cI', new Date().toISOString());
   const gitSha = readGitValue('git rev-parse --short HEAD', 'local');
+  console.info(
+    `[harbor] subscribe auth mode: ${
+      SUBSCRIBE_TOKEN_COMPAT ? 'bearer + legacy token compatibility' : 'bearer-only'
+    }`,
+  );
   const allowedHosts = ['harbor.beforeve.com', 'localhost', '127.0.0.1'];
   return {
     server: {
