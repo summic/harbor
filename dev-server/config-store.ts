@@ -201,7 +201,7 @@ type QualityObservabilityPayload = {
     totalRequests: number;
     avgSuccessRate: number;
   };
-  topDomains: Array<{ domain: string; count: number }>;
+  topDomains: Array<{ domain: string; count: number; category?: string; policy?: string }>;
   failureReasons: Array<{ code: string; count: number; ratio: number }>;
 };
 
@@ -1525,7 +1525,7 @@ export class ConfigStore {
       blocked_count: number | null;
     }>;
 
-    const topDomainMap = new Map<string, number>();
+    const topDomainMap = new Map<string, { count: number; outboundCounts: Map<string, number> }>();
     const failureMap = new Map<string, number>();
     let totalRequests = 0;
     let totalSuccess = 0;
@@ -1562,7 +1562,13 @@ export class ConfigStore {
       }
 
       const target = (row.target || '').trim() || '(unknown)';
-      topDomainMap.set(target, (topDomainMap.get(target) || 0) + requestCount);
+      const targetEntry = topDomainMap.get(target) ?? { count: 0, outboundCounts: new Map<string, number>() };
+      targetEntry.count += requestCount;
+      targetEntry.outboundCounts.set(
+        outboundType,
+        (targetEntry.outboundCounts.get(outboundType) || 0) + requestCount,
+      );
+      topDomainMap.set(target, targetEntry);
 
       const failCount = Math.max(
         0,
@@ -1590,9 +1596,24 @@ export class ConfigStore {
     });
 
     const topDomains = [...topDomainMap.entries()]
-      .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+      .sort((a, b) => b[1].count - a[1].count || a[0].localeCompare(b[0]))
       .slice(0, topN)
-      .map(([domain, count]) => ({ domain, count }));
+      .map(([domain, payload]) => {
+        let dominantOutbound = 'unknown';
+        let dominantCount = -1;
+        for (const [outbound, count] of payload.outboundCounts.entries()) {
+          if (count > dominantCount) {
+            dominantCount = count;
+            dominantOutbound = outbound;
+          }
+        }
+        return {
+          domain,
+          count: payload.count,
+          category: dominantOutbound,
+          policy: dominantOutbound,
+        };
+      });
 
     const failureTotal = [...failureMap.values()].reduce((sum, count) => sum + count, 0);
     const failureReasons = [...failureMap.entries()]
@@ -1642,7 +1663,12 @@ export class ConfigStore {
 
     const logs = this.db
       .prepare(
-        `SELECT device_id, upload_bytes, download_bytes, occurred_at
+        `SELECT
+           device_id,
+           upload_bytes,
+           download_bytes,
+           occurred_at,
+           COALESCE(outbound_type, json_extract(metadata_json, '$.outbound_type'), '') AS outbound_type
          FROM client_connect_logs
          ORDER BY id DESC
          LIMIT 20000`,
@@ -1652,6 +1678,7 @@ export class ConfigStore {
       upload_bytes: number;
       download_bytes: number;
       occurred_at: string;
+      outbound_type: string | null;
     }>;
 
     for (const row of logs) {
@@ -1659,8 +1686,11 @@ export class ConfigStore {
       if (!Number.isFinite(ts)) continue;
       const offset = Math.floor((ts - bucketStarts[0]) / hourMs);
       if (offset < 0 || offset >= 24) continue;
-      uploadSeries[offset] += Number(row.upload_bytes || 0);
-      downloadSeries[offset] += Number(row.download_bytes || 0);
+      const outboundType = this.normalizeOutboundType(row.outbound_type);
+      if (outboundType === 'proxy') {
+        uploadSeries[offset] += Number(row.upload_bytes || 0);
+        downloadSeries[offset] += Number(row.download_bytes || 0);
+      }
       if (row.device_id?.trim()) {
         deviceSets[offset].add(row.device_id.trim());
       }

@@ -85,6 +85,15 @@ const fmtBytes = (bytes: number) => {
   return `${value.toFixed(value >= 100 || idx === 0 ? 0 : 1)} ${units[idx]}`;
 };
 
+const outboundToPathLabel = (outbound: string | undefined) => {
+  const v = (outbound || '').toLowerCase();
+  if (v === 'proxy') return '代理';
+  if (v === 'direct') return '直连';
+  if (v === 'block' || v === 'reject') return '拦截';
+  if (v === 'dns') return 'DNS';
+  return '其他';
+};
+
 export const DashboardPage: React.FC = () => {
   const { data, isLoading } = useQuery({
     queryKey: ['dashboard-summary'],
@@ -145,7 +154,7 @@ export const DashboardPage: React.FC = () => {
           <div className="lg:col-span-2">
             <ChartContainer
               title="Traffic Overview"
-              subtitle={`Upload ${fmtBytes(totalUpload)} · Download ${fmtBytes(totalDownload)} (24h)`}
+              subtitle={`仅代理流量 · Upload ${fmtBytes(totalUpload)} · Download ${fmtBytes(totalDownload)} (24h)`}
               legend={
                 <>
                   <div className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-blue-500"></span> Download</div>
@@ -181,6 +190,8 @@ export const DashboardPage: React.FC = () => {
                     <tr>
                       <th className="px-4 py-3 w-16">#</th>
                       <th className="px-4 py-3">Domain</th>
+                      <th className="px-4 py-3">策略</th>
+                      <th className="px-4 py-3">链路</th>
                       <th className="px-4 py-3 text-right">Requests</th>
                       <th className="px-4 py-3 text-right">Share</th>
                     </tr>
@@ -188,10 +199,13 @@ export const DashboardPage: React.FC = () => {
                   <tbody className="divide-y divide-slate-50">
                     {(qualityData?.topDomains ?? []).map((item, index) => {
                       const ratio = allDomainTotal > 0 ? (item.count / allDomainTotal) * 100 : 0;
+                      const policy = (item.policy || item.category || 'unknown').toLowerCase();
                       return (
                         <tr key={`${item.domain}-${index}`} className="hover:bg-slate-50/50">
                           <td className="px-4 py-3 text-xs font-mono text-slate-400">{index + 1}</td>
                           <td className="px-4 py-3 font-semibold text-slate-700">{item.domain}</td>
+                          <td className="px-4 py-3 text-xs font-mono text-slate-500">{policy}</td>
+                          <td className="px-4 py-3 text-xs text-slate-600">{outboundToPathLabel(policy)}</td>
                           <td className="px-4 py-3 text-right text-slate-600 tabular-nums">{item.count.toLocaleString()}</td>
                           <td className="px-4 py-3 text-right text-slate-500 tabular-nums">{ratio.toFixed(1)}%</td>
                         </tr>
@@ -199,7 +213,7 @@ export const DashboardPage: React.FC = () => {
                     })}
                     {(qualityData?.topDomains ?? []).length === 0 ? (
                       <tr>
-                        <td colSpan={4} className="px-4 py-8 text-center text-xs text-slate-400">No domain requests yet</td>
+                        <td colSpan={6} className="px-4 py-8 text-center text-xs text-slate-400">No domain requests yet</td>
                       </tr>
                     ) : null}
                   </tbody>

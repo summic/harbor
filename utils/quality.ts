@@ -131,6 +131,7 @@ export interface QualityTopDomain {
   domain: string;
   count: number;
   category?: string;
+  policy?: string;
 }
 
 export interface QualityFailureReason {
@@ -173,6 +174,7 @@ export const normalizeObservabilityResponse = (payload: unknown): QualityObserva
       domain: toString(entry.domain ?? entry.host ?? entry.name),
       count: toNumber(entry.count ?? entry.hits ?? entry.requests),
       category: toString(entry.category ?? entry.type, undefined),
+      policy: toString(entry.policy, undefined),
     }))
     .filter(entry => entry.domain);
 
