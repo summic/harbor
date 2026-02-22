@@ -19,6 +19,7 @@ export interface DomainGroup {
   id: string;
   name: string;
   action: ActionType;
+  dnsServer?: string;
   ruleCount: number;
 }
 

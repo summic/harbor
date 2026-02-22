@@ -10,16 +10,19 @@ const DomainGroupModal: React.FC<{
   isOpen: boolean;
   onClose: () => void;
   initial?: DomainGroup | null;
-  onSave: (payload: { name: string; action: ActionType; previousName?: string }) => void;
-}> = ({ isOpen, onClose, initial, onSave }) => {
+  dnsServerOptions: string[];
+  onSave: (payload: { name: string; action: ActionType; previousName?: string; dnsServer?: string }) => void;
+}> = ({ isOpen, onClose, initial, dnsServerOptions, onSave }) => {
   const isEdit = Boolean(initial);
   const [name, setName] = React.useState('');
   const [action, setAction] = React.useState<ActionType>('PROXY');
+  const [dnsServer, setDnsServer] = React.useState('');
 
   React.useEffect(() => {
     if (!isOpen) return;
     setName(initial?.name ?? '');
     setAction(initial?.action ?? 'PROXY');
+    setDnsServer(initial?.dnsServer ?? '');
   }, [isOpen, initial]);
 
   if (!isOpen) return null;
@@ -57,13 +60,26 @@ const DomainGroupModal: React.FC<{
               <option value="BLOCK">BLOCK</option>
             </select>
           </div>
+          <div>
+            <label className="block text-xs font-semibold text-slate-500 mb-1.5 uppercase">Default DNS Server (Optional)</label>
+            <select
+              className="w-full px-3 py-2 bg-slate-50 border border-slate-200 rounded-lg text-sm"
+              value={dnsServer}
+              onChange={(e) => setDnsServer(e.target.value)}
+            >
+              <option value="">(none)</option>
+              {dnsServerOptions.map((tag) => (
+                <option key={tag} value={tag}>{tag}</option>
+              ))}
+            </select>
+          </div>
         </div>
         <div className="p-6 border-t border-slate-100 bg-slate-50/50 flex items-center justify-end gap-3">
           <button onClick={onClose} className="px-5 py-2.5 text-slate-600 font-semibold text-sm hover:bg-slate-100 rounded-lg">
             Cancel
           </button>
           <button
-            onClick={() => onSave({ name, action, previousName: initial?.name })}
+            onClick={() => onSave({ name, action, previousName: initial?.name, dnsServer })}
             className="px-5 py-2.5 bg-slate-900 text-white font-semibold text-sm rounded-lg hover:bg-slate-800 transition-colors flex items-center"
           >
             <Save size={16} className="mr-2" />
@@ -79,6 +95,7 @@ export const DomainGroupsPage: React.FC = () => {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const { data: groups, isLoading } = useQuery({ queryKey: ['domainGroups'], queryFn: mockApi.getDomainGroups });
+  const { data: dnsServers = [] } = useQuery({ queryKey: ['dns'], queryFn: mockApi.getDns });
   const [search, setSearch] = React.useState('');
   const [editing, setEditing] = React.useState<DomainGroup | null>(null);
   const [isModalOpen, setIsModalOpen] = React.useState(false);
@@ -157,6 +174,7 @@ export const DomainGroupsPage: React.FC = () => {
               <tr>
                 <th className="px-6 py-3 border-y border-slate-100">Group</th>
                 <th className="px-6 py-3 border-y border-slate-100 text-center">Action</th>
+                <th className="px-6 py-3 border-y border-slate-100">DNS</th>
                 <th className="px-6 py-3 border-y border-slate-100 text-right">Domains</th>
                 <th className="px-6 py-3 border-y border-slate-100 text-right">Actions</th>
               </tr>
@@ -179,6 +197,7 @@ export const DomainGroupsPage: React.FC = () => {
                       {group.action}
                     </span>
                   </td>
+                  <td className="px-6 py-4 text-slate-600">{group.dnsServer || '-'}</td>
                   <td className="px-6 py-4 text-right text-slate-600 tabular-nums">{group.ruleCount}</td>
                   <td className="px-6 py-4 text-right">
                     <div className="flex items-center justify-end gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
@@ -207,7 +226,7 @@ export const DomainGroupsPage: React.FC = () => {
               ))}
               {filteredGroups.length === 0 ? (
                 <tr>
-                  <td colSpan={4} className="px-6 py-14 text-center text-slate-400">
+                  <td colSpan={5} className="px-6 py-14 text-center text-slate-400">
                     No domain groups.
                   </td>
                 </tr>
@@ -244,6 +263,7 @@ export const DomainGroupsPage: React.FC = () => {
         isOpen={isModalOpen}
         onClose={() => setIsModalOpen(false)}
         initial={editing}
+        dnsServerOptions={dnsServers.map((item) => item.name)}
         onSave={(payload) => saveMutation.mutate(payload)}
       />
     </div>

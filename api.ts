@@ -443,6 +443,20 @@ const collectRouteSetOutbounds = (config: JsonObject): Map<string, string> => {
   return outbounds;
 };
 
+const collectDnsRuleSetServers = (config: JsonObject): Map<string, string> => {
+  const servers = new Map<string, string>();
+  const rules = Array.isArray(config.dns?.rules) ? config.dns.rules : [];
+  for (const rule of rules) {
+    if (!Array.isArray(rule?.rule_set) || typeof rule?.server !== 'string') continue;
+    for (const tag of rule.rule_set) {
+      if (typeof tag === 'string') {
+        servers.set(tag, rule.server);
+      }
+    }
+  }
+  return servers;
+};
+
 const toDomainRules = (config: JsonObject): DomainRule[] => {
   const result: DomainRule[] = [];
   const routeSetOutbounds = collectRouteSetOutbounds(config);
@@ -564,6 +578,7 @@ const deleteDomainInConfig = (config: JsonObject, ruleId: string): JsonObject =>
 
 const toDomainGroups = (config: JsonObject): DomainGroup[] => {
   const routeSetOutbounds = collectRouteSetOutbounds(config);
+  const dnsRuleSetServers = collectDnsRuleSetServers(config);
   const rules = toDomainRules(config);
   const countByGroup = new Map<string, number>();
   for (const rule of rules) {
@@ -578,6 +593,7 @@ const toDomainGroups = (config: JsonObject): DomainGroup[] => {
         id: `domain-group:${encodeURIComponent(name)}`,
         name,
         action: outboundToAction(routeSetOutbounds.get(name)),
+        dnsServer: dnsRuleSetServers.get(name),
         ruleCount: countByGroup.get(name) ?? 0,
       } as DomainGroup;
     })
@@ -627,12 +643,17 @@ const renameDomainGroupInConfig = (
 
   const ruleSets = next.route.rule_set as JsonObject[];
   const routeRules = next.route.rules as JsonObject[];
+  const dnsRules = Array.isArray(next.dns?.rules) ? (next.dns.rules as JsonObject[]) : [];
   for (const item of ruleSets) {
     if (item?.type === 'inline' && item?.tag === from) {
       item.tag = to;
     }
   }
   for (const item of routeRules) {
+    if (!Array.isArray(item?.rule_set)) continue;
+    item.rule_set = item.rule_set.map((value: unknown) => (value === from ? to : value));
+  }
+  for (const item of dnsRules) {
     if (!Array.isArray(item?.rule_set)) continue;
     item.rule_set = item.rule_set.map((value: unknown) => (value === from ? to : value));
   }
@@ -658,6 +679,36 @@ const updateDomainGroupActionInConfig = (
   return next;
 };
 
+const updateDomainGroupDnsInConfig = (
+  config: JsonObject,
+  name: string,
+  dnsServer?: string,
+): JsonObject => {
+  const next = JSON.parse(JSON.stringify(config)) as JsonObject;
+  next.dns = next.dns ?? {};
+  next.dns.rules = Array.isArray(next.dns.rules) ? next.dns.rules : [];
+  const dnsRules = next.dns.rules as JsonObject[];
+
+  const existingIndex = dnsRules.findIndex(
+    (item) => Array.isArray(item?.rule_set) && item.rule_set.includes(name),
+  );
+
+  if (!dnsServer || !dnsServer.trim()) {
+    if (existingIndex >= 0) {
+      dnsRules.splice(existingIndex, 1);
+    }
+    return next;
+  }
+
+  if (existingIndex >= 0) {
+    dnsRules[existingIndex].server = dnsServer;
+  } else {
+    dnsRules.push({ rule_set: [name], server: dnsServer });
+  }
+
+  return next;
+};
+
 const deleteDomainGroupInConfig = (config: JsonObject, name: string): JsonObject => {
   const next = JSON.parse(JSON.stringify(config)) as JsonObject;
   next.route = next.route ?? {};
@@ -668,6 +719,11 @@ const deleteDomainGroupInConfig = (config: JsonObject, name: string): JsonObject
     (item) => !(item?.type === 'inline' && item?.tag === name),
   );
   next.route.rules = (next.route.rules as JsonObject[]).filter(
+    (item) => !(Array.isArray(item?.rule_set) && item.rule_set.includes(name)),
+  );
+  next.dns = next.dns ?? {};
+  next.dns.rules = Array.isArray(next.dns.rules) ? next.dns.rules : [];
+  next.dns.rules = (next.dns.rules as JsonObject[]).filter(
     (item) => !(Array.isArray(item?.rule_set) && item.rule_set.includes(name)),
   );
   return next;
@@ -1371,6 +1427,7 @@ export const mockApi = {
     name: string;
     action: DomainGroup['action'];
     previousName?: string;
+    dnsServer?: string;
   }): Promise<DomainGroup[]> => {
     await sleep(180);
     const targetName = payload.name.trim();
@@ -1384,9 +1441,11 @@ export const mockApi = {
       config = renameDomainGroupInConfig(config, fromName, targetName);
     }
     config = updateDomainGroupActionInConfig(config, targetName, payload.action);
+    config = updateDomainGroupDnsInConfig(config, targetName, payload.dnsServer);
 
     await replaceModuleRows('route.rule_set', Array.isArray(config.route?.rule_set) ? config.route.rule_set : [], 'tag');
     await replaceModuleRows('route.rules', Array.isArray(config.route?.rules) ? config.route.rules : []);
+    await replaceModuleRows('dns.rules', Array.isArray(config.dns?.rules) ? config.dns.rules : []);
     const synced = await loadConfig();
     return toDomainGroups(synced);
   },
@@ -1397,6 +1456,7 @@ export const mockApi = {
     const nextConfig = deleteDomainGroupInConfig(config, name);
     await replaceModuleRows('route.rule_set', Array.isArray(nextConfig.route?.rule_set) ? nextConfig.route.rule_set : [], 'tag');
     await replaceModuleRows('route.rules', Array.isArray(nextConfig.route?.rules) ? nextConfig.route.rules : []);
+    await replaceModuleRows('dns.rules', Array.isArray(nextConfig.dns?.rules) ? nextConfig.dns.rules : []);
     const synced = await loadConfig();
     return toDomainGroups(synced);
   },
