@@ -4,13 +4,11 @@ import { useLocation, Link, useNavigate } from 'react-router-dom';
 import { 
   LayoutDashboard, 
   Activity,
-  Layers,
   Globe, 
   Zap, 
   Shuffle, 
   Orbit,
   Settings2, 
-  Send, 
   Menu, 
   X,
   Anchor,
@@ -27,7 +25,6 @@ import { buildInfo } from '../utils/build-info';
 const navItems = [
   { path: '/', label: 'Dashboard', icon: LayoutDashboard },
   { path: '/quality', label: 'Quality', icon: Activity },
-  { path: '/surge-style', label: 'Surge Style', icon: Layers },
   { path: '/domains', label: 'Domains', icon: Globe },
   { path: '/proxies', label: 'Proxies', icon: Zap },
   { path: '/routing', label: 'Routing', icon: Shuffle },
@@ -35,7 +32,6 @@ const navItems = [
   { path: '/dns-hosts', label: 'DNS & Hosts', icon: Settings2 },
   { path: '/users', label: 'Users', icon: Users },
   { path: '/profile', label: 'Unified Profile', icon: FileJson },
-  { path: '/publish', label: 'Publish', icon: Send },
 ];
 
 const isRouteActive = (itemPath: string, currentPath: string): boolean => {

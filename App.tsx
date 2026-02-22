@@ -11,14 +11,12 @@ import { ProxiesPage } from './pages/Proxies';
 import { RoutingPage } from './pages/Routing';
 import { SimulationPage } from './pages/Simulation';
 import { DnsHostsPage } from './pages/DnsHosts';
-import { PublishPage } from './pages/Publish';
 import { UnifiedProfilePage } from './pages/UnifiedProfile';
 import { UsersPage } from './pages/Users';
 import { UserDetailsPage } from './pages/UserDetails';
 import { UserTargetDetailsPage } from './pages/UserTargetDetails';
 import { QualityObservabilityPage } from './pages/QualityObservability';
 import { AccountSettingsPage } from './pages/AccountSettings';
-import { SurgeStylePage } from './pages/SurgeStyle';
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -56,9 +54,7 @@ const App: React.FC = () => {
                 <Route path="/users/:id" element={<AdminRoute><UserDetailsPage /></AdminRoute>} />
                 <Route path="/users/:id/targets/:target" element={<AdminRoute><UserTargetDetailsPage /></AdminRoute>} />
                 <Route path="/profile" element={<AdminRoute><UnifiedProfilePage /></AdminRoute>} />
-                <Route path="/publish" element={<AdminRoute><PublishPage /></AdminRoute>} />
                 <Route path="/quality" element={<AdminRoute><QualityObservabilityPage /></AdminRoute>} />
-                <Route path="/surge-style" element={<AdminRoute><SurgeStylePage /></AdminRoute>} />
                 <Route path="*" element={<Navigate to="/" replace />} />
               </Routes>
             </AppShell>
