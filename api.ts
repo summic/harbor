@@ -34,13 +34,19 @@ const resolveSubscriptionUrl = () => {
 const fetchJson = async <T>(path: string, init?: RequestInit): Promise<T> => {
   const session = loadSession();
   const token = session?.accessToken || session?.idToken;
+  const initHeaders = new Headers(init?.headers ?? {});
+  const mergedHeaders = new Headers();
+  mergedHeaders.set('Accept', 'application/json');
+  if (token) {
+    mergedHeaders.set('Authorization', `Bearer ${token}`);
+  }
+  initHeaders.forEach((value, key) => {
+    mergedHeaders.set(key, value);
+  });
+  const { headers: _ignoredHeaders, ...restInit } = init ?? {};
   const response = await fetch(`${API_BASE}${path}`, {
-    headers: {
-      Accept: 'application/json',
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      ...(init?.headers ?? {}),
-    },
-    ...init,
+    ...restInit,
+    headers: mergedHeaders,
   });
   if (!response.ok) {
     const message = await response.text();
