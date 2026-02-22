@@ -136,6 +136,38 @@ export interface AccessLogSummary {
   topBlocked: { domain: string; count: number }[];
 }
 
+export interface UserTargetAggregate {
+  target: string;
+  requests: number;
+  uploadBytes: number;
+  downloadBytes: number;
+  blockedRequests: number;
+  successRate: number;
+  lastSeen: string;
+}
+
+export interface UserTargetDetail {
+  target: string;
+  requests: number;
+  uploadBytes: number;
+  downloadBytes: number;
+  blockedRequests: number;
+  successRate: number;
+  lastSeen: string;
+  outboundTypes: Array<{ type: string; count: number }>;
+  recent: Array<{
+    occurredAt: string;
+    outboundType: string;
+    networkType: string | null;
+    requestCount: number;
+    successCount: number;
+    blockedCount: number;
+    uploadBytes: number;
+    downloadBytes: number;
+    error: string | null;
+  }>;
+}
+
 export interface User {
   id: string;
   username: string;

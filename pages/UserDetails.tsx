@@ -25,6 +25,11 @@ export const UserDetailsPage: React.FC = () => {
     queryKey: ['user', id], 
     queryFn: () => mockApi.getUser(id || '') 
   });
+  const { data: targets = [] } = useQuery({
+    queryKey: ['user-targets', id],
+    queryFn: () => mockApi.getUserTargets(id || '', 200),
+    enabled: Boolean(id),
+  });
 
   if (isLoading) return <div className="h-96 relative"><LoadingOverlay /></div>;
   
@@ -167,6 +172,47 @@ export const UserDetailsPage: React.FC = () => {
                      {user.logs.topDirect.length === 0 && <div className="p-6 text-center text-xs text-slate-400">No direct domain data yet</div>}
                   </div>
                </div>
+             </div>
+           </SectionCard>
+
+           <SectionCard title="Targets (By Request Count)" actions={
+              <span className="text-xs font-mono bg-slate-100 px-2 py-1 rounded text-slate-700">DESC</span>
+           }>
+             <div className="overflow-x-auto">
+               <table className="w-full text-sm">
+                 <thead>
+                   <tr className="text-left text-slate-500 border-b border-slate-200">
+                     <th className="py-2 pr-4 font-semibold">Target</th>
+                     <th className="py-2 pr-4 font-semibold">Requests</th>
+                     <th className="py-2 pr-4 font-semibold">Success</th>
+                     <th className="py-2 pr-4 font-semibold">Upload</th>
+                     <th className="py-2 pr-4 font-semibold">Download</th>
+                     <th className="py-2 font-semibold">Last Seen</th>
+                   </tr>
+                 </thead>
+                 <tbody>
+                   {targets.map((row) => (
+                     <tr key={row.target} className="border-b border-slate-100 last:border-0 hover:bg-slate-50">
+                       <td className="py-2 pr-4">
+                         <Link
+                           to={`/users/${encodeURIComponent(id || '')}/targets/${encodeURIComponent(row.target)}`}
+                           className="text-blue-700 hover:text-blue-900 font-medium"
+                         >
+                           {row.target}
+                         </Link>
+                       </td>
+                       <td className="py-2 pr-4 tabular-nums">{row.requests.toLocaleString()}</td>
+                       <td className="py-2 pr-4 tabular-nums">{row.successRate.toFixed(2)}%</td>
+                       <td className="py-2 pr-4 tabular-nums">{formatBytes(row.uploadBytes)}</td>
+                       <td className="py-2 pr-4 tabular-nums">{formatBytes(row.downloadBytes)}</td>
+                       <td className="py-2 text-slate-500">{row.lastSeen}</td>
+                     </tr>
+                   ))}
+                 </tbody>
+               </table>
+               {targets.length === 0 && (
+                 <div className="py-8 text-center text-xs text-slate-400">No target-level logs yet</div>
+               )}
              </div>
            </SectionCard>
         </div>

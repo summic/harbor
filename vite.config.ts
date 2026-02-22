@@ -480,6 +480,33 @@ const subscriptionHandler = async (req: IncomingMessage, res: ServerResponse, ne
     return;
   }
 
+  const userTargetsListMatch = url.pathname.match(/^\/api\/v1\/users\/([^/]+)\/targets$/);
+  if (userTargetsListMatch && req.method === 'GET') {
+    const id = decodeURIComponent(userTargetsListMatch[1]);
+    const limitRaw = Number(url.searchParams.get('limit') ?? '100');
+    const items = STORE.listUserTargetAggregates(id, limitRaw);
+    sendJson(res, 200, items);
+    return;
+  }
+
+  const userTargetDetailMatch = url.pathname.match(/^\/api\/v1\/users\/([^/]+)\/targets\/(.+)$/);
+  if (userTargetDetailMatch && req.method === 'GET') {
+    const id = decodeURIComponent(userTargetDetailMatch[1]);
+    const target = decodeURIComponent(userTargetDetailMatch[2]);
+    const detail = STORE.getUserTargetDetail(id, target);
+    if (!detail) {
+      sendProblem(res, 404, {
+        title: 'Resource not found',
+        detail: 'Target not found',
+        instance: url.pathname,
+        code: 'not_found',
+      });
+      return;
+    }
+    sendJson(res, 200, detail);
+    return;
+  }
+
   if (url.pathname === CLIENT_CONNECT_REPORT_PATH && req.method === 'POST') {
     try {
       const accessToken = extractBearerToken(req);

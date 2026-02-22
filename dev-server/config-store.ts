@@ -121,6 +121,38 @@ export type ClientConnectionLogInput = {
   metadata?: Record<string, unknown>;
 };
 
+export type UserTargetAggregateItem = {
+  target: string;
+  requests: number;
+  uploadBytes: number;
+  downloadBytes: number;
+  blockedRequests: number;
+  successRate: number;
+  lastSeen: string;
+};
+
+export type UserTargetDetailItem = {
+  target: string;
+  requests: number;
+  uploadBytes: number;
+  downloadBytes: number;
+  blockedRequests: number;
+  successRate: number;
+  lastSeen: string;
+  outboundTypes: Array<{ type: string; count: number }>;
+  recent: Array<{
+    occurredAt: string;
+    outboundType: string;
+    networkType: string | null;
+    requestCount: number;
+    successCount: number;
+    blockedCount: number;
+    uploadBytes: number;
+    downloadBytes: number;
+    error: string | null;
+  }>;
+};
+
 export class ConfigStore {
   private db: CompatibleDb;
   private readonly storePath: string;
@@ -897,6 +929,166 @@ export class ConfigStore {
       .get(id) as StoredUserRow | undefined;
     if (!row) return undefined;
     return this.mapUser(row);
+  }
+
+  listUserTargetAggregates(userIdRaw: string, limitRaw = 100): UserTargetAggregateItem[] {
+    const userId = userIdRaw.trim();
+    if (!userId) throw new Error('missing_user_id');
+    const limit = Number.isFinite(limitRaw) ? Math.max(1, Math.min(500, Math.trunc(limitRaw))) : 100;
+    const rows = this.db
+      .prepare(
+        `SELECT
+           COALESCE(NULLIF(target, ''), '(unknown)') AS target,
+           COALESCE(SUM(CASE WHEN COALESCE(request_count, 0) > 0 THEN request_count ELSE 1 END), 0) AS requests,
+           COALESCE(SUM(upload_bytes), 0) AS upload_bytes,
+           COALESCE(SUM(download_bytes), 0) AS download_bytes,
+           COALESCE(SUM(CASE
+             WHEN lower(COALESCE(outbound_type, json_extract(metadata_json, '$.outbound_type'), '')) IN ('block', 'reject')
+               THEN CASE WHEN COALESCE(request_count, 0) > 0 THEN request_count ELSE 1 END
+             ELSE 0 END), 0) AS blocked_requests,
+           COALESCE(SUM(CASE
+             WHEN COALESCE(success_count, 0) > 0 THEN success_count
+             WHEN lower(COALESCE(outbound_type, json_extract(metadata_json, '$.outbound_type'), '')) IN ('block', 'reject') THEN 0
+             WHEN error_message IS NULL OR trim(error_message) = '' THEN CASE WHEN COALESCE(request_count, 0) > 0 THEN request_count ELSE 1 END
+             ELSE 0 END), 0) AS successful_requests,
+           MAX(occurred_at) AS last_seen
+         FROM client_connect_logs
+         WHERE user_id = ?
+         GROUP BY COALESCE(NULLIF(target, ''), '(unknown)')
+         ORDER BY requests DESC, last_seen DESC
+         LIMIT ?`,
+      )
+      .all(userId, limit) as Array<{
+      target: string;
+      requests: number;
+      upload_bytes: number;
+      download_bytes: number;
+      blocked_requests: number;
+      successful_requests: number;
+      last_seen: string | null;
+    }>;
+    return rows.map((row) => {
+      const requests = Number(row.requests || 0);
+      const successful = Number(row.successful_requests || 0);
+      return {
+        target: row.target,
+        requests,
+        uploadBytes: Number(row.upload_bytes || 0),
+        downloadBytes: Number(row.download_bytes || 0),
+        blockedRequests: Number(row.blocked_requests || 0),
+        successRate: requests > 0 ? Number(((successful / requests) * 100).toFixed(2)) : 100,
+        lastSeen: row.last_seen || '-',
+      };
+    });
+  }
+
+  getUserTargetDetail(userIdRaw: string, targetRaw: string): UserTargetDetailItem | undefined {
+    const userId = userIdRaw.trim();
+    const target = targetRaw.trim() || '(unknown)';
+    if (!userId) throw new Error('missing_user_id');
+    const aggregate = this.db
+      .prepare(
+        `SELECT
+           COALESCE(NULLIF(target, ''), '(unknown)') AS target,
+           COALESCE(SUM(CASE WHEN COALESCE(request_count, 0) > 0 THEN request_count ELSE 1 END), 0) AS requests,
+           COALESCE(SUM(upload_bytes), 0) AS upload_bytes,
+           COALESCE(SUM(download_bytes), 0) AS download_bytes,
+           COALESCE(SUM(CASE
+             WHEN lower(COALESCE(outbound_type, json_extract(metadata_json, '$.outbound_type'), '')) IN ('block', 'reject')
+               THEN CASE WHEN COALESCE(request_count, 0) > 0 THEN request_count ELSE 1 END
+             ELSE 0 END), 0) AS blocked_requests,
+           COALESCE(SUM(CASE
+             WHEN COALESCE(success_count, 0) > 0 THEN success_count
+             WHEN lower(COALESCE(outbound_type, json_extract(metadata_json, '$.outbound_type'), '')) IN ('block', 'reject') THEN 0
+             WHEN error_message IS NULL OR trim(error_message) = '' THEN CASE WHEN COALESCE(request_count, 0) > 0 THEN request_count ELSE 1 END
+             ELSE 0 END), 0) AS successful_requests,
+           MAX(occurred_at) AS last_seen
+         FROM client_connect_logs
+         WHERE user_id = ?
+           AND COALESCE(NULLIF(target, ''), '(unknown)') = ?`,
+      )
+      .get(userId, target) as
+      | {
+          target: string;
+          requests: number;
+          upload_bytes: number;
+          download_bytes: number;
+          blocked_requests: number;
+          successful_requests: number;
+          last_seen: string | null;
+        }
+      | undefined;
+    if (!aggregate || Number(aggregate.requests || 0) <= 0) return undefined;
+
+    const outboundRows = this.db
+      .prepare(
+        `SELECT
+           lower(COALESCE(outbound_type, json_extract(metadata_json, '$.outbound_type'), 'unknown')) AS outbound_type,
+           COUNT(*) AS count
+         FROM client_connect_logs
+         WHERE user_id = ?
+           AND COALESCE(NULLIF(target, ''), '(unknown)') = ?
+         GROUP BY lower(COALESCE(outbound_type, json_extract(metadata_json, '$.outbound_type'), 'unknown'))
+         ORDER BY count DESC, outbound_type ASC`,
+      )
+      .all(userId, target) as Array<{ outbound_type: string; count: number }>;
+
+    const recent = this.db
+      .prepare(
+        `SELECT
+           occurred_at,
+           COALESCE(outbound_type, json_extract(metadata_json, '$.outbound_type'), 'unknown') AS outbound_type,
+           network_type,
+           request_count,
+           success_count,
+           blocked_count,
+           upload_bytes,
+           download_bytes,
+           error_message
+         FROM client_connect_logs
+         WHERE user_id = ?
+           AND COALESCE(NULLIF(target, ''), '(unknown)') = ?
+         ORDER BY occurred_at DESC
+         LIMIT 100`,
+      )
+      .all(userId, target) as Array<{
+      occurred_at: string;
+      outbound_type: string;
+      network_type: string | null;
+      request_count: number;
+      success_count: number;
+      blocked_count: number;
+      upload_bytes: number;
+      download_bytes: number;
+      error_message: string | null;
+    }>;
+
+    const requests = Number(aggregate.requests || 0);
+    const successful = Number(aggregate.successful_requests || 0);
+    return {
+      target: aggregate.target,
+      requests,
+      uploadBytes: Number(aggregate.upload_bytes || 0),
+      downloadBytes: Number(aggregate.download_bytes || 0),
+      blockedRequests: Number(aggregate.blocked_requests || 0),
+      successRate: requests > 0 ? Number(((successful / requests) * 100).toFixed(2)) : 100,
+      lastSeen: aggregate.last_seen || '-',
+      outboundTypes: outboundRows.map((item) => ({
+        type: item.outbound_type || 'unknown',
+        count: Number(item.count || 0),
+      })),
+      recent: recent.map((item) => ({
+        occurredAt: item.occurred_at,
+        outboundType: item.outbound_type || 'unknown',
+        networkType: item.network_type,
+        requestCount: Number(item.request_count || 0),
+        successCount: Number(item.success_count || 0),
+        blockedCount: Number(item.blocked_count || 0),
+        uploadBytes: Number(item.upload_bytes || 0),
+        downloadBytes: Number(item.download_bytes || 0),
+        error: item.error_message,
+      })),
+    };
   }
 
   updateUserDisplayName(id: string, displayName: string) {

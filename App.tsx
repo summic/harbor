@@ -14,6 +14,7 @@ import { PublishPage } from './pages/Publish';
 import { UnifiedProfilePage } from './pages/UnifiedProfile';
 import { UsersPage } from './pages/Users';
 import { UserDetailsPage } from './pages/UserDetails';
+import { UserTargetDetailsPage } from './pages/UserTargetDetails';
 import { QualityObservabilityPage } from './pages/QualityObservability';
 import { AccountSettingsPage } from './pages/AccountSettings';
 
@@ -50,6 +51,7 @@ const App: React.FC = () => {
                 <Route path="/dns-hosts" element={<AdminRoute><DnsHostsPage /></AdminRoute>} />
                 <Route path="/users" element={<AdminRoute><UsersPage /></AdminRoute>} />
                 <Route path="/users/:id" element={<AdminRoute><UserDetailsPage /></AdminRoute>} />
+                <Route path="/users/:id/targets/:target" element={<AdminRoute><UserTargetDetailsPage /></AdminRoute>} />
                 <Route path="/profile" element={<AdminRoute><UnifiedProfilePage /></AdminRoute>} />
                 <Route path="/publish" element={<AdminRoute><PublishPage /></AdminRoute>} />
                 <Route path="/quality" element={<AdminRoute><QualityObservabilityPage /></AdminRoute>} />
