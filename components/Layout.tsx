@@ -12,6 +12,7 @@ import {
   FileJson,
   Users,
   Shield,
+  AlertTriangle,
   ChevronDown,
   LogOut,
   Bell
@@ -27,6 +28,7 @@ const navItems = [
   { path: '/proxies', label: 'Proxies', icon: Zap },
   { path: '/dns-hosts', label: 'DNS', icon: Settings2 },
   { path: '/simulation', label: 'Simulation', icon: Orbit },
+  { path: '/failed-domains', label: 'Failed Domains', icon: AlertTriangle },
   { path: '/users', label: 'Users', icon: Users },
   { path: '/profile', label: 'Unified Profile', icon: FileJson },
 ];

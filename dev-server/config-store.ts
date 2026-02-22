@@ -1668,7 +1668,7 @@ export class ConfigStore {
     };
   }
 
-  listFailedDomains(input: { window?: string; limit?: number }): FailedDomainItem[] {
+  listFailedDomains(input: { window?: string; limit?: number; userId?: string; outboundType?: string }): FailedDomainItem[] {
     const windowMs = this.parseDurationToMs(input.window, 24 * 60 * 60 * 1000);
     const sinceIso = new Date(Date.now() - windowMs).toISOString();
     const limit = Number.isFinite(input.limit) ? Math.max(1, Math.min(100, Math.trunc(input.limit || 20))) : 20;
@@ -1676,6 +1676,7 @@ export class ConfigStore {
     const rows = this.db
       .prepare(
         `SELECT
+           user_id,
            target,
            COALESCE(outbound_type, json_extract(metadata_json, '$.outbound_type'), '') AS outbound_type,
            error_message,
@@ -1687,6 +1688,7 @@ export class ConfigStore {
          ORDER BY occurred_at DESC`,
       )
       .all(sinceIso) as Array<{
+      user_id: string | null;
       target: string | null;
       outbound_type: string | null;
       error_message: string | null;
@@ -1705,6 +1707,10 @@ export class ConfigStore {
     }>();
 
     for (const row of rows) {
+      if (input.userId?.trim() && row.user_id !== input.userId.trim()) continue;
+      const rowOutboundType = this.normalizeOutboundType(row.outbound_type);
+      if (input.outboundType?.trim() && rowOutboundType !== this.normalizeOutboundType(input.outboundType)) continue;
+
       const requestCount = Number(row.request_count || 0) > 0 ? Number(row.request_count || 0) : 1;
       const successCount = Number(row.success_count || 0) > 0
         ? Math.min(Number(row.success_count || 0), requestCount)
@@ -1715,7 +1721,7 @@ export class ConfigStore {
       if (failCount <= 0) continue;
 
       const domain = this.normalizeTargetDomain(row.target);
-      const outboundType = this.normalizeOutboundType(row.outbound_type);
+      const outboundType = rowOutboundType;
       const existing = aggregate.get(domain) ?? {
         failures: 0,
         requests: 0,

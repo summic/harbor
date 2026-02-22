@@ -1898,11 +1898,18 @@ export const mockApi = {
     }
   },
 
-  getFailedDomains: async (input?: { window?: string; limit?: number }): Promise<FailedDomainSummary[]> => {
+  getFailedDomains: async (input?: {
+    window?: string;
+    limit?: number;
+    userId?: string;
+    outboundType?: string;
+  }): Promise<FailedDomainSummary[]> => {
     await sleep(100);
     const params = new URLSearchParams();
     if (input?.window) params.set('window', input.window);
     if (Number.isFinite(input?.limit as number)) params.set('limit', String(Math.trunc(input?.limit as number)));
+    if (input?.userId) params.set('userId', input.userId);
+    if (input?.outboundType) params.set('outboundType', input.outboundType);
     const query = params.toString();
     return fetchJson<FailedDomainSummary[]>(`${FAILED_DOMAINS_PATH}${query ? `?${query}` : ''}`);
   },

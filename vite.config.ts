@@ -654,12 +654,16 @@ const subscriptionHandler = async (req: IncomingMessage, res: ServerResponse, ne
   if (url.pathname === FAILED_DOMAINS_PATH && req.method === 'GET') {
     const window = url.searchParams.get('window') ?? undefined;
     const limitRaw = Number(url.searchParams.get('limit') ?? '20');
+    const userId = url.searchParams.get('userId') ?? undefined;
+    const outboundType = url.searchParams.get('outboundType') ?? undefined;
     sendJson(
       res,
       200,
       STORE.listFailedDomains({
         window,
         limit: Number.isFinite(limitRaw) ? limitRaw : 20,
+        userId,
+        outboundType,
       }),
     );
     return;

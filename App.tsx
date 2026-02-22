@@ -17,6 +17,7 @@ import { UserDetailsPage } from './pages/UserDetails';
 import { UserTargetDetailsPage } from './pages/UserTargetDetails';
 import { AccountSettingsPage } from './pages/AccountSettings';
 import { SettingsPage } from './pages/Settings';
+import { FailedDomainsPage } from './pages/FailedDomains';
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -65,6 +66,7 @@ const App: React.FC = () => {
                 <Route path="/users/:id/targets/:target" element={<AdminRoute><UserTargetDetailsPage /></AdminRoute>} />
                 <Route path="/profile" element={<AdminRoute><UnifiedProfilePage /></AdminRoute>} />
                 <Route path="/settings" element={<AdminRoute><SettingsPage /></AdminRoute>} />
+                <Route path="/failed-domains" element={<AdminRoute><FailedDomainsPage /></AdminRoute>} />
                 <Route path="/quality" element={<Navigate to="/" replace />} />
                 <Route path="*" element={<Navigate to="/" replace />} />
               </Routes>
