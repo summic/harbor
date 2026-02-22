@@ -232,6 +232,21 @@ export const RoutingPage: React.FC = () => {
     setEditingPolicy(null);
   };
 
+  const policySubtitle = (rule: RoutingRule) => {
+    if (rule.matchType === 'rule_set') return 'Manual Selection Group';
+    if (rule.matchType === 'domain') return 'Domain Match Group';
+    if (rule.matchType === 'geosite') return 'GeoSite Group';
+    return `Policy · ${rule.matchType}`;
+  };
+
+  const policyTitle = (rule: RoutingRule) => {
+    const first = rule.matchExpr
+      .split(',')
+      .map((item) => item.trim())
+      .filter(Boolean)[0];
+    return first || '(empty policy)';
+  };
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
@@ -270,45 +285,51 @@ export const RoutingPage: React.FC = () => {
         </SectionCard>
 
         <SectionCard title="Routing Policies" description="Editable policy cards in execution order.">
-          <div className="space-y-3 max-h-[640px] overflow-y-auto pr-1">
-            {policyNodes.map((policy, idx) => {
-              const rule = policy.rule;
-              return (
-                <div key={policy.id} className="rounded-xl border border-indigo-200 bg-indigo-50/40 p-4">
-                  <div className="flex items-center justify-between gap-2">
-                    <div className="text-xs font-semibold text-indigo-700">#{idx + 1} Policy</div>
-                    <div className="flex items-center gap-1">
-                      <button
-                        onClick={() => handleEdit(rule)}
-                        className="rounded-md p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-900"
-                      >
-                        <Edit3 size={14} />
-                      </button>
-                      <button
-                        onClick={() => {
-                          if (!window.confirm(`Delete routing policy ${rule.matchExpr}?`)) return;
-                          deleteMutation.mutate(rule.id);
-                        }}
-                        className="rounded-md p-1.5 text-slate-400 hover:bg-rose-50 hover:text-rose-600"
-                      >
-                        <Trash2 size={14} />
-                      </button>
+          <div className="rounded-2xl bg-slate-100 p-4">
+            <div className="mb-3 text-[11px] font-semibold uppercase tracking-[0.18em] text-sky-700/80">
+              Policy Group
+            </div>
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
+              {policyNodes.map((policy) => {
+                const rule = policy.rule;
+                return (
+                  <div key={policy.id} className="group rounded-2xl border border-slate-200 bg-white/80 p-4">
+                    <div className="flex items-start justify-between gap-2">
+                      <p className="text-xs font-semibold text-slate-400">{policySubtitle(rule)}</p>
+                      <div className="flex items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100">
+                        <button
+                          onClick={() => handleEdit(rule)}
+                          className="rounded-md p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-900"
+                        >
+                          <Edit3 size={14} />
+                        </button>
+                        <button
+                          onClick={() => {
+                            if (!window.confirm(`Delete routing policy ${rule.matchExpr}?`)) return;
+                            deleteMutation.mutate(rule.id);
+                          }}
+                          className="rounded-md p-1.5 text-slate-400 hover:bg-rose-50 hover:text-rose-600"
+                        >
+                          <Trash2 size={14} />
+                        </button>
+                      </div>
+                    </div>
+                    <div className="mt-1 text-2xl leading-none">🛡️</div>
+                    <h4 className="mt-2 line-clamp-2 text-xl font-bold text-slate-800 break-all">{policyTitle(rule)}</h4>
+                    <div className="mt-6 text-sm font-semibold text-slate-400 uppercase">
+                      {rule.outbound}
                     </div>
                   </div>
-                  <div className="mt-2 text-sm font-semibold text-slate-900 break-all">{rule.matchExpr || '(empty)'}</div>
-                  <div className="mt-2 inline-flex items-center gap-1 rounded-md bg-indigo-100 px-2 py-1 text-[10px] font-semibold uppercase tracking-wide text-indigo-700">
-                    {rule.matchType}
-                  </div>
-                  <div className="mt-2 flex items-center text-xs text-slate-500">
-                    <Network size={12} className="mr-1" />
-                    outbound: <span className="ml-1 font-semibold text-blue-600">{rule.outbound}</span>
-                  </div>
-                </div>
-              );
-            })}
-            {policyNodes.length === 0 ? (
-              <p className="text-xs text-slate-400">No routing policies.</p>
-            ) : null}
+                );
+              })}
+              <button
+                onClick={handleAdd}
+                className="flex min-h-[188px] items-center justify-center rounded-2xl border-2 border-dashed border-slate-300 bg-white/55 text-slate-400 hover:border-sky-300 hover:text-sky-600"
+              >
+                <Plus size={28} />
+              </button>
+            </div>
+            {policyNodes.length === 0 ? <p className="mt-4 text-xs text-slate-400">No routing policies.</p> : null}
           </div>
         </SectionCard>
 
