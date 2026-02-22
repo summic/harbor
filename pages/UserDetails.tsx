@@ -114,26 +114,26 @@ export const UserDetailsPage: React.FC = () => {
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Left Column: Proxy Logs */}
+        {/* Left Column: Access Logs */}
         <div className="lg:col-span-2 space-y-6">
-           <SectionCard title="Proxy Access Overview" actions={
-              <span className="text-xs font-mono bg-emerald-50 px-2 py-1 rounded text-emerald-700">Proxy metrics + direct top list</span>
+           <SectionCard title="Access Logs Overview" actions={
+              <span className="text-xs font-mono bg-emerald-50 px-2 py-1 rounded text-emerald-700">All requests</span>
            }>
              <div className="mb-4 rounded-lg border border-emerald-100 bg-emerald-50/60 px-4 py-3 text-xs text-emerald-800">
-               Request and traffic metrics are proxy-only. The direct list is shown separately for routing visibility.
+               Metrics below are calculated from all uploaded requests (direct, proxy, block, and others).
              </div>
 
              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
                 <div className="p-4 bg-slate-50 rounded-lg">
-                   <p className="text-xs text-slate-500 mb-1">Proxy Requests</p>
+                   <p className="text-xs text-slate-500 mb-1">All Requests</p>
                    <p className="text-xl font-bold tabular-nums">{user.logs.totalRequests.toLocaleString()}</p>
                 </div>
                 <div className="p-4 bg-slate-50 rounded-lg">
-                   <p className="text-xs text-slate-500 mb-1">Proxy Upload</p>
+                   <p className="text-xs text-slate-500 mb-1">Upload</p>
                    <p className="text-xl font-bold tabular-nums text-emerald-700">{formatBytes(user.traffic.upload)}</p>
                 </div>
                 <div className="p-4 bg-slate-50 rounded-lg">
-                   <p className="text-xs text-slate-500 mb-1">Proxy Download</p>
+                   <p className="text-xs text-slate-500 mb-1">Download</p>
                    <p className="text-xl font-bold tabular-nums text-blue-700">{formatBytes(user.traffic.download)}</p>
                 </div>
              </div>
@@ -141,7 +141,7 @@ export const UserDetailsPage: React.FC = () => {
              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                <div>
                   <h3 className="text-xs font-bold text-emerald-700 uppercase tracking-wider mb-3 flex items-center">
-                    <Activity size={14} className="mr-1.5" /> Top Proxied Domains
+                    <Activity size={14} className="mr-1.5" /> Top Domains
                   </h3>
                   <div className="bg-white border border-slate-200 rounded-lg overflow-hidden">
                      {user.logs.topAllowed.map((item, idx) => (
@@ -150,7 +150,7 @@ export const UserDetailsPage: React.FC = () => {
                           <span className="text-xs font-mono text-slate-500 bg-slate-100 px-2 py-0.5 rounded-full">{item.count}</span>
                        </div>
                      ))}
-                     {user.logs.topAllowed.length === 0 && <div className="p-6 text-center text-xs text-slate-400">No proxy domain data yet</div>}
+                     {user.logs.topAllowed.length === 0 && <div className="p-6 text-center text-xs text-slate-400">No domain data yet</div>}
                   </div>
                </div>
                <div>

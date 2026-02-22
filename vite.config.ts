@@ -611,15 +611,6 @@ const subscriptionHandler = async (req: IncomingMessage, res: ServerResponse, ne
         metadata?: Record<string, unknown>;
       };
 
-      if (!payload.target || !payload.target.trim()) {
-        sendProblem(res, 400, {
-          title: 'Validation failed',
-          detail: 'target is required',
-          instance: url.pathname,
-          code: 'missing_target',
-        });
-        return;
-      }
       if (payload.device && (!payload.device.id || !payload.device.id.trim())) {
         sendProblem(res, 400, {
           title: 'Validation failed',

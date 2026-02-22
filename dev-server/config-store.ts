@@ -769,8 +769,7 @@ export class ConfigStore {
            COALESCE(SUM(upload_bytes), 0) AS upload,
            COALESCE(SUM(download_bytes), 0) AS download
          FROM client_connect_logs
-         WHERE user_id = ?
-           AND lower(COALESCE(outbound_type, json_extract(metadata_json, '$.outbound_type'), '')) = 'proxy'`,
+         WHERE user_id = ?`,
       )
       .get(userId) as { upload: number; download: number } | undefined;
     const upload = Number(row?.upload ?? 0);
@@ -787,26 +786,30 @@ export class ConfigStore {
       .prepare(
         `SELECT
            COALESCE(SUM(CASE
-             WHEN lower(COALESCE(outbound_type, json_extract(metadata_json, '$.outbound_type'), '')) = 'proxy' THEN 1
-             ELSE 0 END), 0) AS total_requests,
+             WHEN COALESCE(request_count, 0) > 0 THEN request_count
+             ELSE 1 END), 0) AS total_requests,
            COALESCE(SUM(CASE
-             WHEN lower(COALESCE(outbound_type, json_extract(metadata_json, '$.outbound_type'), '')) = 'proxy' THEN 1
-             ELSE 0 END), 0) AS proxy_count,
-           0 AS direct_count,
-           0 AS block_count
+             WHEN lower(COALESCE(outbound_type, json_extract(metadata_json, '$.outbound_type'), '')) IN ('block', 'reject')
+               THEN CASE WHEN COALESCE(request_count, 0) > 0 THEN request_count ELSE 1 END
+             ELSE 0 END), 0) AS blocked_requests,
+           COALESCE(SUM(CASE
+             WHEN COALESCE(success_count, 0) > 0 THEN success_count
+             WHEN lower(COALESCE(outbound_type, json_extract(metadata_json, '$.outbound_type'), '')) IN ('block', 'reject') THEN 0
+             WHEN error_message IS NULL OR trim(error_message) = '' THEN CASE WHEN COALESCE(request_count, 0) > 0 THEN request_count ELSE 1 END
+             ELSE 0 END), 0) AS successful_requests
          FROM client_connect_logs
          WHERE user_id = ?`,
       )
       .get(userId) as
       | {
           total_requests: number;
-          proxy_count: number;
-          direct_count: number;
-          block_count: number;
+          blocked_requests: number;
+          successful_requests: number;
         }
       | undefined;
     const effectiveTotal = Number(aggregate?.total_requests ?? 0);
-    const successRate = 100;
+    const successful = Number(aggregate?.successful_requests ?? 0);
+    const successRate = effectiveTotal > 0 ? Number(((successful / effectiveTotal) * 100).toFixed(2)) : 100;
 
     const topAllowed = this.db
       .prepare(
@@ -814,7 +817,6 @@ export class ConfigStore {
          FROM client_connect_logs
          WHERE user_id = ?
            AND target IS NOT NULL AND target != ''
-           AND lower(COALESCE(outbound_type, json_extract(metadata_json, '$.outbound_type'), '')) = 'proxy'
          GROUP BY target
          ORDER BY count DESC
          LIMIT 5`,
@@ -833,12 +835,25 @@ export class ConfigStore {
       )
       .all(userId) as Array<{ target: string; count: number }>;
 
+    const topBlocked = this.db
+      .prepare(
+        `SELECT target, COUNT(*) AS count
+         FROM client_connect_logs
+         WHERE user_id = ?
+           AND target IS NOT NULL AND target != ''
+           AND lower(COALESCE(outbound_type, json_extract(metadata_json, '$.outbound_type'), '')) IN ('block', 'reject')
+         GROUP BY target
+         ORDER BY count DESC
+         LIMIT 5`,
+      )
+      .all(userId) as Array<{ target: string; count: number }>;
+
     return {
       totalRequests: effectiveTotal,
       successRate,
       topAllowed: topAllowed.map((item) => ({ domain: item.target, count: Number(item.count || 0) })),
       topDirect: topDirect.map((item) => ({ domain: item.target, count: Number(item.count || 0) })),
-      topBlocked: [],
+      topBlocked: topBlocked.map((item) => ({ domain: item.target, count: Number(item.count || 0) })),
     };
   }
 
@@ -967,7 +982,7 @@ export class ConfigStore {
         userId,
         input.device?.id?.trim() || null,
         input.connected === true ? 1 : 0,
-        input.target?.trim() || null,
+        input.target?.trim() || '(unknown)',
         input.outboundType?.trim() || null,
         Number.isFinite(input.latencyMs) ? Number(input.latencyMs) : null,
         input.error?.trim() || null,
