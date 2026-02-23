@@ -1352,7 +1352,7 @@ export class ConfigStore {
   ingestClientDeviceReport(userIdRaw: string, input: ClientDeviceReportInput) {
     const userId = userIdRaw.trim();
     if (!userId) throw new Error('missing_user_id');
-    const now = new Date().toLocaleString();
+    const now = new Date().toISOString();
     const occurredAt = input.occurredAt?.trim() || now;
 
     this.ensureUserExists(userId, now);
@@ -1371,7 +1371,7 @@ export class ConfigStore {
   ingestClientConnectionLog(userIdRaw: string, input: ClientConnectionLogInput) {
     const userId = userIdRaw.trim();
     if (!userId) throw new Error('missing_user_id');
-    const now = new Date().toLocaleString();
+    const now = new Date().toISOString();
     const occurredAt = input.occurredAt?.trim() || now;
 
     this.ensureUserExists(userId, now);
@@ -1592,7 +1592,20 @@ export class ConfigStore {
       if (index < 0 || index >= points.length) continue;
       const point = points[index];
       const outboundType = this.normalizeOutboundType(row.outbound_type);
-      const requestCount = Number(row.request_count || 0) > 0 ? Number(row.request_count || 0) : 1;
+      const target = (row.target || '').trim();
+      const hasTarget = !!target && target !== '(unknown)';
+      const explicitRequestCount = Number(row.request_count || 0);
+      let requestCount = explicitRequestCount > 0 ? explicitRequestCount : 0;
+      if (requestCount === 0) {
+        const hasSignal = Number(row.success_count || 0) > 0 ||
+          Number(row.blocked_count || 0) > 0 ||
+          !!row.error_message?.trim() ||
+          Number.isFinite(row.latency_ms);
+        if (hasTarget && hasSignal) {
+          requestCount = 1;
+        }
+      }
+      if (requestCount <= 0) continue;
       const blockedCount = Number(row.blocked_count || 0);
       const blockedByType = this.isBlockedOutbound(outboundType);
       const hasError = !!row.error_message?.trim();
@@ -1616,14 +1629,14 @@ export class ConfigStore {
         });
       }
 
-      const target = (row.target || '').trim() || '(unknown)';
-      const targetEntry = topDomainMap.get(target) ?? { count: 0, outboundCounts: new Map<string, number>() };
+      const normalizedTarget = hasTarget ? target : '(unknown)';
+      const targetEntry = topDomainMap.get(normalizedTarget) ?? { count: 0, outboundCounts: new Map<string, number>() };
       targetEntry.count += requestCount;
       targetEntry.outboundCounts.set(
         outboundType,
         (targetEntry.outboundCounts.get(outboundType) || 0) + requestCount,
       );
-      topDomainMap.set(target, targetEntry);
+      topDomainMap.set(normalizedTarget, targetEntry);
 
       const failCount = Math.max(
         0,
