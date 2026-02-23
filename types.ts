@@ -225,6 +225,7 @@ export interface UserTargetDetail {
   outboundTypes: Array<{ type: string; count: number }>;
   recent: Array<{
     occurredAt: string;
+    outboundTag: string;
     outboundType: string;
     networkType: string | null;
     requestCount: number;
@@ -280,6 +281,7 @@ export interface ClientConnectionReportPayload {
   occurredAt?: string;
   connected?: boolean;
   target?: string;
+  outboundTag?: string;
   outboundType?: string;
   latencyMs?: number;
   error?: string;

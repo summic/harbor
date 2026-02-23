@@ -94,7 +94,7 @@ export const UserTargetDetailsPage: React.FC = () => {
           <DataRow label="Policy" value={primaryPolicy} />
           <DataRow label="Outbound Types" value={detail.outboundTypes.map((item) => `${item.type}:${item.count}`).join(' / ') || '-'} />
           <DataRow label="Network" value={latest?.networkType || '-'} />
-          <DataRow label="Latest Outbound" value={latest?.outboundType || '-'} />
+          <DataRow label="Latest Outbound Tag" value={latest?.outboundTag || '-'} />
           <DataRow label="Latest Requests" value={(latest?.requestCount ?? 0).toLocaleString()} />
           <DataRow label="Latest Success" value={(latest?.successCount ?? 0).toLocaleString()} />
           <DataRow label="Latest Blocked" value={(latest?.blockedCount ?? 0).toLocaleString()} />
@@ -107,7 +107,7 @@ export const UserTargetDetailsPage: React.FC = () => {
           {detail.recent.map((row, idx) => (
             <div key={`${row.occurredAt}-${idx}`} className="rounded-2xl border border-slate-200 bg-white px-5 py-2">
               <DataRow label="Time" value={formatDateTime(row.occurredAt)} />
-              <DataRow label="Outbound Type" value={row.outboundType || '-'} />
+              <DataRow label="Outbound Tag" value={row.outboundTag || row.outboundType || '-'} />
               <DataRow label="Network Type" value={row.networkType || '-'} />
               <DataRow label="Requests" value={row.requestCount.toLocaleString()} />
               <DataRow label="Success" value={row.successCount.toLocaleString()} />

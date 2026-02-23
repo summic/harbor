@@ -181,6 +181,7 @@ export type ClientConnectionLogInput = {
   occurredAt?: string;
   connected?: boolean;
   target?: string;
+  outboundTag?: string;
   outboundType?: string;
   latencyMs?: number;
   error?: string;
@@ -233,6 +234,7 @@ export type UserTargetDetailItem = {
   outboundTypes: Array<{ type: string; count: number }>;
   recent: Array<{
     occurredAt: string;
+    outboundTag: string;
     outboundType: string;
     networkType: string | null;
     requestCount: number;
@@ -392,6 +394,7 @@ export class ConfigStore {
   private runMigrations() {
     this.migrateClientConnectTelemetryV1();
     this.migrateClientConnectTelemetryV2();
+    this.migrateClientConnectTelemetryV3();
     this.migrateUserProfileAuditsV1();
     this.migrateApiRequestLogsV1();
     this.migrateImportSingboxConfigFromFile();
@@ -425,6 +428,7 @@ export class ConfigStore {
         device_id TEXT,
         connected INTEGER NOT NULL DEFAULT 0,
         target TEXT,
+        outbound_tag TEXT,
         outbound_type TEXT,
         latency_ms INTEGER,
         error_message TEXT,
@@ -456,6 +460,27 @@ export class ConfigStore {
     if (!names.has('outbound_type')) {
       this.db.exec(`ALTER TABLE client_connect_logs ADD COLUMN outbound_type TEXT`);
     }
+    this.markMigrationApplied(migrationId);
+  }
+
+  private migrateClientConnectTelemetryV3() {
+    const migrationId = '20260302_client_connect_telemetry_v3_outbound_tag';
+    if (this.isMigrationApplied(migrationId)) return;
+    const columns = this.db.prepare(`PRAGMA table_info(client_connect_logs)`).all() as Array<{ name: string }>;
+    const names = new Set(columns.map((item) => item.name));
+    if (!names.has('outbound_tag')) {
+      this.db.exec(`ALTER TABLE client_connect_logs ADD COLUMN outbound_tag TEXT`);
+    }
+    this.db.exec(`
+      UPDATE client_connect_logs
+      SET outbound_tag = COALESCE(
+        NULLIF(outbound_tag, ''),
+        NULLIF(json_extract(metadata_json, '$.outbound'), ''),
+        NULLIF(json_extract(metadata_json, '$.outbound_tag'), '')
+      )
+      WHERE (outbound_tag IS NULL OR outbound_tag = '')
+        AND metadata_json IS NOT NULL
+    `);
     this.markMigrationApplied(migrationId);
   }
 
@@ -1298,6 +1323,7 @@ export class ConfigStore {
       .prepare(
         `SELECT
            target,
+           outbound_tag,
            outbound_type,
            request_count,
            upload_bytes,
@@ -1311,6 +1337,7 @@ export class ConfigStore {
       )
       .all(userId) as Array<{
       target: string | null;
+      outbound_tag: string | null;
       outbound_type: string | null;
       request_count: number | null;
       upload_bytes: number | null;
@@ -1333,6 +1360,23 @@ export class ConfigStore {
       }
       return 'unknown';
     };
+    const normalizeOutboundTag = (row: (typeof rows)[number]) => {
+      const explicit = this.normalizeOutboundTag(row.outbound_tag);
+      if (explicit) return explicit;
+      if (!row.metadata_json) return '';
+      try {
+        const metadata = JSON.parse(row.metadata_json) as { outbound?: unknown; outbound_tag?: unknown };
+        const metadataTag = typeof metadata?.outbound === 'string'
+          ? this.normalizeOutboundTag(metadata.outbound)
+          : typeof metadata?.outbound_tag === 'string'
+            ? this.normalizeOutboundTag(metadata.outbound_tag)
+            : '';
+        if (metadataTag) return metadataTag;
+      } catch {
+        // malformed metadata_json
+      }
+      return '';
+    };
     const normalizeTarget = (value: string | null) => {
       const target = (value || '').trim();
       return target ? target : '(unknown)';
@@ -1350,6 +1394,8 @@ export class ConfigStore {
     for (const row of rows) {
       const normalizedTarget = normalizeTarget(row.target);
       const outboundType = normalizeOutboundType(row);
+      const outboundTag = normalizeOutboundTag(row);
+      const outboundPolicy = outboundTag || outboundType;
       const requestCount = Number(row.request_count && row.request_count > 0 ? row.request_count : 1);
       const existing = aggregates.get(normalizedTarget) ?? {
         target: normalizedTarget,
@@ -1370,7 +1416,7 @@ export class ConfigStore {
       existing.downloadBytes += Number(row.download_bytes || 0);
       existing.blockedRequests += outboundIsBlocked ? requestCount : 0;
       existing.successfulRequests += successful;
-      existing.outboundCounts[outboundType] = (existing.outboundCounts[outboundType] || 0) + requestCount;
+      existing.outboundCounts[outboundPolicy] = (existing.outboundCounts[outboundPolicy] || 0) + requestCount;
       if (row.occurred_at && (existing.lastSeen === '-' || row.occurred_at > existing.lastSeen)) {
         existing.lastSeen = row.occurred_at;
       }
@@ -1448,20 +1494,31 @@ export class ConfigStore {
     const outboundRows = this.db
       .prepare(
         `SELECT
-           lower(COALESCE(outbound_type, json_extract(metadata_json, '$.outbound_type'), 'unknown')) AS outbound_type,
+           COALESCE(
+             NULLIF(outbound_tag, ''),
+             NULLIF(json_extract(metadata_json, '$.outbound'), ''),
+             NULLIF(json_extract(metadata_json, '$.outbound_tag'), ''),
+             lower(COALESCE(outbound_type, json_extract(metadata_json, '$.outbound_type'), 'unknown'))
+           ) AS outbound_policy,
            COUNT(*) AS count
          FROM client_connect_logs
          WHERE user_id = ?
            AND COALESCE(NULLIF(target, ''), '(unknown)') = ?
-         GROUP BY lower(COALESCE(outbound_type, json_extract(metadata_json, '$.outbound_type'), 'unknown'))
-         ORDER BY count DESC, outbound_type ASC`,
+         GROUP BY COALESCE(
+           NULLIF(outbound_tag, ''),
+           NULLIF(json_extract(metadata_json, '$.outbound'), ''),
+           NULLIF(json_extract(metadata_json, '$.outbound_tag'), ''),
+           lower(COALESCE(outbound_type, json_extract(metadata_json, '$.outbound_type'), 'unknown'))
+         )
+         ORDER BY count DESC, outbound_policy ASC`,
       )
-      .all(userId, target) as Array<{ outbound_type: string; count: number }>;
+      .all(userId, target) as Array<{ outbound_policy: string; count: number }>;
 
     const recent = this.db
       .prepare(
         `SELECT
            occurred_at,
+           outbound_tag,
            COALESCE(outbound_type, json_extract(metadata_json, '$.outbound_type'), 'unknown') AS outbound_type,
            network_type,
            request_count,
@@ -1478,6 +1535,7 @@ export class ConfigStore {
       )
       .all(userId, target) as Array<{
       occurred_at: string;
+      outbound_tag: string | null;
       outbound_type: string;
       network_type: string | null;
       request_count: number;
@@ -1499,11 +1557,12 @@ export class ConfigStore {
       successRate: requests > 0 ? Number(((successful / requests) * 100).toFixed(2)) : 100,
       lastSeen: aggregate.last_seen || '-',
       outboundTypes: outboundRows.map((item) => ({
-        type: item.outbound_type || 'unknown',
+        type: item.outbound_policy || 'unknown',
         count: Number(item.count || 0),
       })),
       recent: recent.map((item) => ({
         occurredAt: item.occurred_at,
+        outboundTag: this.normalizeOutboundTag(item.outbound_tag) || this.normalizeOutboundType(item.outbound_type),
         outboundType: item.outbound_type || 'unknown',
         networkType: item.network_type,
         requestCount: Number(item.request_count || 0),
@@ -1593,15 +1652,16 @@ export class ConfigStore {
     this.db
       .prepare(
         `INSERT INTO client_connect_logs(
-          user_id, device_id, connected, target, outbound_type, latency_ms, error_message, network_type, ip,
+          user_id, device_id, connected, target, outbound_tag, outbound_type, latency_ms, error_message, network_type, ip,
           request_count, success_count, blocked_count, upload_bytes, download_bytes, occurred_at, metadata_json
-        ) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        ) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         userId,
         input.device?.id?.trim() || null,
         input.connected === true ? 1 : 0,
         this.targetFromConnectionInput(input),
+        input.outboundTag?.trim() || null,
         input.outboundType?.trim() || null,
         Number.isFinite(input.latencyMs) ? Number(input.latencyMs) : null,
         input.error?.trim() || null,
@@ -1665,6 +1725,11 @@ export class ConfigStore {
   private normalizeOutboundType(value: string | null | undefined): string {
     const type = (value || '').trim().toLowerCase();
     return type || 'unknown';
+  }
+
+  private normalizeOutboundTag(value: string | null | undefined): string {
+    const tag = (value || '').trim();
+    return tag || '';
   }
 
   private normalizeTargetDomain(target: string | null | undefined): string {
@@ -1764,6 +1829,7 @@ export class ConfigStore {
         `SELECT
            occurred_at,
            target,
+           outbound_tag,
            COALESCE(outbound_type, json_extract(metadata_json, '$.outbound_type'), '') AS outbound_type,
            error_message,
            latency_ms,
@@ -1777,6 +1843,7 @@ export class ConfigStore {
       .all(new Date(start).toISOString()) as Array<{
       occurred_at: string;
       target: string | null;
+      outbound_tag: string | null;
       outbound_type: string | null;
       error_message: string | null;
       latency_ms: number | null;
@@ -1797,6 +1864,8 @@ export class ConfigStore {
       if (index < 0 || index >= points.length) continue;
       const point = points[index];
       const outboundType = this.normalizeOutboundType(row.outbound_type);
+      const outboundTag = this.normalizeOutboundTag(row.outbound_tag);
+      const outboundPolicy = outboundTag || outboundType;
       const target = (row.target || '').trim();
       const hasTarget = !!target && target !== '(unknown)';
       const explicitRequestCount = Number(row.request_count || 0);
@@ -1838,8 +1907,8 @@ export class ConfigStore {
       const targetEntry = topDomainMap.get(normalizedTarget) ?? { count: 0, outboundCounts: new Map<string, number>() };
       targetEntry.count += requestCount;
       targetEntry.outboundCounts.set(
-        outboundType,
-        (targetEntry.outboundCounts.get(outboundType) || 0) + requestCount,
+        outboundPolicy,
+        (targetEntry.outboundCounts.get(outboundPolicy) || 0) + requestCount,
       );
       topDomainMap.set(normalizedTarget, targetEntry);
 
@@ -1921,6 +1990,7 @@ export class ConfigStore {
         `SELECT
            user_id,
            target,
+           outbound_tag,
            COALESCE(outbound_type, json_extract(metadata_json, '$.outbound_type'), '') AS outbound_type,
            error_message,
            request_count,
@@ -1934,6 +2004,7 @@ export class ConfigStore {
       .all(sinceIso) as Array<{
       user_id: string | null;
       target: string | null;
+      outbound_tag: string | null;
       outbound_type: string | null;
       error_message: string | null;
       request_count: number | null;
@@ -1954,6 +2025,7 @@ export class ConfigStore {
     for (const row of rows) {
       if (input.userId?.trim() && row.user_id !== input.userId.trim()) continue;
       const rowOutboundType = this.normalizeOutboundType(row.outbound_type);
+      const rowOutboundTag = this.normalizeOutboundTag(row.outbound_tag);
       if (input.outboundType?.trim() && rowOutboundType !== this.normalizeOutboundType(input.outboundType)) continue;
 
       const requestCount = Number(row.request_count || 0) > 0 ? Number(row.request_count || 0) : 1;
@@ -1979,7 +2051,7 @@ export class ConfigStore {
           // ignore malformed metadata
         }
       }
-      const outboundType = rowOutboundType;
+      const outboundType = rowOutboundTag || rowOutboundType;
       const existing = aggregate.get(domain) ?? {
         failures: 0,
         requests: 0,

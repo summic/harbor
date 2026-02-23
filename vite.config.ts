@@ -1162,6 +1162,7 @@ const subscriptionHandler = async (req: IncomingMessage, res: ServerResponse, ne
       occurredAt?: string;
       connected?: boolean;
       target?: string;
+      outboundTag?: string;
       outboundType?: string;
       latencyMs?: number;
       error?: string;
@@ -1201,6 +1202,10 @@ const subscriptionHandler = async (req: IncomingMessage, res: ServerResponse, ne
         connected: payload.connected,
         target: payload.target,
         sourceIp: requestIP(req),
+        outboundTag:
+          (typeof payload.outboundTag === 'string' ? payload.outboundTag : undefined) ||
+          (typeof payload.metadata?.outbound === 'string' ? String(payload.metadata.outbound) : undefined) ||
+          (typeof payload.metadata?.outbound_tag === 'string' ? String(payload.metadata.outbound_tag) : undefined),
         outboundType:
           (typeof payload.outboundType === 'string' ? payload.outboundType : undefined) ||
           (typeof payload.metadata?.outbound_type === 'string' ? String(payload.metadata.outbound_type) : undefined),
