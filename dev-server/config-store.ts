@@ -288,7 +288,7 @@ export class ConfigStore {
     alter(`ALTER TABLE users ADD COLUMN status TEXT NOT NULL DEFAULT 'active'`, 'status');
     alter(`ALTER TABLE users ADD COLUMN created_at TEXT`, 'created_at');
     alter(`ALTER TABLE users ADD COLUMN last_seen TEXT`, 'last_seen');
-    const now = new Date().toLocaleString();
+    const now = this.now();
     this.db.prepare(`UPDATE users SET status = 'active' WHERE status IS NULL OR status = ''`).run();
     this.db.prepare(`UPDATE users SET created_at = ? WHERE created_at IS NULL OR created_at = ''`).run(now);
     this.db.prepare(`UPDATE users SET last_seen = ? WHERE last_seen IS NULL OR last_seen = ''`).run(now);
@@ -419,7 +419,7 @@ export class ConfigStore {
       const parsed = JSON.parse(raw) as Record<string, unknown>;
       if (!parsed || typeof parsed !== 'object') return;
 
-      const timestamp = new Date().toLocaleString();
+      const timestamp = this.now();
       this.replaceGlobalProfile(parsed, timestamp);
       this.appendRevision(
         `Migration import from ${path.basename(this.importProfilePath)}`,
@@ -440,6 +440,26 @@ export class ConfigStore {
       .run(key, value);
   }
 
+  private now(): string {
+    return new Date().toISOString();
+  }
+
+  private withTransaction<T>(action: () => T): T {
+    try {
+      this.db.exec('BEGIN IMMEDIATE');
+      const result = action();
+      this.db.exec('COMMIT');
+      return result;
+    } catch (error) {
+      try {
+        this.db.exec('ROLLBACK');
+      } catch {
+        // best effort rollback
+      }
+      throw error;
+    }
+  }
+
   private getState(key: string): string | null {
     const row = this.db.prepare(`SELECT value FROM config_state WHERE key = ?`).get(key) as { value: string } | undefined;
     return row?.value ?? null;
@@ -450,7 +470,7 @@ export class ConfigStore {
       return {
         profile: seedProfile,
         token: DEFAULT_SUBSCRIPTION_TOKEN,
-        lastUpdated: new Date().toLocaleString(),
+        lastUpdated: this.now(),
       };
     }
     try {
@@ -460,14 +480,14 @@ export class ConfigStore {
         return {
           profile: parsed.profile as Record<string, unknown>,
           token: parsed.token || DEFAULT_SUBSCRIPTION_TOKEN,
-          lastUpdated: parsed.lastUpdated || new Date().toLocaleString(),
+          lastUpdated: parsed.lastUpdated || this.now(),
         };
       }
       if (typeof parsed.content === 'string') {
         return {
           profile: JSON.parse(parsed.content) as Record<string, unknown>,
           token: parsed.token || DEFAULT_SUBSCRIPTION_TOKEN,
-          lastUpdated: parsed.lastUpdated || new Date().toLocaleString(),
+          lastUpdated: parsed.lastUpdated || this.now(),
         };
       }
     } catch {
@@ -476,7 +496,7 @@ export class ConfigStore {
     return {
       profile: seedProfile,
       token: DEFAULT_SUBSCRIPTION_TOKEN,
-      lastUpdated: new Date().toLocaleString(),
+      lastUpdated: this.now(),
     };
   }
 
@@ -484,7 +504,7 @@ export class ConfigStore {
     const seeded = this.getState('seeded_v1');
     if (seeded === '1') return;
 
-    const ts = new Date().toLocaleString();
+    const ts = this.now();
     this.db
       .prepare(
         `INSERT OR IGNORE INTO users(id, username, display_name, email, status, created_at, last_seen)
@@ -497,7 +517,7 @@ export class ConfigStore {
       this.appendRevision('Initial profile import', 'system', legacy.profile, legacy.lastUpdated);
     }
     this.setState('subscription_token', legacy.token || DEFAULT_SUBSCRIPTION_TOKEN);
-    this.setState('last_updated', legacy.lastUpdated || new Date().toLocaleString());
+    this.setState('last_updated', legacy.lastUpdated || this.now());
     this.setState('seeded_v1', '1');
   }
 
@@ -517,7 +537,7 @@ export class ConfigStore {
   ): ConfigVersionItem {
     const currentProfile = profile ?? this.compileProfile(DEFAULT_USER_ID);
     const version = this.nextVersionLabel();
-    const ts = timestamp ?? new Date().toLocaleString();
+    const ts = timestamp ?? this.now();
     const content = JSON.stringify(currentProfile, null, 2);
     this.db
       .prepare(`INSERT INTO revisions(version, timestamp, author, summary, content) VALUES(?, ?, ?, ?, ?)`)
@@ -554,46 +574,49 @@ export class ConfigStore {
     profile: Record<string, unknown>,
     timestamp: string,
   ) {
-    if (scope == 'global') {
-      this.db.prepare(`DELETE FROM rule_entries WHERE scope = 'global'`).run();
-    } else {
-      this.db.prepare(`DELETE FROM rule_entries WHERE scope = 'user' AND user_id = ?`).run(userId);
-    }
-
-    const p = profile as JsonObject;
-    const dns = (p.dns ?? {}) as JsonObject;
-    const route = (p.route ?? {}) as JsonObject;
-    let priority = 0;
-
-    this.insertRule(scope, userId, 'meta.log', p.log ?? {}, priority++);
-    this.insertRule(scope, userId, 'meta.ntp', p.ntp ?? {}, priority++);
-    this.insertRule(scope, userId, 'meta.dns', {
-      final: dns.final ?? 'dns_direct',
-      independent_cache: dns.independent_cache ?? false,
-      strategy: dns.strategy ?? 'prefer_ipv4',
-    }, priority++);
-    this.insertRule(scope, userId, 'meta.route', {
-      auto_detect_interface: route.auto_detect_interface ?? false,
-      final: route.final ?? 'direct',
-      default_domain_resolver: route.default_domain_resolver,
-    }, priority++);
-
-    const arrayModules: Array<{ module: string; data: unknown[]; tagKey?: string }> = [
-      { module: 'inbounds', data: Array.isArray(p.inbounds) ? p.inbounds : [], tagKey: 'tag' },
-      { module: 'outbounds', data: Array.isArray(p.outbounds) ? p.outbounds : [], tagKey: 'tag' },
-      { module: 'dns.servers', data: Array.isArray(dns.servers) ? dns.servers : [], tagKey: 'tag' },
-      { module: 'dns.rules', data: Array.isArray(dns.rules) ? dns.rules : [] },
-      { module: 'route.rule_set', data: Array.isArray(route.rule_set) ? route.rule_set : [], tagKey: 'tag' },
-      { module: 'route.rules', data: Array.isArray(route.rules) ? route.rules : [] },
-    ];
-
-    for (const item of arrayModules) {
-      for (const row of item.data) {
-        const asObject = (row ?? {}) as JsonObject;
-        const key = item.tagKey && typeof asObject[item.tagKey] === 'string' ? String(asObject[item.tagKey]) : null;
-        this.insertRule(scope, userId, item.module, row, priority++, key);
+    void timestamp;
+    this.withTransaction(() => {
+      if (scope == 'global') {
+        this.db.prepare(`DELETE FROM rule_entries WHERE scope = 'global'`).run();
+      } else {
+        this.db.prepare(`DELETE FROM rule_entries WHERE scope = 'user' AND user_id = ?`).run(userId);
       }
-    }
+
+      const p = profile as JsonObject;
+      const dns = (p.dns ?? {}) as JsonObject;
+      const route = (p.route ?? {}) as JsonObject;
+      let priority = 0;
+
+      this.insertRule(scope, userId, 'meta.log', p.log ?? {}, priority++);
+      this.insertRule(scope, userId, 'meta.ntp', p.ntp ?? {}, priority++);
+      this.insertRule(scope, userId, 'meta.dns', {
+        final: dns.final ?? 'dns_direct',
+        independent_cache: dns.independent_cache ?? false,
+        strategy: dns.strategy ?? 'prefer_ipv4',
+      }, priority++);
+      this.insertRule(scope, userId, 'meta.route', {
+        auto_detect_interface: route.auto_detect_interface ?? false,
+        final: route.final ?? 'direct',
+        default_domain_resolver: route.default_domain_resolver,
+      }, priority++);
+
+      const arrayModules: Array<{ module: string; data: unknown[]; tagKey?: string }> = [
+        { module: 'inbounds', data: Array.isArray(p.inbounds) ? p.inbounds : [], tagKey: 'tag' },
+        { module: 'outbounds', data: Array.isArray(p.outbounds) ? p.outbounds : [], tagKey: 'tag' },
+        { module: 'dns.servers', data: Array.isArray(dns.servers) ? dns.servers : [], tagKey: 'tag' },
+        { module: 'dns.rules', data: Array.isArray(dns.rules) ? dns.rules : [] },
+        { module: 'route.rule_set', data: Array.isArray(route.rule_set) ? route.rule_set : [], tagKey: 'tag' },
+        { module: 'route.rules', data: Array.isArray(route.rules) ? route.rules : [] },
+      ];
+
+      for (const item of arrayModules) {
+        for (const row of item.data) {
+          const asObject = (row ?? {}) as JsonObject;
+          const key = item.tagKey && typeof asObject[item.tagKey] === 'string' ? String(asObject[item.tagKey]) : null;
+          this.insertRule(scope, userId, item.module, row, priority++, key);
+        }
+      }
+    });
   }
 
   private replaceGlobalProfile(profile: Record<string, unknown>, timestamp: string) {
@@ -641,7 +664,21 @@ export class ConfigStore {
   }
 
   private parseRowPayload(row: RuleRow): JsonObject {
-    return JSON.parse(row.payload_json) as JsonObject;
+    try {
+      const parsed = JSON.parse(row.payload_json);
+      if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) {
+        throw new Error('payload_json must be object');
+      }
+      return parsed as JsonObject;
+    } catch (error) {
+      console.warn('[config-store] invalid payload_json', {
+        rowId: row.id,
+        scope: row.scope,
+        module: row.module,
+        error: String(error),
+      });
+      return {};
+    }
   }
 
   private mergeByTag(rows: RuleRow[]): JsonObject[] {
@@ -725,7 +762,7 @@ export class ConfigStore {
           ? this.compileScopedProfile('user', userId)
           : this.compileProfile(userId);
     const content = JSON.stringify(profile, null, 2);
-    const lastUpdated = this.getState('last_updated') || new Date().toLocaleString();
+    const lastUpdated = this.getState('last_updated') || this.now();
     return {
       content,
       publicUrl: `${origin}/api/v1/client/subscribe`,
@@ -736,7 +773,7 @@ export class ConfigStore {
 
   saveUnifiedProfile(content: string, publicUrl?: string): UnifiedProfilePayload {
     const parsed = JSON.parse(content) as Record<string, unknown>;
-    const lastUpdated = new Date().toLocaleString();
+    const lastUpdated = this.now();
     this.replaceGlobalProfile(parsed, lastUpdated);
     this.appendRevision('Update global profile', 'console', parsed, lastUpdated);
     if (publicUrl) {
@@ -775,7 +812,7 @@ export class ConfigStore {
       throw new Error('missing_user_id');
     }
     const parsed = JSON.parse(content) as Record<string, unknown>;
-    const lastUpdated = new Date().toLocaleString();
+    const lastUpdated = this.now();
     this.replaceUserProfile(userId, parsed, lastUpdated);
     this.setState('last_updated', lastUpdated);
     this.appendUserProfileAudit(
@@ -839,7 +876,7 @@ export class ConfigStore {
       summary?.trim() || 'Publish current profile',
       author?.trim() || 'console',
       this.compileProfile(DEFAULT_USER_ID),
-      new Date().toLocaleString(),
+      this.now(),
     );
   }
 
@@ -855,7 +892,7 @@ export class ConfigStore {
       throw new Error('version not found');
     }
     const parsed = JSON.parse(row.content) as Record<string, unknown>;
-    const lastUpdated = new Date().toLocaleString();
+    const lastUpdated = this.now();
     this.replaceGlobalProfile(parsed, lastUpdated);
     this.appendRevision(`Rollback to ${row.version}`, 'console', parsed, lastUpdated);
     this.setState('last_updated', lastUpdated);
@@ -925,14 +962,14 @@ export class ConfigStore {
         )
         .run(input.scope, userId, input.module, input.rule_key ?? null, priority, enabled, payload);
     }
-    const lastUpdated = new Date().toLocaleString();
+    const lastUpdated = this.now();
     this.setState('last_updated', lastUpdated);
     this.persistLegacySnapshot(lastUpdated);
   }
 
   deleteRule(id: number) {
     this.db.prepare(`DELETE FROM rule_entries WHERE id = ?`).run(id);
-    const lastUpdated = new Date().toLocaleString();
+    const lastUpdated = this.now();
     this.setState('last_updated', lastUpdated);
     this.persistLegacySnapshot(lastUpdated);
   }
@@ -960,7 +997,7 @@ export class ConfigStore {
       input.preferred_username?.trim() ||
       input.email?.split('@')[0]?.trim() ||
       displayName;
-    const now = new Date().toLocaleString();
+    const now = this.now();
     const existing = this.db.prepare(`SELECT id FROM users WHERE id = ?`).get(sub) as { id: string } | undefined;
     if (existing) {
       this.db
@@ -1317,7 +1354,7 @@ export class ConfigStore {
     if (!userId) throw new Error('missing_user_id');
     if (!name) throw new Error('missing_display_name');
 
-    const now = new Date().toLocaleString();
+    const now = this.now();
     const existing = this.db
       .prepare(
         `SELECT id, username, display_name, email, avatar_url, status, created_at, last_seen
