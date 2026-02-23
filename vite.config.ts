@@ -88,6 +88,7 @@ const getOrigin = (req: IncomingMessage) => {
 };
 
 const MAX_JSON_BODY_BYTES = 256 * 1024;
+const REQUEST_ID_HEADER = 'x-request-id';
 
 const readBody = async (req: IncomingMessage, maxBytes = MAX_JSON_BODY_BYTES): Promise<string> =>
   await new Promise((resolve, reject) => {
@@ -160,6 +161,37 @@ const parseJsonBody = async <T>(
       code: 'invalid_request',
     });
     return null;
+  }
+};
+
+const getOrCreateRequestId = (req: IncomingMessage): string => {
+  const header = req.headers[REQUEST_ID_HEADER];
+  const candidate = Array.isArray(header) ? header[0] : header;
+  if (candidate && candidate.trim()) {
+    return candidate.trim();
+  }
+  return `rid_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 10)}`;
+};
+
+const emitRequestSummary = (
+  req: IncomingMessage,
+  res: ServerResponse,
+  requestId: string,
+  start: number,
+  route: string,
+) => {
+  const method = req.method || 'GET';
+  const status = res.statusCode || 200;
+  const durationMs = Date.now() - start;
+  const level = status >= 500 ? 'error' : status >= 400 ? 'warn' : 'log';
+  const target = `${method} ${route}`;
+  const message = `[harbor][request] ${target} ${status} ${durationMs}ms requestId=${requestId}`;
+  if (level === 'error') {
+    console.error(message);
+  } else if (level === 'warn') {
+    console.warn(message);
+  } else {
+    console.log(message);
   }
 };
 
@@ -487,6 +519,13 @@ const subscriptionHandler = async (req: IncomingMessage, res: ServerResponse, ne
   }
 
   const url = new URL(req.url, 'http://localhost');
+  const requestId = getOrCreateRequestId(req);
+  const startedAt = Date.now();
+  res.setHeader('X-Request-Id', requestId);
+  const route = `${url.pathname}${url.search}`;
+  res.on('finish', () => {
+    emitRequestSummary(req, res, requestId, startedAt, route);
+  });
 
   if (url.pathname === HEALTH_PATH && req.method === 'GET') {
     sendJson(res, 200, {
