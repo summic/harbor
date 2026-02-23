@@ -7,7 +7,9 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
+    "seed:connect-logs": "node scripts/seed-connect-logs.cjs",
     "test": "vitest run",
+    "test:coverage": "vitest run --coverage",
     "test:e2e": "playwright test"
   },
   "dependencies": {
@@ -26,6 +28,8 @@
     "@playwright/test": "^1.58.2",
     "@types/node": "^22.14.0",
     "@vitejs/plugin-react": "^5.0.0",
+    "@vitest/coverage-v8": "^2.1.9",
+    "react-test-renderer": "^19.2.0",
     "typescript": "~5.8.2",
     "vite": "^6.2.0",
     "vitest": "^2.1.9"
