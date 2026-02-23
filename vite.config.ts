@@ -1441,6 +1441,11 @@ export default defineConfig(({ mode }) => {
     },
     test: {
       exclude: ['tests/e2e/**', 'node_modules/**', 'dist/**', '.idea/**', '.git/**', '.cache/**'],
+      coverage: {
+        provider: 'v8',
+        reporter: ['text', 'text-summary', 'json-summary', 'html'],
+        reportsDirectory: 'coverage',
+      },
     },
   };
 });

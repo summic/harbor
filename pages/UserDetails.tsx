@@ -175,12 +175,12 @@ export const UserDetailsPage: React.FC = () => {
               <span className="text-xs font-mono bg-slate-100 px-2 py-1 rounded text-slate-700">DESC</span>
            }>
              <div className="overflow-x-auto">
-               <table className="w-full text-sm">
+                <table className="w-full text-sm">
                  <thead>
                    <tr className="text-left text-slate-500 border-b border-slate-200">
                      <th className="py-2 pr-4 font-semibold">Target</th>
+                     <th className="py-2 pr-4 font-semibold">Strategy</th>
                      <th className="py-2 pr-4 font-semibold">Requests</th>
-                     <th className="py-2 pr-4 font-semibold">Success</th>
                      <th className="py-2 pr-4 font-semibold">Upload</th>
                      <th className="py-2 pr-4 font-semibold">Download</th>
                      <th className="py-2 font-semibold">Last Seen</th>
@@ -197,8 +197,12 @@ export const UserDetailsPage: React.FC = () => {
                            {row.target}
                          </Link>
                        </td>
+                       <td className="py-2 pr-4 tabular-nums">
+                         <span className="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium bg-slate-100 text-slate-600">
+                           {(row.policy || 'unknown')}
+                         </span>
+                       </td>
                        <td className="py-2 pr-4 tabular-nums">{row.requests.toLocaleString()}</td>
-                       <td className="py-2 pr-4 tabular-nums">{row.successRate.toFixed(2)}%</td>
                        <td className="py-2 pr-4 tabular-nums">{formatBytes(row.uploadBytes)}</td>
                        <td className="py-2 pr-4 tabular-nums">{formatBytes(row.downloadBytes)}</td>
                        <td className="py-2 text-slate-500">{row.lastSeen}</td>

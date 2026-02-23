@@ -5,6 +5,32 @@ import { ArrowLeft, AlertTriangle } from 'lucide-react';
 import { mockApi } from '../api';
 import { SectionCard, LoadingOverlay } from '../components/Common';
 
+const formatBytes = (value: number): string => {
+  if (!Number.isFinite(value) || value <= 0) return '0 B';
+  if (value < 1024) return `${value} B`;
+  const units = ['KB', 'MB', 'GB', 'TB'];
+  let current = value / 1024;
+  let idx = 0;
+  while (current >= 1024 && idx < units.length - 1) {
+    current /= 1024;
+    idx += 1;
+  }
+  return `${current.toFixed(current >= 100 ? 0 : current >= 10 ? 1 : 2)} ${units[idx]}`;
+};
+
+const formatDateTime = (value: string): string => {
+  const ts = new Date(value);
+  if (Number.isNaN(ts.getTime())) return value || '-';
+  return ts.toLocaleString();
+};
+
+const DataRow: React.FC<{ label: string; value: React.ReactNode }> = ({ label, value }) => (
+  <div className="flex items-center justify-between gap-4 py-3 border-b border-slate-200 last:border-0">
+    <div className="text-slate-700">{label}</div>
+    <div className="font-mono text-slate-900 text-right break-all">{value}</div>
+  </div>
+);
+
 export const UserTargetDetailsPage: React.FC = () => {
   const { id, target } = useParams<{ id: string; target: string }>();
   const decodedTarget = decodeURIComponent(target || '');
@@ -35,15 +61,10 @@ export const UserTargetDetailsPage: React.FC = () => {
     );
   }
 
-  const maxRequestCount = detail.recent.reduce((max, row) => Math.max(max, row.requestCount), 0);
-  const outboundColor = (type: string) => {
-    const value = type.toLowerCase();
-    if (value.includes('proxy')) return 'bg-blue-500';
-    if (value.includes('direct')) return 'bg-emerald-500';
-    if (value.includes('block') || value.includes('reject')) return 'bg-rose-500';
-    if (value.includes('dns')) return 'bg-violet-500';
-    return 'bg-slate-500';
-  };
+  const latest = detail.recent[0];
+  const createdAt = detail.recent.length ? detail.recent[detail.recent.length - 1]?.occurredAt : '-';
+  const primaryPolicy = detail.outboundTypes[0]?.type || 'unknown';
+  const status = detail.successRate >= 90 ? 'Active' : detail.successRate >= 60 ? 'Degraded' : 'Unstable';
 
   return (
     <div className="space-y-6 animate-fade-in">
@@ -55,29 +76,47 @@ export const UserTargetDetailsPage: React.FC = () => {
         <p className="text-sm text-slate-500 mt-1">Request aggregation by target</p>
       </div>
 
-      <SectionCard title="All Fields">
-        <pre className="bg-slate-950 text-slate-100 rounded-lg p-4 text-xs leading-5 overflow-auto max-h-[480px]">
-          {JSON.stringify(detail, null, 2)}
-        </pre>
+      <SectionCard title="Connection">
+        <div className="rounded-2xl border border-slate-200 bg-white px-5 py-2">
+          <DataRow label="Status" value={status} />
+          <DataRow label="Created At" value={formatDateTime(createdAt || '-')} />
+          <DataRow label="Last Seen" value={formatDateTime(detail.lastSeen)} />
+          <DataRow label="Upload" value={formatBytes(detail.uploadBytes)} />
+          <DataRow label="Download" value={formatBytes(detail.downloadBytes)} />
+          <DataRow label="Requests" value={detail.requests.toLocaleString()} />
+          <DataRow label="Success Rate" value={`${detail.successRate.toFixed(2)}%`} />
+        </div>
+      </SectionCard>
+
+      <SectionCard title="Metadata">
+        <div className="rounded-2xl border border-slate-200 bg-white px-5 py-2">
+          <DataRow label="Target" value={detail.target} />
+          <DataRow label="Policy" value={primaryPolicy} />
+          <DataRow label="Outbound Types" value={detail.outboundTypes.map((item) => `${item.type}:${item.count}`).join(' / ') || '-'} />
+          <DataRow label="Network" value={latest?.networkType || '-'} />
+          <DataRow label="Latest Outbound" value={latest?.outboundType || '-'} />
+          <DataRow label="Latest Requests" value={(latest?.requestCount ?? 0).toLocaleString()} />
+          <DataRow label="Latest Success" value={(latest?.successCount ?? 0).toLocaleString()} />
+          <DataRow label="Latest Blocked" value={(latest?.blockedCount ?? 0).toLocaleString()} />
+          <DataRow label="Latest Error" value={latest?.error || '-'} />
+        </div>
       </SectionCard>
 
       <SectionCard title="Recent Records">
         <div className="space-y-3">
-          {detail.recent.map((row, idx) => {
-            const widthPercent = maxRequestCount > 0 ? Math.max(2, (row.requestCount / maxRequestCount) * 100) : 0;
-            return (
-              <div key={`${row.occurredAt}-${idx}`} className="rounded-lg border border-slate-200 bg-white p-3">
-                <div className="mb-2 flex flex-wrap items-center justify-between gap-2 text-xs">
-                  <span className="font-mono text-slate-500">{row.occurredAt}</span>
-                  <span className="rounded bg-slate-100 px-2 py-0.5 text-slate-700">{row.outboundType}</span>
-                </div>
-                <div className="h-3 w-full overflow-hidden rounded bg-slate-100">
-                  <div className={`h-full ${outboundColor(row.outboundType)}`} style={{ width: `${widthPercent}%` }} />
-                </div>
-                <div className="mt-1 text-right text-xs tabular-nums text-slate-600">{row.requestCount.toLocaleString()}</div>
-              </div>
-            );
-          })}
+          {detail.recent.map((row, idx) => (
+            <div key={`${row.occurredAt}-${idx}`} className="rounded-2xl border border-slate-200 bg-white px-5 py-2">
+              <DataRow label="Time" value={formatDateTime(row.occurredAt)} />
+              <DataRow label="Outbound Type" value={row.outboundType || '-'} />
+              <DataRow label="Network Type" value={row.networkType || '-'} />
+              <DataRow label="Requests" value={row.requestCount.toLocaleString()} />
+              <DataRow label="Success" value={row.successCount.toLocaleString()} />
+              <DataRow label="Blocked" value={row.blockedCount.toLocaleString()} />
+              <DataRow label="Upload" value={formatBytes(row.uploadBytes)} />
+              <DataRow label="Download" value={formatBytes(row.downloadBytes)} />
+              <DataRow label="Error" value={row.error || '-'} />
+            </div>
+          ))}
           {detail.recent.length === 0 && (
             <div className="py-8 text-center text-xs text-slate-400">No records</div>
           )}

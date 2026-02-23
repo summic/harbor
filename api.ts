@@ -1158,14 +1158,21 @@ const splitExpr = (value: string): string[] =>
     .map((item) => item.trim())
     .filter(Boolean);
 
+const KNOWN_MATCH_KEYS = new Set(['rule_set', 'domain', 'domain_suffix', 'ip_cidr', 'geosite', 'geoip', 'protocol', 'port', 'process_name']);
+
 const parseMatchExpr = (expr: string): { key?: string; value: string } => {
-  const parts = expr.split(':');
-  if (parts.length >= 2) {
-    const key = parts[0].trim();
-    const value = parts.slice(1).join(':').trim();
-    return { key, value };
+  const trimmed = expr.trim();
+  const sepIndex = trimmed.indexOf(':');
+  if (sepIndex <= 0) return { value: trimmed };
+
+  const maybeKey = trimmed.slice(0, sepIndex).trim();
+  if (!KNOWN_MATCH_KEYS.has(maybeKey)) {
+    return { value: trimmed };
   }
-  return { value: expr.trim() };
+
+  const value = trimmed.slice(sepIndex + 1).trim();
+  if (!value) return { value: trimmed };
+  return { key: maybeKey, value };
 };
 
 const routingRuleToConfigRule = (rule: {

@@ -213,6 +213,7 @@ export type UserProfileAuditItem = {
 
 export type UserTargetAggregateItem = {
   target: string;
+  policy?: string;
   requests: number;
   uploadBytes: number;
   downloadBytes: number;
@@ -1296,48 +1297,114 @@ export class ConfigStore {
     const rows = this.db
       .prepare(
         `SELECT
-           COALESCE(NULLIF(target, ''), '(unknown)') AS target,
-           COALESCE(SUM(CASE WHEN COALESCE(request_count, 0) > 0 THEN request_count ELSE 1 END), 0) AS requests,
-           COALESCE(SUM(upload_bytes), 0) AS upload_bytes,
-           COALESCE(SUM(download_bytes), 0) AS download_bytes,
-           COALESCE(SUM(CASE
-             WHEN lower(COALESCE(outbound_type, json_extract(metadata_json, '$.outbound_type'), '')) IN ('block', 'reject')
-               THEN CASE WHEN COALESCE(request_count, 0) > 0 THEN request_count ELSE 1 END
-             ELSE 0 END), 0) AS blocked_requests,
-           COALESCE(SUM(CASE
-             WHEN COALESCE(success_count, 0) > 0 THEN success_count
-             WHEN lower(COALESCE(outbound_type, json_extract(metadata_json, '$.outbound_type'), '')) IN ('block', 'reject') THEN 0
-             WHEN error_message IS NULL OR trim(error_message) = '' THEN CASE WHEN COALESCE(request_count, 0) > 0 THEN request_count ELSE 1 END
-             ELSE 0 END), 0) AS successful_requests,
-           MAX(occurred_at) AS last_seen
+           target,
+           outbound_type,
+           request_count,
+           upload_bytes,
+           download_bytes,
+           success_count,
+           error_message,
+           metadata_json,
+           occurred_at
          FROM client_connect_logs
-         WHERE user_id = ?
-         GROUP BY COALESCE(NULLIF(target, ''), '(unknown)')
-         ORDER BY requests DESC, last_seen DESC
-         LIMIT ?`,
+         WHERE user_id = ?`,
       )
-      .all(userId, limit) as Array<{
+      .all(userId) as Array<{
+      target: string | null;
+      outbound_type: string | null;
+      request_count: number | null;
+      upload_bytes: number | null;
+      download_bytes: number | null;
+      success_count: number | null;
+      error_message: string | null;
+      metadata_json: string | null;
+      occurred_at: string | null;
+    }>;
+    const normalizeOutboundType = (row: (typeof rows)[number]) => {
+      const explicit = (row.outbound_type || '').trim().toLowerCase();
+      if (explicit) return explicit;
+      if (!row.metadata_json) return 'unknown';
+      try {
+        const metadata = JSON.parse(row.metadata_json) as { outbound_type?: unknown };
+        const metadataOutbound = typeof metadata?.outbound_type === 'string' ? metadata.outbound_type.trim().toLowerCase() : '';
+        if (metadataOutbound) return metadataOutbound;
+      } catch {
+        // malformed metadata_json
+      }
+      return 'unknown';
+    };
+    const normalizeTarget = (value: string | null) => {
+      const target = (value || '').trim();
+      return target ? target : '(unknown)';
+    };
+    const aggregates = new Map<string, {
       target: string;
       requests: number;
-      upload_bytes: number;
-      download_bytes: number;
-      blocked_requests: number;
-      successful_requests: number;
-      last_seen: string | null;
-    }>;
-    return rows.map((row) => {
-      const requests = Number(row.requests || 0);
-      const successful = Number(row.successful_requests || 0);
+      uploadBytes: number;
+      downloadBytes: number;
+      blockedRequests: number;
+      successfulRequests: number;
+      lastSeen: string;
+      outboundCounts: Record<string, number>;
+    }>();
+    for (const row of rows) {
+      const normalizedTarget = normalizeTarget(row.target);
+      const outboundType = normalizeOutboundType(row);
+      const requestCount = Number(row.request_count && row.request_count > 0 ? row.request_count : 1);
+      const existing = aggregates.get(normalizedTarget) ?? {
+        target: normalizedTarget,
+        requests: 0,
+        uploadBytes: 0,
+        downloadBytes: 0,
+        blockedRequests: 0,
+        successfulRequests: 0,
+        lastSeen: row.occurred_at || '-',
+        outboundCounts: {},
+      };
+      const outboundIsBlocked = outboundType === 'block' || outboundType === 'reject';
+      const successCount = Number(row.success_count || 0);
+      const hasError = Boolean((row.error_message || '').trim());
+      const successful = successCount > 0 ? successCount : outboundIsBlocked ? 0 : hasError ? 0 : requestCount;
+      existing.requests += requestCount;
+      existing.uploadBytes += Number(row.upload_bytes || 0);
+      existing.downloadBytes += Number(row.download_bytes || 0);
+      existing.blockedRequests += outboundIsBlocked ? requestCount : 0;
+      existing.successfulRequests += successful;
+      existing.outboundCounts[outboundType] = (existing.outboundCounts[outboundType] || 0) + requestCount;
+      if (row.occurred_at && (existing.lastSeen === '-' || row.occurred_at > existing.lastSeen)) {
+        existing.lastSeen = row.occurred_at;
+      }
+      aggregates.set(normalizedTarget, existing);
+    }
+    const aggregated = [...aggregates.values()].map((entry) => {
+      let policy = 'unknown';
+      let policyCount = -1;
+      for (const [outboundType, count] of Object.entries(entry.outboundCounts)) {
+        if (count > policyCount || (count === policyCount && outboundType < policy)) {
+          policyCount = count;
+          policy = outboundType;
+        }
+      }
+      const requests = Number(entry.requests || 0);
+      const successful = Number(entry.successfulRequests || 0);
       return {
-        target: row.target,
+        target: entry.target,
+        policy,
         requests,
-        uploadBytes: Number(row.upload_bytes || 0),
-        downloadBytes: Number(row.download_bytes || 0),
-        blockedRequests: Number(row.blocked_requests || 0),
+        uploadBytes: Number(entry.uploadBytes || 0),
+        downloadBytes: Number(entry.downloadBytes || 0),
+        blockedRequests: Number(entry.blockedRequests || 0),
         successRate: requests > 0 ? Number(((successful / requests) * 100).toFixed(2)) : 100,
-        lastSeen: row.last_seen || '-',
+        lastSeen: entry.lastSeen || '-',
       };
     });
+    aggregated.sort((a, b) => {
+      if (b.requests !== a.requests) return b.requests - a.requests;
+      if (a.lastSeen === '-') return 1;
+      if (b.lastSeen === '-') return -1;
+      return b.lastSeen.localeCompare(a.lastSeen);
+    });
+    return aggregated.slice(0, limit);
   }
 
   getUserTargetDetail(userIdRaw: string, targetRaw: string): UserTargetDetailItem | undefined {

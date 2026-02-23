@@ -1,6 +1,6 @@
 import React from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Plus, Trash2, Edit3, Network, X } from 'lucide-react';
+import { Plus, Trash2, Edit3, X } from 'lucide-react';
 import { mockApi } from '../api';
 import { SectionCard } from '../components/Common';
 import { RoutingRule } from '../types';
@@ -17,6 +17,77 @@ const matchTypeOptions: RoutingRule['matchType'][] = [
   'action',
   'ip_private',
 ];
+
+const matchTypeLabelMap: Record<RoutingRule['matchType'], string> = {
+  rule_set: 'Rule Set',
+  domain: 'Domain',
+  ip: 'IP/CIDR',
+  geosite: 'GeoSite',
+  geoip: 'GeoIP',
+  protocol: 'Protocol',
+  port: 'Port',
+  process: 'Process',
+  action: 'Action',
+  ip_private: 'IP Private',
+};
+
+const matchExprPlaceholder: Record<RoutingRule['matchType'], string> = {
+  rule_set: 'e.g. tv or site-direct',
+  domain: 'e.g. geosite-cn or example.com',
+  ip: 'e.g. 10.0.0.0/8, 192.168.1.1, 2001:db8::/32',
+  geosite: 'e.g. geosite-cn',
+  geoip: 'e.g. cn',
+  protocol: 'e.g. dns, udp, tcp',
+  port: 'e.g. 443, 80',
+  process: 'e.g. Safari, com.example.app',
+  action: 'e.g. sniff, hijack-dns',
+  ip_private: 'Not required for ip_private',
+};
+
+const isValidIpLike = (value: string): boolean => {
+  const trimmed = value.trim();
+  if (!trimmed) return false;
+
+  const isV4 = (ip: string): boolean => {
+    const parts = ip.split('.');
+    if (parts.length !== 4) return false;
+    return parts.every((part) => {
+      if (!/^\d{1,3}$/.test(part)) return false;
+      const num = Number(part);
+      return Number.isInteger(num) && num >= 0 && num <= 255;
+    });
+  };
+
+  const isV6 = (ip: string): boolean => /^[0-9a-fA-F:]+$/.test(ip) && ip.includes(':');
+
+  const [ipText, bitsText] = trimmed.split('/');
+  if (!isV4(ipText) && !isV6(ipText)) return false;
+
+  if (bitsText !== undefined) {
+    if (!/^\d+$/.test(bitsText)) return false;
+    const bits = Number(bitsText);
+    const maxBits = isV4(ipText) ? 32 : 128;
+    return bits >= 0 && bits <= maxBits;
+  }
+
+  return true;
+};
+
+const validateIpExpr = (expr: string): string | null => {
+  const values = expr
+    .split(',')
+    .map((item) => item.trim())
+    .filter(Boolean);
+  if (values.length === 0) {
+    return 'IP/CIDR value is required.';
+  }
+  for (const value of values) {
+    if (!isValidIpLike(value)) {
+      return `Invalid IP/CIDR value: ${value}.`;
+    }
+  }
+  return null;
+};
 
 const RoutingPolicyModal: React.FC<{
   isOpen: boolean;
@@ -55,6 +126,13 @@ const RoutingPolicyModal: React.FC<{
       setError('Match expression is required for this match type.');
       return;
     }
+    if (matchType === 'ip') {
+      const message = validateIpExpr(nextExpr);
+      if (message) {
+        setError(message);
+        return;
+      }
+    }
     if (!nextOutbound) {
       setError('Outbound is required.');
       return;
@@ -91,7 +169,7 @@ const RoutingPolicyModal: React.FC<{
             >
               {matchTypeOptions.map((item) => (
                 <option key={item} value={item}>
-                  {item}
+                  {matchTypeLabelMap[item]}
                 </option>
               ))}
             </select>
@@ -105,7 +183,7 @@ const RoutingPolicyModal: React.FC<{
               disabled={!needsExpr}
               placeholder={
                 needsExpr
-                  ? 'e.g. geosite-cn or connect-api-prod.kuainiu.chat'
+                  ? matchExprPlaceholder[matchType]
                   : 'Not required for ip_private'
               }
               className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm disabled:bg-slate-50 disabled:text-slate-400"
@@ -207,8 +285,9 @@ export const RoutingPage: React.FC = () => {
   const policySubtitle = (rule: RoutingRule) => {
     if (rule.matchType === 'rule_set') return 'Manual Selection Group';
     if (rule.matchType === 'domain') return 'Domain Match Group';
+    if (rule.matchType === 'ip') return 'IP Match Group';
     if (rule.matchType === 'geosite') return 'GeoSite Group';
-    return `Policy · ${rule.matchType}`;
+    return `Policy · ${matchTypeLabelMap[rule.matchType] ?? rule.matchType}`;
   };
 
   const policyTitle = (rule: RoutingRule) => {

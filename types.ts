@@ -205,6 +205,7 @@ export interface AccessLogSummary {
 
 export interface UserTargetAggregate {
   target: string;
+  policy?: string;
   requests: number;
   uploadBytes: number;
   downloadBytes: number;
