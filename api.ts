@@ -1,7 +1,7 @@
 
 import { DomainRule, DomainGroup, ProxyNode, ProxyGroup, RoutingRule, DnsUpstream, HostsEntry, ConfigVersion, UnifiedProfile, User, ProtocolType, TrafficSimulationResult, ClientDeviceReportPayload, ClientConnectionReportPayload, UserTargetAggregate, UserTargetDetail, UserProfileAudit, DashboardSummary, CoreSettings, FailedDomainSummary } from './types';
 import { QualityObservability, normalizeObservabilityResponse } from './utils/quality';
-import { loadSession } from './auth';
+import { clearSession, loadSession, resolveActiveSession } from './auth';
 
 const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
@@ -92,8 +92,25 @@ const parseProblemDetail = async (response: Response) => {
   };
 };
 
+const isAuthProblem = (parsed: {
+  code?: string;
+  status?: number;
+  detail?: string;
+}) => {
+  const code = typeof parsed?.code === 'string' ? parsed.code : '';
+  return (
+    parsed?.status === 401 &&
+    (code === 'invalid_access_token' || code === 'missing_bearer_token' || code === 'invalid_token')
+  );
+};
+
+const emitAuthInvalidation = () => {
+  if (typeof window === 'undefined') return;
+  window.dispatchEvent(new CustomEvent('harbor:auth-invalid'));
+};
+
 const fetchJson = async <T>(path: string, init?: RequestInit): Promise<T> => {
-  const session = loadSession();
+  const session = await resolveActiveSession();
   const token = session?.accessToken;
   const initHeaders = new Headers(init?.headers ?? {});
   const mergedHeaders = new Headers();
@@ -111,6 +128,39 @@ const fetchJson = async <T>(path: string, init?: RequestInit): Promise<T> => {
   });
   if (!response.ok) {
     const parsed = await parseProblemDetail(response);
+    if (
+      isAuthProblem({ code: parsed.code, status: response.status, detail: parsed.detail }) &&
+      token
+    ) {
+      const refreshed = await resolveActiveSession();
+      if (refreshed?.accessToken !== token) {
+        const retryHeaders = new Headers(initHeaders);
+        retryHeaders.set('Accept', 'application/json');
+        retryHeaders.set('Authorization', `Bearer ${refreshed?.accessToken}`);
+        const retryResponse = await fetch(`${API_BASE}${path}`, {
+          ...restInit,
+          headers: retryHeaders,
+        });
+        if (retryResponse.ok) {
+          return retryResponse.json() as Promise<T>;
+        }
+        const retryParsed = await parseProblemDetail(retryResponse);
+        if (retryParsed.code) {
+          emitAuthInvalidation();
+          clearSession();
+        }
+        throw new ApiError(retryParsed.detail || `Request failed with ${retryResponse.status}`, {
+          status: retryResponse.status,
+          title: retryParsed.title,
+          code: retryParsed.code,
+          instance: retryParsed.instance,
+          type: retryParsed.type,
+          errors: retryParsed.errors,
+        });
+      }
+      emitAuthInvalidation();
+      clearSession();
+    }
     throw new ApiError(parsed.detail || `Request failed with ${response.status}`, {
       status: response.status,
       title: parsed.title,

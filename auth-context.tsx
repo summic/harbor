@@ -35,9 +35,20 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const ssoEnabled = oidcConfig.enabled;
   const ssoConfigured = isSsoConfigured();
   const isAdmin = (session?.user?.sub ?? '') === ADMIN_SUB;
+  const invalidateSession = React.useCallback(() => {
+    clearSession();
+    setSession(null);
+    setError('Session expired, please sign in again.');
+  }, []);
 
   React.useEffect(() => {
     let cancelled = false;
+    const handleAuthInvalidation = () => {
+      if (!cancelled) {
+        invalidateSession();
+      }
+    };
+    window.addEventListener('harbor:auth-invalid', handleAuthInvalidation);
     const run = async () => {
       try {
         if (!ssoEnabled) {
@@ -85,8 +96,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     run();
     return () => {
       cancelled = true;
+      window.removeEventListener('harbor:auth-invalid', handleAuthInvalidation);
     };
-  }, [ssoEnabled]);
+  }, [ssoEnabled, invalidateSession]);
 
   const login = React.useCallback(async () => {
     setError(null);

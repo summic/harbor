@@ -87,8 +87,45 @@ const parseJwtPayload = (token?: string): AuthUser | undefined => {
   }
 };
 
+const pickUserInfo = async (accessToken: string, fallback: AuthUser | undefined): Promise<AuthUser | undefined> => {
+  if (!oidcConfig.userInfoUrl) return fallback;
+  try {
+    const userRes = await fetch(oidcConfig.userInfoUrl, {
+      headers: { Authorization: `Bearer ${accessToken}` },
+    });
+    if (!userRes.ok) return fallback;
+    return (await userRes.json()) as AuthUser;
+  } catch {
+    return fallback;
+  }
+};
+
 const saveSession = (session: AuthSession) => {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(session));
+};
+
+const toSession = (
+  raw: AuthSession & {
+    access_token?: string;
+    id_token?: string;
+    refresh_token?: string;
+    token_type?: string;
+    expires_at?: number;
+  },
+): AuthSession => {
+  const accessToken = raw.accessToken || raw.access_token;
+  if (!accessToken) {
+    throw new Error('access_token is required');
+  }
+  return {
+    accessToken,
+    idToken: raw.idToken || raw.id_token,
+    refreshToken: raw.refreshToken || raw.refresh_token,
+    tokenType: raw.tokenType || raw.token_type || 'Bearer',
+    scope: raw.scope,
+    expiresAt: raw.expiresAt ?? raw.expires_at,
+    user: raw.user,
+  };
 };
 
 export const updateSessionUser = (patch: Partial<AuthUser>): AuthSession | null => {
@@ -116,17 +153,7 @@ export const loadSession = (): Nullable<AuthSession> => {
       token_type?: string;
       expires_at?: number;
     };
-    const accessToken = parsed.accessToken || parsed.access_token;
-    if (!accessToken) return null;
-    const normalized: AuthSession = {
-      accessToken,
-      idToken: parsed.idToken || parsed.id_token,
-      refreshToken: parsed.refreshToken || parsed.refresh_token,
-      tokenType: parsed.tokenType || parsed.token_type || 'Bearer',
-      scope: parsed.scope,
-      expiresAt: parsed.expiresAt ?? parsed.expires_at,
-      user: parsed.user,
-    };
+    const normalized: AuthSession = toSession(parsed);
     if (parsed.accessToken !== normalized.accessToken || parsed.tokenType !== normalized.tokenType) {
       saveSession(normalized);
     }
@@ -134,6 +161,67 @@ export const loadSession = (): Nullable<AuthSession> => {
   } catch {
     return null;
   }
+};
+
+export const isSessionExpired = (session: Nullable<AuthSession>): boolean => {
+  if (!session?.expiresAt) return false;
+  return session.expiresAt <= Date.now();
+};
+
+const getRefreshPayload = async (session: AuthSession): Promise<AuthSession | null> => {
+  if (!session.refreshToken || !oidcConfig.tokenUrl || !oidcConfig.clientId) return null;
+  const tokenRes = await fetch(oidcConfig.tokenUrl, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: formBody({
+      grant_type: 'refresh_token',
+      client_id: oidcConfig.clientId,
+      refresh_token: session.refreshToken,
+    }),
+  });
+  if (!tokenRes.ok) return null;
+
+  const tokenPayload = (await tokenRes.json()) as {
+    access_token: string;
+    id_token?: string;
+    refresh_token?: string;
+    expires_in?: number;
+    token_type?: string;
+    scope?: string;
+  };
+  const user = await pickUserInfo(
+    tokenPayload.access_token,
+    parseJwtPayload(tokenPayload.id_token) || parseJwtPayload(tokenPayload.access_token) || session.user,
+  );
+
+  const refreshed: AuthSession = {
+    accessToken: tokenPayload.access_token,
+    idToken: tokenPayload.id_token || session.idToken,
+    refreshToken: tokenPayload.refresh_token || session.refreshToken,
+    tokenType: tokenPayload.token_type || session.tokenType,
+    scope: tokenPayload.scope || session.scope,
+    expiresAt: tokenPayload.expires_in
+      ? Date.now() + tokenPayload.expires_in * 1000
+      : session.expiresAt,
+    user,
+  };
+
+  saveSession(refreshed);
+  return refreshed;
+};
+
+export const resolveActiveSession = async (): Promise<Nullable<AuthSession>> => {
+  const session = loadSession();
+  if (!session) return null;
+  if (!isSessionExpired(session)) return session;
+  if (!session.refreshToken) {
+    clearSession();
+    return null;
+  }
+  const refreshed = await getRefreshPayload(session);
+  if (refreshed) return refreshed;
+  clearSession();
+  return null;
 };
 
 export const clearSession = () => {
@@ -244,19 +332,14 @@ export const handleAuthCallbackIfPresent = async (): Promise<Nullable<AuthSessio
     scope?: string;
   };
 
-  let user = parseJwtPayload(tokenPayload.id_token) || parseJwtPayload(tokenPayload.access_token);
-  if (oidcConfig.userInfoUrl && tokenPayload.access_token) {
-    try {
-      const userRes = await fetch(oidcConfig.userInfoUrl, {
-        headers: { Authorization: `Bearer ${tokenPayload.access_token}` },
-      });
-      if (userRes.ok) {
-        user = (await userRes.json()) as AuthUser;
-      }
-    } catch {
-      // Ignore userinfo failures and fallback to token claims.
-    }
+  if (!tokenPayload.access_token) {
+    cleanupAuthQuery();
+    throw new Error('Token exchange failed: missing access_token');
   }
+  const user = await pickUserInfo(
+    tokenPayload.access_token,
+    parseJwtPayload(tokenPayload.id_token) || parseJwtPayload(tokenPayload.access_token),
+  );
 
   const session: AuthSession = {
     accessToken: tokenPayload.access_token,
