@@ -8,6 +8,9 @@ import react from '@vitejs/plugin-react';
 import { createDefaultRateLimiter } from './dev-server/api-rate-limit';
 import { ConfigStore } from './dev-server/config-store';
 
+const RUNTIME_MODE = process.env.NODE_ENV === 'production' ? 'production' : 'development';
+const RUNTIME_VITE_ENV = loadEnv(RUNTIME_MODE, '.', '');
+
 const SUBSCRIPTION_PATH = '/api/v1/client/subscribe';
 const PROFILE_PATH = '/api/v1/client/profile';
 const RULES_PATH = '/api/v1/rules';
@@ -40,6 +43,12 @@ const ALLOWED_USERINFO_HOSTS = new Set(
     .map((item) => item.trim().toLowerCase())
     .filter(Boolean),
 );
+const STATIC_USERINFO_URLS = [
+  'https://auth0.kylith.com/userinfo',
+  'https://id.kylith.com/userinfo',
+  'https://auth0.kylith.com/oauth2/userinfo',
+  'https://id.kylith.com/oauth2/userinfo',
+];
 const SUBSCRIBE_TOKEN_COMPAT =
   (process.env.SAIL_SUBSCRIBE_TOKEN_COMPAT || '').trim().toLowerCase() === 'true';
 
@@ -249,11 +258,15 @@ type AuthInfo = { sub: string };
 
 const TOKEN_SUB_CACHE_TTL_MS = 5 * 60 * 1000;
 const tokenSubCache = new Map<string, { sub: string; expiresAt: number }>();
-const DEFAULT_USERINFO_URLS = [
-  'https://auth0.kylith.com/oauth2/userinfo',
-  'https://id.kylith.com/oauth2/userinfo',
-];
-const ENV_USERINFO_URLS = (process.env.SAIL_OIDC_USERINFO_URLS || process.env.SAIL_OIDC_USERINFO_URL || process.env.VITE_SSO_USERINFO_URL || '')
+const DEFAULT_USERINFO_URLS = STATIC_USERINFO_URLS;
+const ENV_USERINFO_URLS = (
+  process.env.SAIL_OIDC_USERINFO_URLS ||
+  process.env.SAIL_OIDC_USERINFO_URL ||
+  process.env.VITE_SSO_USERINFO_URL ||
+  RUNTIME_VITE_ENV.VITE_SSO_USERINFO_URL ||
+  RUNTIME_VITE_ENV.VITE_OAUTH_USERINFO_URL ||
+  ''
+)
   .split(',')
   .map((item) => item.trim())
   .filter(Boolean);
