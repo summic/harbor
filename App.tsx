@@ -36,6 +36,29 @@ const AdminRoute: React.FC<{ children: React.ReactElement }> = ({ children }) =>
   return children;
 };
 
+const HomeRoute: React.FC = () => {
+  const auth = useAuth();
+  const currentSub = (auth.session?.user?.sub ?? '').trim();
+  if (auth.isAdmin) {
+    return <DashboardPage />;
+  }
+  if (currentSub) {
+    return <Navigate to={`/users/${encodeURIComponent(currentSub)}`} replace />;
+  }
+  return <Navigate to="/account" replace />;
+};
+
+const OwnOrAdminRoute: React.FC<{ children: React.ReactElement }> = ({ children }) => {
+  const auth = useAuth();
+  const params = useParams<{ id: string }>();
+  const currentSub = (auth.session?.user?.sub ?? '').trim();
+  const targetId = (params.id ?? '').trim();
+  if (auth.isAdmin || (currentSub && targetId && currentSub === targetId)) {
+    return children;
+  }
+  return <Navigate to="/" replace />;
+};
+
 const LegacyDomainGroupDomainsRedirect: React.FC = () => {
   const params = useParams<{ groupName: string }>();
   const groupName = params.groupName ? encodeURIComponent(params.groupName) : '';
@@ -50,7 +73,8 @@ const App: React.FC = () => {
           <AuthGate>
             <AppShell>
               <Routes>
-                <Route path="/" element={<DashboardPage />} />
+                <Route path="/" element={<HomeRoute />} />
+                <Route path="/dashboard" element={<AdminRoute><DashboardPage /></AdminRoute>} />
                 <Route path="/account" element={<AccountSettingsPage />} />
                 <Route path="/policy" element={<AdminRoute><DomainGroupsPage /></AdminRoute>} />
                 <Route path="/policy/:groupName/rules" element={<AdminRoute><DomainsPage /></AdminRoute>} />
@@ -62,8 +86,8 @@ const App: React.FC = () => {
                 <Route path="/simulation" element={<AdminRoute><SimulationPage /></AdminRoute>} />
                 <Route path="/dns-hosts" element={<AdminRoute><DnsHostsPage /></AdminRoute>} />
                 <Route path="/users" element={<AdminRoute><UsersPage /></AdminRoute>} />
-                <Route path="/users/:id" element={<AdminRoute><UserDetailsPage /></AdminRoute>} />
-                <Route path="/users/:id/targets/:target" element={<AdminRoute><UserTargetDetailsPage /></AdminRoute>} />
+                <Route path="/users/:id" element={<OwnOrAdminRoute><UserDetailsPage /></OwnOrAdminRoute>} />
+                <Route path="/users/:id/targets/:target" element={<OwnOrAdminRoute><UserTargetDetailsPage /></OwnOrAdminRoute>} />
                 <Route path="/profile" element={<AdminRoute><UnifiedProfilePage /></AdminRoute>} />
                 <Route path="/settings" element={<AdminRoute><SettingsPage /></AdminRoute>} />
                 <Route path="/failed-domains" element={<AdminRoute><FailedDomainsPage /></AdminRoute>} />
