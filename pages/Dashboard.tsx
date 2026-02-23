@@ -85,15 +85,6 @@ const fmtBytes = (bytes: number) => {
   return `${value.toFixed(value >= 100 || idx === 0 ? 0 : 1)} ${units[idx]}`;
 };
 
-const outboundToPathLabel = (outbound: string | undefined) => {
-  const v = (outbound || '').toLowerCase();
-  if (v === 'proxy') return '代理';
-  if (v === 'direct') return '直连';
-  if (v === 'block' || v === 'reject') return '拦截';
-  if (v === 'dns') return 'DNS';
-  return '其他';
-};
-
 type DomainTrafficScope = 'app' | 'dns' | 'all';
 
 const extractHostAndPort = (value: string): { host: string; port?: number } => {
@@ -244,7 +235,6 @@ export const DashboardPage: React.FC = () => {
                       <th className="px-4 py-3 w-16">#</th>
                       <th className="px-4 py-3">Domain</th>
                       <th className="px-4 py-3">策略</th>
-                      <th className="px-4 py-3">链路</th>
                       <th className="px-4 py-3 text-right">Requests</th>
                       <th className="px-4 py-3 text-right">Share</th>
                     </tr>
@@ -258,7 +248,6 @@ export const DashboardPage: React.FC = () => {
                           <td className="px-4 py-3 text-xs font-mono text-slate-400">{index + 1}</td>
                           <td className="px-4 py-3 font-semibold text-slate-700">{item.domain}</td>
                           <td className="px-4 py-3 text-xs font-mono text-slate-500">{policy}</td>
-                          <td className="px-4 py-3 text-xs text-slate-600">{outboundToPathLabel(policy)}</td>
                           <td className="px-4 py-3 text-right text-slate-600 tabular-nums">{item.count.toLocaleString()}</td>
                           <td className="px-4 py-3 text-right text-slate-500 tabular-nums">{ratio.toFixed(1)}%</td>
                         </tr>
@@ -266,7 +255,7 @@ export const DashboardPage: React.FC = () => {
                     })}
                     {filteredDomains.length === 0 ? (
                       <tr>
-                        <td colSpan={6} className="px-4 py-8 text-center text-xs text-slate-400">No domain requests yet</td>
+                        <td colSpan={5} className="px-4 py-8 text-center text-xs text-slate-400">No domain requests yet</td>
                       </tr>
                     ) : null}
                   </tbody>
@@ -319,7 +308,7 @@ export const DashboardPage: React.FC = () => {
                           <p className="text-sm font-semibold text-slate-800 truncate">{item.domain}</p>
                           <p className="text-[11px] text-slate-500 truncate">{item.lastError || 'unknown error'}</p>
                           <p className="text-[10px] uppercase tracking-wider text-slate-400 mt-1">
-                            {outboundToPathLabel(item.outboundType)} · success {item.successRate.toFixed(1)}%
+                            {(item.outboundType || 'unknown').toLowerCase()} · success {item.successRate.toFixed(1)}%
                           </p>
                         </div>
                         <div className="text-right shrink-0">
