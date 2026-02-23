@@ -264,9 +264,10 @@ const requireAdmin = async (
 const extractBearerToken = (req: IncomingMessage): string | null => {
   const raw = req.headers.authorization;
   if (!raw) return null;
-  const [scheme, value] = raw.split(' ');
-  if (!scheme || !value || scheme.toLowerCase() !== 'bearer') return null;
-  const token = value.trim();
+  const parts = raw.trim().split(/\s+/);
+  if (parts.length < 2) return null;
+  if (parts[0].toLowerCase() !== 'bearer') return null;
+  const token = parts.slice(1).join(' ').trim();
   return token ? token : null;
 };
 
@@ -461,26 +462,8 @@ const subscriptionHandler = async (req: IncomingMessage, res: ServerResponse, ne
 
   if (url.pathname === PROFILE_PATH && req.method === 'PUT') {
     try {
-      const accessToken = extractBearerToken(req);
-      if (!accessToken) {
-        sendProblem(res, 401, {
-          title: 'Authentication failed',
-          detail: 'Bearer token is required',
-          instance: url.pathname,
-          code: 'missing_bearer_token',
-        });
-        return;
-      }
-      const authInfo = await fetchAuthInfo(accessToken);
-      if (!authInfo?.sub) {
-        sendProblem(res, 401, {
-          title: 'Authentication failed',
-          detail: 'Invalid access token',
-          instance: url.pathname,
-          code: 'invalid_access_token',
-        });
-        return;
-      }
+      const authInfo = await requireAuth(req, res, url.pathname);
+      if (!authInfo) return;
       const raw = await readBody(req);
       const payload = JSON.parse(raw) as { content?: string; publicUrl?: string };
       if (typeof payload.content !== 'string') {
@@ -495,7 +478,7 @@ const subscriptionHandler = async (req: IncomingMessage, res: ServerResponse, ne
       const scope = (url.searchParams.get('scope') as 'effective' | 'global' | 'user' | null) || 'user';
       let updated;
       if (scope === 'global') {
-        if (authInfo.sub !== ADMIN_SUB) {
+        if (!isAdminSub(authInfo.sub)) {
           sendProblem(res, 403, {
             title: 'Forbidden',
             detail: 'Admin scope required',
