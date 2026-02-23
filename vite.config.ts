@@ -87,15 +87,81 @@ const getOrigin = (req: IncomingMessage) => {
   return `${getRequestProto(req)}://${host}`;
 };
 
-const readBody = async (req: IncomingMessage): Promise<string> =>
+const MAX_JSON_BODY_BYTES = 256 * 1024;
+
+const readBody = async (req: IncomingMessage, maxBytes = MAX_JSON_BODY_BYTES): Promise<string> =>
   await new Promise((resolve, reject) => {
     let body = '';
+    let bytes = 0;
     req.on('data', (chunk) => {
+      bytes += chunk.length;
+      if (bytes > maxBytes) {
+        reject(new Error(`request body exceeds allowed size (${maxBytes} bytes)`));
+        req.destroy();
+        return;
+      }
       body += String(chunk);
     });
     req.on('end', () => resolve(body));
     req.on('error', reject);
   });
+
+const parseJsonBody = async <T>(
+  req: IncomingMessage,
+  res: ServerResponse,
+  pathname: string,
+  options: {
+    required?: boolean;
+    maxBytes?: number;
+  } = {},
+): Promise<T | null> => {
+  const { required = true, maxBytes } = options;
+  let raw: string;
+  try {
+    raw = await readBody(req, maxBytes);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : '';
+    if (message.startsWith('request body exceeds allowed size')) {
+      sendProblem(res, 413, {
+        title: 'Payload too large',
+        detail: message,
+        instance: pathname,
+        code: 'payload_too_large',
+      });
+    } else {
+      sendProblem(res, 400, {
+        title: 'Malformed request',
+        detail: 'Could not read request body',
+        instance: pathname,
+        code: 'invalid_request',
+      });
+    }
+    return null;
+  }
+  if (!raw.trim()) {
+    if (!required) {
+      return null;
+    }
+    sendProblem(res, 400, {
+      title: 'Malformed request',
+      detail: 'Request body is required',
+      instance: pathname,
+      code: 'invalid_request',
+    });
+    return null;
+  }
+  try {
+    return JSON.parse(raw) as T;
+  } catch {
+    sendProblem(res, 400, {
+      title: 'Malformed request',
+      detail: 'Request body is not valid JSON',
+      instance: pathname,
+      code: 'invalid_request',
+    });
+    return null;
+  }
+};
 
 const sendJson = (res: ServerResponse, statusCode: number, payload: unknown) => {
   res.statusCode = statusCode;
@@ -461,51 +527,40 @@ const subscriptionHandler = async (req: IncomingMessage, res: ServerResponse, ne
   }
 
   if (url.pathname === PROFILE_PATH && req.method === 'PUT') {
-    try {
-      const authInfo = await requireAuth(req, res, url.pathname);
-      if (!authInfo) return;
-      const raw = await readBody(req);
-      const payload = JSON.parse(raw) as { content?: string; publicUrl?: string };
-      if (typeof payload.content !== 'string') {
-        sendProblem(res, 400, {
-          title: 'Validation failed',
-          detail: 'content must be a string',
-          instance: url.pathname,
-          code: 'invalid_content',
-        });
-        return;
-      }
-      const scope = (url.searchParams.get('scope') as 'effective' | 'global' | 'user' | null) || 'user';
-      let updated;
-      if (scope === 'global') {
-        if (!isAdminSub(authInfo.sub)) {
-          sendProblem(res, 403, {
-            title: 'Forbidden',
-            detail: 'Admin scope required',
-            instance: url.pathname,
-            code: 'forbidden',
-          });
-          return;
-        }
-        updated = STORE.saveUnifiedProfile(payload.content, payload.publicUrl);
-      } else {
-        updated = STORE.saveUserUnifiedProfile(authInfo.sub, payload.content);
-      }
-      const origin = getOrigin(req);
-      if (origin.startsWith('http')) {
-        updated.publicUrl = `${origin}${SUBSCRIPTION_PATH}`;
-      }
-      sendJson(res, 200, updated);
-      return;
-    } catch {
+    const authInfo = await requireAuth(req, res, url.pathname);
+    if (!authInfo) return;
+    const payload = await parseJsonBody<{ content?: string; publicUrl?: string }>(req, res, url.pathname);
+    if (!payload) return;
+    if (typeof payload.content !== 'string') {
       sendProblem(res, 400, {
-        title: 'Malformed request',
-        detail: 'Request body is not valid JSON',
+        title: 'Validation failed',
+        detail: 'content must be a string',
         instance: url.pathname,
-        code: 'invalid_request',
+        code: 'invalid_content',
       });
       return;
     }
+    const scope = (url.searchParams.get('scope') as 'effective' | 'global' | 'user' | null) || 'user';
+    let updated;
+    if (scope === 'global') {
+      if (!isAdminSub(authInfo.sub)) {
+        sendProblem(res, 403, {
+          title: 'Forbidden',
+          detail: 'Admin scope required',
+          instance: url.pathname,
+          code: 'forbidden',
+        });
+        return;
+      }
+      updated = STORE.saveUnifiedProfile(payload.content, payload.publicUrl);
+    } else {
+      updated = STORE.saveUserUnifiedProfile(authInfo.sub, payload.content);
+    }
+    const origin = getOrigin(req);
+    if (origin.startsWith('http')) {
+      updated.publicUrl = `${origin}${SUBSCRIPTION_PATH}`;
+    }
+    sendJson(res, 200, updated);
   }
 
   if (url.pathname === RULES_PATH && req.method === 'GET') {
@@ -523,39 +578,28 @@ const subscriptionHandler = async (req: IncomingMessage, res: ServerResponse, ne
   if (url.pathname === RULES_PATH && req.method === 'POST') {
     const authInfo = await requireAdmin(req, res, url.pathname);
     if (!authInfo) return;
-    try {
-      const raw = await readBody(req);
-      const payload = JSON.parse(raw) as {
-        id?: number;
-        scope: 'global' | 'user';
-        module: string;
-        payload: Record<string, unknown>;
-        user_id?: string;
-        rule_key?: string;
-        priority?: number;
-        enabled?: boolean;
-      };
-      if (!payload?.scope || !payload?.module || !payload?.payload) {
-        sendProblem(res, 400, {
-          title: 'Validation failed',
-          detail: 'scope, module, and payload are required',
-          instance: url.pathname,
-          code: 'invalid_payload',
-        });
-        return;
-      }
-      STORE.saveRule(payload);
-      sendJson(res, 200, { success: true });
-      return;
-    } catch {
+    const payload = await parseJsonBody<{
+      id?: number;
+      scope: 'global' | 'user';
+      module: string;
+      payload: Record<string, unknown>;
+      user_id?: string;
+      rule_key?: string;
+      priority?: number;
+      enabled?: boolean;
+    }>(req, res, url.pathname);
+    if (!payload) return;
+    if (!payload.scope || !payload.module || !payload.payload) {
       sendProblem(res, 400, {
-        title: 'Malformed request',
-        detail: 'Request body is not valid JSON',
+        title: 'Validation failed',
+        detail: 'scope, module, and payload are required',
         instance: url.pathname,
-        code: 'invalid_request',
+        code: 'invalid_payload',
       });
       return;
     }
+    STORE.saveRule(payload);
+    sendJson(res, 200, { success: true });
   }
 
   if (url.pathname === RULES_PATH && req.method === 'DELETE') {
@@ -579,65 +623,44 @@ const subscriptionHandler = async (req: IncomingMessage, res: ServerResponse, ne
   if (url.pathname === SIMULATE_PATH && req.method === 'POST') {
     const authInfo = await requireAdmin(req, res, url.pathname);
     if (!authInfo) return;
-    try {
-      const raw = await readBody(req);
-      const payload = JSON.parse(raw) as { target?: string; protocol?: string; port?: number };
-      if (typeof payload.target !== 'string' || !payload.target.trim()) {
-        sendProblem(res, 400, {
-          title: 'Validation failed',
-          detail: 'target is required',
-          instance: url.pathname,
-          code: 'invalid_target',
-        });
-        return;
-      }
-      sendJson(res, 200, STORE.simulateTraffic(payload));
-      return;
-    } catch {
+    const payload = await parseJsonBody<{ target?: string; protocol?: string; port?: number }>(req, res, url.pathname);
+    if (!payload) return;
+    if (typeof payload.target !== 'string' || !payload.target.trim()) {
       sendProblem(res, 400, {
-        title: 'Malformed request',
-        detail: 'Request body is not valid JSON',
+        title: 'Validation failed',
+        detail: 'target is required',
         instance: url.pathname,
-        code: 'invalid_request',
+        code: 'invalid_target',
       });
       return;
     }
+    sendJson(res, 200, STORE.simulateTraffic(payload));
   }
 
   if (url.pathname === PROXY_LATENCY_PATH && req.method === 'POST') {
     const authInfo = await requireAdmin(req, res, url.pathname);
     if (!authInfo) return;
-    try {
-      const raw = await readBody(req);
-      const payload = JSON.parse(raw) as {
-        targets?: Array<{ id?: string; host?: string; port?: number }>;
-        timeoutMs?: number;
-      };
-      const targets = Array.isArray(payload.targets) ? payload.targets : [];
-      const timeoutMs = Number.isFinite(payload.timeoutMs) ? Number(payload.timeoutMs) : 2000;
-      const checkedAt = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-      const results = await Promise.all(
-        targets.map(async (target) => {
-          const host = String(target.host ?? '').trim();
-          const port = Number(target.port);
-          if (!host || !Number.isFinite(port) || port <= 0) {
-            return { id: String(target.id ?? ''), latency: null, checkedAt };
-          }
-          const latency = await measureTcpLatency(host, port, timeoutMs);
-          return { id: String(target.id ?? ''), latency, checkedAt };
-        }),
-      );
-      sendJson(res, 200, results);
-      return;
-    } catch {
-      sendProblem(res, 400, {
-        title: 'Malformed request',
-        detail: 'Request body is not valid JSON',
-        instance: url.pathname,
-        code: 'invalid_request',
-      });
-      return;
-    }
+    const payload = await parseJsonBody<{ targets?: Array<{ id?: string; host?: string; port?: number }>; timeoutMs?: number }>(
+      req,
+      res,
+      url.pathname,
+      { required: false },
+    );
+    const targets = Array.isArray(payload?.targets) ? payload?.targets : [];
+    const timeoutMs = Number.isFinite(payload?.timeoutMs) ? Number(payload?.timeoutMs) : 2000;
+    const checkedAt = new Date().toISOString();
+    const results = await Promise.all(
+      targets.map(async (target) => {
+        const host = String(target?.host ?? '').trim();
+        const port = Number(target?.port);
+        if (!host || !Number.isFinite(port) || port <= 0) {
+          return { id: String(target?.id ?? ''), latency: null, checkedAt };
+        }
+        const latency = await measureTcpLatency(host, port, timeoutMs);
+        return { id: String(target?.id ?? ''), latency, checkedAt };
+      }),
+    );
+    sendJson(res, 200, results);
   }
 
   if (url.pathname === VERSIONS_PATH && req.method === 'GET') {
@@ -650,42 +673,30 @@ const subscriptionHandler = async (req: IncomingMessage, res: ServerResponse, ne
   if (url.pathname === PUBLISH_PATH && req.method === 'POST') {
     const authInfo = await requireAdmin(req, res, url.pathname);
     if (!authInfo) return;
-    try {
-      const raw = await readBody(req);
-      const payload = raw ? JSON.parse(raw) as { summary?: string; author?: string } : {};
-      sendJson(res, 200, STORE.publishCurrentProfile(payload.summary, payload.author));
-      return;
-    } catch {
-      sendProblem(res, 400, {
-        title: 'Malformed request',
-        detail: 'Request body is not valid JSON',
-        instance: url.pathname,
-        code: 'invalid_request',
-      });
-      return;
-    }
+    const payload =
+      (await parseJsonBody<{ summary?: string; author?: string }>(req, res, url.pathname, { required: false })) || {};
+    sendJson(res, 200, STORE.publishCurrentProfile(payload.summary, payload.author));
   }
 
   if (url.pathname === ROLLBACK_PATH && req.method === 'POST') {
     const authInfo = await requireAdmin(req, res, url.pathname);
     if (!authInfo) return;
+    const payload = await parseJsonBody<{ id?: string }>(req, res, url.pathname);
+    if (!payload) return;
+    if (!payload.id) {
+      sendProblem(res, 400, {
+        title: 'Validation failed',
+        detail: 'id is required',
+        instance: url.pathname,
+        code: 'missing_id',
+      });
+      return;
+    }
     try {
-      const raw = await readBody(req);
-      const payload = JSON.parse(raw) as { id?: string };
-      if (!payload.id) {
-        sendProblem(res, 400, {
-          title: 'Validation failed',
-          detail: 'id is required',
-          instance: url.pathname,
-          code: 'missing_id',
-        });
-        return;
-      }
       const updated = STORE.rollbackVersion(payload.id);
       const origin = getOrigin(req);
       updated.publicUrl = `${origin}${SUBSCRIPTION_PATH}?token=${new URL(updated.publicUrl).searchParams.get('token')}`;
       sendJson(res, 200, updated);
-      return;
     } catch (error) {
       sendProblem(res, 400, {
         title: 'Rollback failed',
@@ -693,7 +704,6 @@ const subscriptionHandler = async (req: IncomingMessage, res: ServerResponse, ne
         instance: url.pathname,
         code: 'rollback_failed',
       });
-      return;
     }
   }
 
@@ -702,51 +712,40 @@ const subscriptionHandler = async (req: IncomingMessage, res: ServerResponse, ne
     if (!authInfo) {
       return;
     }
-    try {
-      const raw = await readBody(req);
-      const payload = JSON.parse(raw) as {
-        sub?: string;
-        name?: string;
-        email?: string;
-        preferred_username?: string;
-        picture?: string;
-      };
-      if (!payload.sub || !payload.sub.trim()) {
-        sendProblem(res, 400, {
-          title: 'Validation failed',
-          detail: 'sub is required',
-          instance: url.pathname,
-          code: 'missing_sub',
-        });
-        return;
-      }
-      if (payload.sub !== authInfo.sub) {
-        sendProblem(res, 403, {
-          title: 'Forbidden',
-          detail: 'Token sub does not match payload',
-          instance: url.pathname,
-          code: 'forbidden',
-        });
-        return;
-      }
-      STORE.upsertOAuthUser({
-        sub: payload.sub,
-        name: payload.name,
-        email: payload.email,
-        preferred_username: payload.preferred_username,
-        picture: payload.picture,
-      });
-      sendJson(res, 200, { success: true });
-      return;
-    } catch {
+    const payload = await parseJsonBody<{
+      sub?: string;
+      name?: string;
+      email?: string;
+      preferred_username?: string;
+      picture?: string;
+    }>(req, res, url.pathname);
+    if (!payload) return;
+    if (!payload.sub || !payload.sub.trim()) {
       sendProblem(res, 400, {
-        title: 'Malformed request',
-        detail: 'Request body is not valid JSON',
+        title: 'Validation failed',
+        detail: 'sub is required',
         instance: url.pathname,
-        code: 'invalid_request',
+        code: 'missing_sub',
       });
       return;
     }
+    if (payload.sub !== authInfo.sub) {
+      sendProblem(res, 403, {
+        title: 'Forbidden',
+        detail: 'Token sub does not match payload',
+        instance: url.pathname,
+        code: 'forbidden',
+      });
+      return;
+    }
+    STORE.upsertOAuthUser({
+      sub: payload.sub,
+      name: payload.name,
+      email: payload.email,
+      preferred_username: payload.preferred_username,
+      picture: payload.picture,
+    });
+    sendJson(res, 200, { success: true });
   }
 
   if (url.pathname === USERS_PATH && req.method === 'GET') {
@@ -863,37 +862,38 @@ const subscriptionHandler = async (req: IncomingMessage, res: ServerResponse, ne
   }
 
   if (url.pathname === CLIENT_CONNECT_REPORT_PATH && req.method === 'POST') {
-    try {
-      const authInfo = await requireAuth(req, res, url.pathname);
-      if (!authInfo) return;
+    const authInfo = await requireAuth(req, res, url.pathname);
+    if (!authInfo) return;
 
-      const raw = await readBody(req);
-      const payload = JSON.parse(raw) as {
-        occurredAt?: string;
-        connected?: boolean;
-        networkType?: string;
-        device?: {
-          id?: string;
-          name?: string;
-          model?: string;
-          osName?: string;
-          osVersion?: string;
-          appVersion?: string;
-          ip?: string;
-          location?: string;
-        };
-        metadata?: Record<string, unknown>;
+    const payload = await parseJsonBody<{
+      occurredAt?: string;
+      connected?: boolean;
+      networkType?: string;
+      device?: {
+        id?: string;
+        name?: string;
+        model?: string;
+        osName?: string;
+        osVersion?: string;
+        appVersion?: string;
+        ip?: string;
+        location?: string;
       };
-      if (payload.device && (!payload.device.id || !payload.device.id.trim())) {
-        sendProblem(res, 400, {
-          title: 'Validation failed',
-          detail: 'device.id must be a non-empty string when device is provided',
-          instance: url.pathname,
-          code: 'invalid_device_id',
-        });
-        return;
-      }
+      metadata?: Record<string, unknown>;
+    }>(req, res, url.pathname);
+    if (!payload) return;
 
+    if (payload.device && (!payload.device.id || !payload.device.id.trim())) {
+      sendProblem(res, 400, {
+        title: 'Validation failed',
+        detail: 'device.id must be a non-empty string when device is provided',
+        instance: url.pathname,
+        code: 'invalid_device_id',
+      });
+      return;
+    }
+
+    try {
       const updated = STORE.ingestClientDeviceReport(authInfo.sub, {
         occurredAt: payload.occurredAt,
         connected: payload.connected,
@@ -914,7 +914,6 @@ const subscriptionHandler = async (req: IncomingMessage, res: ServerResponse, ne
         metadata: payload.metadata,
       });
       sendJson(res, 200, { success: true, user: updated });
-      return;
     } catch (error) {
       sendProblem(res, 400, {
         title: 'Connect report rejected',
@@ -922,52 +921,51 @@ const subscriptionHandler = async (req: IncomingMessage, res: ServerResponse, ne
         instance: url.pathname,
         code: 'connect_report_invalid',
       });
-      return;
     }
   }
 
   if (url.pathname === CLIENT_CONNECTIONS_REPORT_PATH && req.method === 'POST') {
-    try {
-      const authInfo = await requireAuth(req, res, url.pathname);
-      if (!authInfo) return;
+    const authInfo = await requireAuth(req, res, url.pathname);
+    if (!authInfo) return;
 
-      const raw = await readBody(req);
-      const payload = JSON.parse(raw) as {
-        occurredAt?: string;
-        connected?: boolean;
-        target?: string;
-        outboundType?: string;
-        latencyMs?: number;
-        error?: string;
-        networkType?: string;
-        requestCount?: number;
-        successCount?: number;
-        blockedCount?: number;
-        uploadBytes?: number;
-        downloadBytes?: number;
-        device?: {
-          id?: string;
-          name?: string;
-          model?: string;
-          osName?: string;
-          osVersion?: string;
-          appVersion?: string;
-          ip?: string;
-          location?: string;
-        };
-        metadata?: Record<string, unknown>;
+    const payload = await parseJsonBody<{
+      occurredAt?: string;
+      connected?: boolean;
+      target?: string;
+      outboundType?: string;
+      latencyMs?: number;
+      error?: string;
+      networkType?: string;
+      requestCount?: number;
+      successCount?: number;
+      blockedCount?: number;
+      uploadBytes?: number;
+      downloadBytes?: number;
+      device?: {
+        id?: string;
+        name?: string;
+        model?: string;
+        osName?: string;
+        osVersion?: string;
+        appVersion?: string;
+        ip?: string;
+        location?: string;
       };
+      metadata?: Record<string, unknown>;
+    }>(req, res, url.pathname);
+    if (!payload) return;
 
-      if (payload.device && (!payload.device.id || !payload.device.id.trim())) {
-        sendProblem(res, 400, {
-          title: 'Validation failed',
-          detail: 'device.id must be a non-empty string when device is provided',
-          instance: url.pathname,
-          code: 'invalid_device_id',
-        });
-        return;
-      }
+    if (payload.device && (!payload.device.id || !payload.device.id.trim())) {
+      sendProblem(res, 400, {
+        title: 'Validation failed',
+        detail: 'device.id must be a non-empty string when device is provided',
+        instance: url.pathname,
+        code: 'invalid_device_id',
+      });
+      return;
+    }
 
+    try {
       STORE.ingestClientConnectionLog(authInfo.sub, {
         occurredAt: payload.occurredAt,
         connected: payload.connected,
@@ -999,7 +997,6 @@ const subscriptionHandler = async (req: IncomingMessage, res: ServerResponse, ne
         metadata: payload.metadata,
       });
       sendJson(res, 200, { success: true, received: true });
-      return;
     } catch (error) {
       sendProblem(res, 400, {
         title: 'Connection log rejected',
@@ -1007,7 +1004,6 @@ const subscriptionHandler = async (req: IncomingMessage, res: ServerResponse, ne
         instance: url.pathname,
         code: 'connection_log_invalid',
       });
-      return;
     }
   }
 
@@ -1039,33 +1035,32 @@ const subscriptionHandler = async (req: IncomingMessage, res: ServerResponse, ne
   }
 
   if (url.pathname.startsWith(`${USERS_PATH}/`) && req.method === 'PATCH') {
+    const id = safeParseId(url.pathname.slice(USERS_PATH.length + 1));
+    if (!id) {
+      sendProblem(res, 400, {
+        title: 'Validation failed',
+        detail: 'user id is required',
+        instance: url.pathname,
+        code: 'invalid_user_id',
+      });
+      return;
+    }
+    const authInfo = await requireOwnOrAdmin(req, res, url.pathname, id);
+    if (!authInfo) return;
+    const payload = await parseJsonBody<{ displayName?: string }>(req, res, url.pathname);
+    if (!payload) return;
+    if (!payload?.displayName || !payload.displayName.trim()) {
+      sendProblem(res, 400, {
+        title: 'Validation failed',
+        detail: 'displayName is required',
+        instance: url.pathname,
+        code: 'missing_display_name',
+      });
+      return;
+    }
     try {
-      const id = safeParseId(url.pathname.slice(USERS_PATH.length + 1));
-      if (!id) {
-        sendProblem(res, 400, {
-          title: 'Validation failed',
-          detail: 'user id is required',
-          instance: url.pathname,
-          code: 'invalid_user_id',
-        });
-        return;
-      }
-      const authInfo = await requireOwnOrAdmin(req, res, url.pathname, id);
-      if (!authInfo) return;
-      const raw = await readBody(req);
-      const payload = JSON.parse(raw) as { displayName?: string };
-      if (!payload?.displayName || !payload.displayName.trim()) {
-        sendProblem(res, 400, {
-          title: 'Validation failed',
-          detail: 'displayName is required',
-          instance: url.pathname,
-          code: 'missing_display_name',
-        });
-        return;
-      }
       const updated = STORE.updateUserDisplayName(id, payload.displayName);
       sendJson(res, 200, updated);
-      return;
     } catch (error) {
       sendProblem(res, 400, {
         title: 'Profile update failed',
@@ -1073,7 +1068,6 @@ const subscriptionHandler = async (req: IncomingMessage, res: ServerResponse, ne
         instance: url.pathname,
         code: 'profile_update_failed',
       });
-      return;
     }
   }
 
