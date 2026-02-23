@@ -119,11 +119,12 @@ const emitAuthInvalidation = (detail: AuthInvalidationDetail) => {
 const fetchJson = async <T>(path: string, init?: RequestInit): Promise<T> => {
   const session = await resolveActiveSession();
   const token = session?.accessToken;
+  const tokenType = (session?.tokenType || 'Bearer').toLowerCase() === 'bearer' ? 'Bearer' : session?.tokenType || 'Bearer';
   const initHeaders = new Headers(init?.headers ?? {});
   const mergedHeaders = new Headers();
   mergedHeaders.set('Accept', 'application/json');
   if (token) {
-    mergedHeaders.set('Authorization', `Bearer ${token}`);
+    mergedHeaders.set('Authorization', `${tokenType} ${token}`);
   }
   initHeaders.forEach((value, key) => {
     mergedHeaders.set(key, value);
@@ -140,10 +141,35 @@ const fetchJson = async <T>(path: string, init?: RequestInit): Promise<T> => {
       token
     ) {
       const refreshed = await resolveActiveSession();
-      if (refreshed?.accessToken !== token) {
+      if (!refreshed) {
+        clearSession();
+        emitAuthInvalidation({
+          code: parsed.code || 'invalid_access_token',
+          path,
+          status: response.status,
+          detail: parsed.detail,
+        });
+        throw new ApiError(parsed.detail || `Request failed with ${response.status}`, {
+          status: response.status,
+          title: parsed.title,
+          code: parsed.code,
+          instance: parsed.instance,
+          type: parsed.type,
+          errors: parsed.errors,
+        });
+      }
+
+      const hasRefreshedToken = refreshed.accessToken !== token;
+      const hasRefreshedTokenType = hasRefreshedToken
+        ? (refreshed.tokenType || tokenType || 'Bearer')
+        : tokenType;
+      if (hasRefreshedToken) {
         const retryHeaders = new Headers(initHeaders);
         retryHeaders.set('Accept', 'application/json');
-        retryHeaders.set('Authorization', `Bearer ${refreshed?.accessToken}`);
+        retryHeaders.set(
+          'Authorization',
+          `${hasRefreshedTokenType.toLowerCase() === 'bearer' ? 'Bearer' : hasRefreshedTokenType} ${refreshed.accessToken}`,
+        );
         const retryResponse = await fetch(`${API_BASE}${path}`, {
           ...restInit,
           headers: retryHeaders,
@@ -170,13 +196,13 @@ const fetchJson = async <T>(path: string, init?: RequestInit): Promise<T> => {
           errors: retryParsed.errors,
         });
       }
+      clearSession();
       emitAuthInvalidation({
-        code: parsed.code || 'unknown',
+        code: parsed.code || 'invalid_access_token',
         path,
         status: response.status,
         detail: parsed.detail,
       });
-      clearSession();
     }
     throw new ApiError(parsed.detail || `Request failed with ${response.status}`, {
       status: response.status,
