@@ -93,6 +93,7 @@ export type ClientDeviceReportInput = {
     location?: string;
   };
   metadata?: Record<string, unknown>;
+  sourceIp?: string;
 };
 
 export type ClientConnectionLogInput = {
@@ -119,6 +120,7 @@ export type ClientConnectionLogInput = {
     location?: string;
   };
   metadata?: Record<string, unknown>;
+  sourceIp?: string;
 };
 
 export type UserProfileAuditItem = {
@@ -1360,6 +1362,7 @@ export class ConfigStore {
       input.networkType,
       input.connected === true ? occurredAt : null,
       input.metadata,
+      input.sourceIp,
       now,
     );
     return this.getUser(userId);
@@ -1378,6 +1381,7 @@ export class ConfigStore {
       input.networkType,
       input.connected === true ? occurredAt : null,
       input.metadata,
+      input.sourceIp,
       now,
     );
 
@@ -1397,7 +1401,7 @@ export class ConfigStore {
         Number.isFinite(input.latencyMs) ? Number(input.latencyMs) : null,
         input.error?.trim() || null,
         input.networkType?.trim() || null,
-        input.device?.ip?.trim() || null,
+        this.resolveReportedIp(input.device?.ip, input.sourceIp),
         Number.isFinite(input.requestCount) ? Number(input.requestCount) : 0,
         Number.isFinite(input.successCount) ? Number(input.successCount) : 0,
         Number.isFinite(input.blockedCount) ? Number(input.blockedCount) : 0,
@@ -1941,10 +1945,12 @@ export class ConfigStore {
     networkType: string | undefined,
     lastConnectedAt: string | null,
     metadata: Record<string, unknown> | undefined,
+    sourceIp: string | undefined,
     now: string,
   ) {
     if (device?.id?.trim()) {
       const deviceId = device.id.trim();
+      const resolvedIp = this.resolveReportedIp(device.ip, sourceIp);
       const existingDevice = this.db
         .prepare(`SELECT user_id FROM client_devices WHERE user_id = ? AND device_id = ?`)
         .get(userId, deviceId) as { user_id: string } | undefined;
@@ -1963,7 +1969,7 @@ export class ConfigStore {
             device.osName?.trim() || null,
             device.osVersion?.trim() || null,
             device.appVersion?.trim() || null,
-            device.ip?.trim() || null,
+            resolvedIp,
             networkType?.trim() || null,
             device.location?.trim() || null,
             now,
@@ -1988,7 +1994,7 @@ export class ConfigStore {
             device.osName?.trim() || null,
             device.osVersion?.trim() || null,
             device.appVersion?.trim() || null,
-            device.ip?.trim() || null,
+            resolvedIp,
             networkType?.trim() || null,
             device.location?.trim() || null,
             now,
@@ -1998,6 +2004,20 @@ export class ConfigStore {
           );
       }
     }
+  }
+
+  private resolveReportedIp(reportedIp: string | undefined, sourceIp: string | undefined): string | null {
+    const normalize = (value: string | undefined): string => (value || '').trim();
+    const isInvalid = (value: string): boolean =>
+      value === '' ||
+      value === '0.0.0.0' ||
+      value === '::' ||
+      value.toLowerCase() === 'unknown';
+    const reported = normalize(reportedIp);
+    const source = normalize(sourceIp);
+    if (!isInvalid(reported)) return reported;
+    if (!isInvalid(source)) return source;
+    return null;
   }
 }
 

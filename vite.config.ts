@@ -172,6 +172,15 @@ const requestIP = (req: IncomingMessage): string => {
   return req.socket.remoteAddress ?? 'unknown';
 };
 
+const sanitizeReportedIp = (reportedIp: string | undefined, req: IncomingMessage): string | undefined => {
+  const value = (reportedIp || '').trim();
+  if (!value || value === '0.0.0.0' || value === '::' || value.toLowerCase() === 'unknown') {
+    const source = requestIP(req).trim();
+    return source || undefined;
+  }
+  return value;
+};
+
 const tokenSnapshot = (token: string | null) => {
   if (!token) {
     return { present: false };
@@ -769,6 +778,7 @@ const subscriptionHandler = async (req: IncomingMessage, res: ServerResponse, ne
         occurredAt: payload.occurredAt,
         connected: payload.connected,
         networkType: payload.networkType,
+        sourceIp: requestIP(req),
         device: payload.device?.id
           ? {
               id: payload.device.id,
@@ -777,7 +787,7 @@ const subscriptionHandler = async (req: IncomingMessage, res: ServerResponse, ne
               osName: payload.device.osName,
               osVersion: payload.device.osVersion,
               appVersion: payload.device.appVersion,
-              ip: payload.device.ip,
+              ip: sanitizeReportedIp(payload.device.ip, req),
               location: payload.device.location,
             }
           : undefined,
@@ -860,6 +870,7 @@ const subscriptionHandler = async (req: IncomingMessage, res: ServerResponse, ne
         occurredAt: payload.occurredAt,
         connected: payload.connected,
         target: payload.target,
+        sourceIp: requestIP(req),
         outboundType:
           (typeof payload.outboundType === 'string' ? payload.outboundType : undefined) ||
           (typeof payload.metadata?.outbound_type === 'string' ? String(payload.metadata.outbound_type) : undefined),
@@ -879,7 +890,7 @@ const subscriptionHandler = async (req: IncomingMessage, res: ServerResponse, ne
               osName: payload.device.osName,
               osVersion: payload.device.osVersion,
               appVersion: payload.device.appVersion,
-              ip: payload.device.ip,
+              ip: sanitizeReportedIp(payload.device.ip, req),
               location: payload.device.location,
             }
           : undefined,
