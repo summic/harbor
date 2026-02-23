@@ -213,12 +213,27 @@ const getRefreshPayload = async (session: AuthSession): Promise<AuthSession | nu
 export const resolveActiveSession = async (): Promise<Nullable<AuthSession>> => {
   const session = loadSession();
   if (!session) return null;
-  if (!isSessionExpired(session)) return session;
-  if (!session.refreshToken) {
+  const normalizedSession = { ...session };
+  if (!normalizedSession.expiresAt) {
+    const jwtPayload = parseJwtPayload(normalizedSession.accessToken) ??
+      parseJwtPayload(normalizedSession.idToken || '') ??
+      undefined;
+    const jwtExp = typeof jwtPayload?.exp === 'number' ? jwtPayload.exp * 1000 : undefined;
+    if (jwtExp && jwtExp > Date.now()) {
+      normalizedSession.expiresAt = jwtExp;
+      if (normalizedSession.expiresAt !== session.expiresAt) {
+        saveSession(normalizedSession);
+      }
+    }
+  }
+
+  if (!isSessionExpired(normalizedSession)) return normalizedSession;
+
+  if (!normalizedSession.refreshToken) {
     clearSession();
     return null;
   }
-  const refreshed = await getRefreshPayload(session);
+  const refreshed = await getRefreshPayload(normalizedSession);
   if (refreshed) return refreshed;
   clearSession();
   return null;
