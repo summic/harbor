@@ -116,7 +116,7 @@ export const loadSession = (): Nullable<AuthSession> => {
       token_type?: string;
       expires_at?: number;
     };
-    const accessToken = parsed.accessToken || parsed.access_token || parsed.idToken || parsed.id_token;
+    const accessToken = parsed.accessToken || parsed.access_token;
     if (!accessToken) return null;
     const normalized: AuthSession = {
       accessToken,

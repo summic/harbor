@@ -94,7 +94,7 @@ const parseProblemDetail = async (response: Response) => {
 
 const fetchJson = async <T>(path: string, init?: RequestInit): Promise<T> => {
   const session = loadSession();
-  const token = session?.accessToken || session?.idToken;
+  const token = session?.accessToken;
   const initHeaders = new Headers(init?.headers ?? {});
   const mergedHeaders = new Headers();
   mergedHeaders.set('Accept', 'application/json');
