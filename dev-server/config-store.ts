@@ -183,6 +183,7 @@ export type ClientConnectionLogInput = {
   target?: string;
   outboundTag?: string;
   outboundType?: string;
+  isDns?: boolean;
   latencyMs?: number;
   error?: string;
   networkType?: string;
@@ -297,7 +298,7 @@ type QualityObservabilityPayload = {
     totalRequests: number;
     avgSuccessRate: number;
   };
-  topDomains: Array<{ domain: string; count: number; category?: string; policy?: string }>;
+  topDomains: Array<{ domain: string; count: number; category?: 'dns' | 'app'; policy?: string }>;
   failureReasons: Array<{ code: string; count: number; ratio: number }>;
 };
 
@@ -395,6 +396,8 @@ export class ConfigStore {
     this.migrateClientConnectTelemetryV1();
     this.migrateClientConnectTelemetryV2();
     this.migrateClientConnectTelemetryV3();
+    this.migrateClientConnectTelemetryV4();
+    this.migrateClientConnectTelemetryV5();
     this.migrateUserProfileAuditsV1();
     this.migrateApiRequestLogsV1();
     this.migrateImportSingboxConfigFromFile();
@@ -430,6 +433,7 @@ export class ConfigStore {
         target TEXT,
         outbound_tag TEXT,
         outbound_type TEXT,
+        is_dns INTEGER,
         latency_ms INTEGER,
         error_message TEXT,
         network_type TEXT,
@@ -480,6 +484,42 @@ export class ConfigStore {
       )
       WHERE (outbound_tag IS NULL OR outbound_tag = '')
         AND metadata_json IS NOT NULL
+    `);
+    this.markMigrationApplied(migrationId);
+  }
+
+  private migrateClientConnectTelemetryV4() {
+    const migrationId = '20260303_client_connect_telemetry_v4_is_dns';
+    if (this.isMigrationApplied(migrationId)) return;
+    const columns = this.db.prepare(`PRAGMA table_info(client_connect_logs)`).all() as Array<{ name: string }>;
+    const names = new Set(columns.map((item) => item.name));
+    if (!names.has('is_dns')) {
+      this.db.exec(`ALTER TABLE client_connect_logs ADD COLUMN is_dns INTEGER`);
+    }
+    this.db.exec(`
+      UPDATE client_connect_logs
+      SET is_dns = CASE
+        WHEN lower(COALESCE(outbound_type, json_extract(metadata_json, '$.outbound_type'), '')) = 'dns' THEN 1
+        WHEN lower(COALESCE(outbound_tag, json_extract(metadata_json, '$.outbound'), json_extract(metadata_json, '$.outbound_tag'), '')) = 'dns-out' THEN 1
+        WHEN lower(COALESCE(json_extract(metadata_json, '$.is_dns'), '')) IN ('1', 'true', 'yes') THEN 1
+        ELSE NULL
+      END
+      WHERE is_dns IS NULL
+    `);
+    this.markMigrationApplied(migrationId);
+  }
+
+  private migrateClientConnectTelemetryV5() {
+    const migrationId = '20260303_client_connect_telemetry_v5_is_dns_cleanup';
+    if (this.isMigrationApplied(migrationId)) return;
+    this.db.exec(`
+      UPDATE client_connect_logs
+      SET is_dns = NULL
+      WHERE is_dns = 0
+        AND (
+          metadata_json IS NULL
+          OR json_extract(metadata_json, '$.is_dns') IS NULL
+        )
     `);
     this.markMigrationApplied(migrationId);
   }
@@ -1652,9 +1692,9 @@ export class ConfigStore {
     this.db
       .prepare(
         `INSERT INTO client_connect_logs(
-          user_id, device_id, connected, target, outbound_tag, outbound_type, latency_ms, error_message, network_type, ip,
+          user_id, device_id, connected, target, outbound_tag, outbound_type, is_dns, latency_ms, error_message, network_type, ip,
           request_count, success_count, blocked_count, upload_bytes, download_bytes, occurred_at, metadata_json
-        ) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        ) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         userId,
@@ -1663,6 +1703,7 @@ export class ConfigStore {
         this.targetFromConnectionInput(input),
         input.outboundTag?.trim() || null,
         input.outboundType?.trim() || null,
+        this.normalizeIsDnsFromInput(input),
         Number.isFinite(input.latencyMs) ? Number(input.latencyMs) : null,
         input.error?.trim() || null,
         input.networkType?.trim() || null,
@@ -1754,6 +1795,95 @@ export class ConfigStore {
     return false;
   }
 
+  private parseEndpointPort(value: string | null | undefined): number | undefined {
+    const raw = (value || '').trim();
+    if (!raw) return undefined;
+    if (raw.startsWith('[')) {
+      const bracketEnd = raw.indexOf(']');
+      if (bracketEnd > -1 && raw.length > bracketEnd + 2 && raw[bracketEnd + 1] === ':') {
+        const port = Number(raw.slice(bracketEnd + 2));
+        return Number.isFinite(port) ? port : undefined;
+      }
+      return undefined;
+    }
+    const idx = raw.lastIndexOf(':');
+    if (idx <= 0 || idx >= raw.length - 1) return undefined;
+    const port = Number(raw.slice(idx + 1));
+    return Number.isFinite(port) ? port : undefined;
+  }
+
+  private extractHost(value: string | null | undefined): string {
+    const normalized = this.normalizeTargetDomain(value || '');
+    return normalized.toLowerCase();
+  }
+
+  private collectDnsResolverHosts(): Set<string> {
+    const profile = this.compileProfile(DEFAULT_USER_ID) as JsonObject;
+    const dns = (profile.dns || {}) as JsonObject;
+    const servers = Array.isArray(dns.servers) ? dns.servers : [];
+    const hosts = new Set<string>();
+    for (const server of servers) {
+      const item = (server || {}) as JsonObject;
+      const address = String(item.address || item.server || '').trim();
+      if (!address) continue;
+      try {
+        if (address.includes('://')) {
+          const url = new URL(address);
+          if (url.hostname) hosts.add(url.hostname.toLowerCase());
+        } else if (address.includes(':')) {
+          const host = address.split(':')[0]?.trim().toLowerCase();
+          if (host) hosts.add(host);
+        } else {
+          hosts.add(address.toLowerCase());
+        }
+      } catch {
+        hosts.add(address.toLowerCase());
+      }
+    }
+    return hosts;
+  }
+
+  private isDnsConnectionRow(input: {
+    target: string | null;
+    outboundType: string;
+    outboundTag: string;
+    isDns: number | null;
+    metadataJson: string | null;
+  }, dnsResolverHosts: Set<string>): boolean {
+    if (input.isDns === 1) return true;
+    if (input.isDns === 0) return false;
+    if (input.outboundType === 'dns') return true;
+    if (input.outboundTag.toLowerCase() === 'dns-out') return true;
+    const targetPort = this.parseEndpointPort(input.target);
+    if (targetPort === 53 || targetPort === 853) return true;
+    const targetHost = this.extractHost(input.target);
+    if (dnsResolverHosts.has(targetHost)) return true;
+    if (!input.metadataJson) return false;
+    try {
+      const metadata = JSON.parse(input.metadataJson) as Record<string, unknown>;
+      const isDnsFlag = String(metadata.is_dns || '').trim().toLowerCase();
+      if (isDnsFlag === '1' || isDnsFlag === 'true' || isDnsFlag === 'yes') return true;
+      const protocol = String(metadata.protocol || '').trim().toLowerCase();
+      if (protocol === 'dns') return true;
+      const mdOutboundType = this.normalizeOutboundType(String(metadata.outbound_type || ''));
+      if (mdOutboundType === 'dns') return true;
+      const mdOutbound = this.normalizeOutboundTag(String(metadata.outbound || metadata.outbound_tag || ''));
+      if (mdOutbound.toLowerCase() === 'dns-out') return true;
+      const destination = String(metadata.destination || '').trim();
+      const source = String(metadata.source || '').trim();
+      const destinationPort = this.parseEndpointPort(destination);
+      const sourcePort = this.parseEndpointPort(source);
+      if (destinationPort === 53 || destinationPort === 853 || sourcePort === 53) return true;
+      const destinationHost = this.extractHost(destination);
+      if (dnsResolverHosts.has(destinationHost)) return true;
+      const rule = String(metadata.rule || '').toLowerCase();
+      if (rule.includes('dns') || rule.includes('hijack-dns')) return true;
+    } catch {
+      // ignore malformed metadata
+    }
+    return false;
+  }
+
   private targetFromConnectionInput(input: ClientConnectionLogInput): string {
     const direct = input.target?.trim();
     const metadata = input.metadata as Record<string, unknown> | undefined;
@@ -1765,6 +1895,20 @@ export class ConfigStore {
     const normalized = this.normalizeTargetDomain(direct);
     if (this.isIpAddressLike(normalized) && metadataTarget) return metadataTarget;
     return direct;
+  }
+
+  private normalizeIsDnsFromInput(input: ClientConnectionLogInput): number | null {
+    if (typeof input.isDns === 'boolean') return input.isDns ? 1 : 0;
+    const metadata = input.metadata as Record<string, unknown> | undefined;
+    const raw = metadata?.is_dns;
+    if (typeof raw === 'boolean') return raw ? 1 : 0;
+    if (typeof raw === 'number') return raw > 0 ? 1 : 0;
+    if (typeof raw === 'string') {
+      const normalized = raw.trim().toLowerCase();
+      if (normalized === '1' || normalized === 'true' || normalized === 'yes') return 1;
+      if (normalized === '0' || normalized === 'false' || normalized === 'no') return 0;
+    }
+    return null;
   }
 
   private isBlockedOutbound(outboundType: string): boolean {
@@ -1831,11 +1975,13 @@ export class ConfigStore {
            target,
            outbound_tag,
            COALESCE(outbound_type, json_extract(metadata_json, '$.outbound_type'), '') AS outbound_type,
+           is_dns,
            error_message,
            latency_ms,
            request_count,
            success_count,
-           blocked_count
+           blocked_count,
+           metadata_json
          FROM client_connect_logs
          WHERE occurred_at >= ?
          ORDER BY occurred_at ASC`,
@@ -1845,14 +1991,22 @@ export class ConfigStore {
       target: string | null;
       outbound_tag: string | null;
       outbound_type: string | null;
+      is_dns: number | null;
       error_message: string | null;
       latency_ms: number | null;
       request_count: number | null;
       success_count: number | null;
       blocked_count: number | null;
+      metadata_json: string | null;
     }>;
 
-    const topDomainMap = new Map<string, { count: number; outboundCounts: Map<string, number> }>();
+    const dnsResolverHosts = this.collectDnsResolverHosts();
+    const topDomainMap = new Map<string, {
+      count: number;
+      outboundCounts: Map<string, number>;
+      dnsCount: number;
+      appCount: number;
+    }>();
     const failureMap = new Map<string, number>();
     let totalRequests = 0;
     let totalSuccess = 0;
@@ -1866,6 +2020,13 @@ export class ConfigStore {
       const outboundType = this.normalizeOutboundType(row.outbound_type);
       const outboundTag = this.normalizeOutboundTag(row.outbound_tag);
       const outboundPolicy = outboundTag || outboundType;
+      const isDns = this.isDnsConnectionRow({
+        target: row.target,
+        outboundType,
+        outboundTag,
+        isDns: row.is_dns,
+        metadataJson: row.metadata_json,
+      }, dnsResolverHosts);
       const target = (row.target || '').trim();
       const hasTarget = !!target && target !== '(unknown)';
       const explicitRequestCount = Number(row.request_count || 0);
@@ -1904,8 +2065,18 @@ export class ConfigStore {
       }
 
       const normalizedTarget = hasTarget ? target : '(unknown)';
-      const targetEntry = topDomainMap.get(normalizedTarget) ?? { count: 0, outboundCounts: new Map<string, number>() };
+      const targetEntry = topDomainMap.get(normalizedTarget) ?? {
+        count: 0,
+        outboundCounts: new Map<string, number>(),
+        dnsCount: 0,
+        appCount: 0,
+      };
       targetEntry.count += requestCount;
+      if (isDns) {
+        targetEntry.dnsCount += requestCount;
+      } else {
+        targetEntry.appCount += requestCount;
+      }
       targetEntry.outboundCounts.set(
         outboundPolicy,
         (targetEntry.outboundCounts.get(outboundPolicy) || 0) + requestCount,
@@ -1952,7 +2123,7 @@ export class ConfigStore {
         return {
           domain,
           count: payload.count,
-          category: dominantOutbound,
+          category: payload.dnsCount >= payload.appCount ? 'dns' : 'app',
           policy: dominantOutbound,
         };
       });

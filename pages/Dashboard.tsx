@@ -127,6 +127,17 @@ export const DashboardPage: React.FC = () => {
   const filteredDomains = useMemo(() => {
     const list = qualityData?.topDomains ?? [];
     return list.filter((item) => {
+      const category = (item.category || '').toLowerCase();
+      if (category === 'dns') {
+        if (domainScope === 'all') return true;
+        return domainScope === 'dns';
+      }
+      if (category === 'app') {
+        if (domainScope === 'all') return true;
+        if (domainScope === 'dns') return false;
+        const { host } = extractHostAndPort(item.domain);
+        return !isVirtualInternalTarget(host);
+      }
       const policy = (item.policy || item.category || 'unknown').toLowerCase();
       const { host, port } = extractHostAndPort(item.domain);
       const dnsLike = policy === 'dns' || port === 53 || host.endsWith('.local');

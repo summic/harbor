@@ -1164,6 +1164,7 @@ const subscriptionHandler = async (req: IncomingMessage, res: ServerResponse, ne
       target?: string;
       outboundTag?: string;
       outboundType?: string;
+      isDns?: boolean;
       latencyMs?: number;
       error?: string;
       networkType?: string;
@@ -1209,6 +1210,12 @@ const subscriptionHandler = async (req: IncomingMessage, res: ServerResponse, ne
         outboundType:
           (typeof payload.outboundType === 'string' ? payload.outboundType : undefined) ||
           (typeof payload.metadata?.outbound_type === 'string' ? String(payload.metadata.outbound_type) : undefined),
+        isDns:
+          typeof payload.isDns === 'boolean'
+            ? payload.isDns
+            : typeof payload.metadata?.is_dns === 'boolean'
+              ? Boolean(payload.metadata.is_dns)
+              : undefined,
         latencyMs: payload.latencyMs,
         error: payload.error,
         networkType: payload.networkType,
