@@ -35,17 +35,31 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const ssoEnabled = oidcConfig.enabled;
   const ssoConfigured = isSsoConfigured();
   const isAdmin = (session?.user?.sub ?? '') === ADMIN_SUB;
-  const invalidateSession = React.useCallback(() => {
+  const invalidateSession = React.useCallback((message = 'Session expired, please sign in again.') => {
     clearSession();
     setSession(null);
-    setError('Session expired, please sign in again.');
+    setError(message);
   }, []);
 
   React.useEffect(() => {
     let cancelled = false;
-    const handleAuthInvalidation = () => {
+    const handleAuthInvalidation = (event: Event) => {
+      const detail = (event as CustomEvent).detail as
+        | {
+            code?: string;
+            path?: string;
+            detail?: string;
+          }
+        | undefined;
+      const code = (detail?.code || '').toLowerCase();
+      const reason =
+        code === 'invalid_access_token'
+          ? `登录令牌无效（${detail?.detail || 'invalid access token'}），请重新登录。`
+          : code === 'missing_bearer_token'
+            ? '未检测到有效登录令牌，请重新登录。'
+            : '认证失败，请重新登录。';
       if (!cancelled) {
-        invalidateSession();
+        invalidateSession(reason);
       }
     };
     window.addEventListener('harbor:auth-invalid', handleAuthInvalidation);

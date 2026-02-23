@@ -104,9 +104,16 @@ const isAuthProblem = (parsed: {
   );
 };
 
-const emitAuthInvalidation = () => {
+type AuthInvalidationDetail = {
+  code: string;
+  path: string;
+  status: number;
+  detail?: string;
+};
+
+const emitAuthInvalidation = (detail: AuthInvalidationDetail) => {
   if (typeof window === 'undefined') return;
-  window.dispatchEvent(new CustomEvent('harbor:auth-invalid'));
+  window.dispatchEvent(new CustomEvent('harbor:auth-invalid', { detail }));
 };
 
 const fetchJson = async <T>(path: string, init?: RequestInit): Promise<T> => {
@@ -146,7 +153,12 @@ const fetchJson = async <T>(path: string, init?: RequestInit): Promise<T> => {
         }
         const retryParsed = await parseProblemDetail(retryResponse);
         if (retryParsed.code) {
-          emitAuthInvalidation();
+          emitAuthInvalidation({
+            code: retryParsed.code,
+            path,
+            status: retryResponse.status,
+            detail: retryParsed.detail,
+          });
           clearSession();
         }
         throw new ApiError(retryParsed.detail || `Request failed with ${retryResponse.status}`, {
@@ -158,7 +170,12 @@ const fetchJson = async <T>(path: string, init?: RequestInit): Promise<T> => {
           errors: retryParsed.errors,
         });
       }
-      emitAuthInvalidation();
+      emitAuthInvalidation({
+        code: parsed.code || 'unknown',
+        path,
+        status: response.status,
+        detail: parsed.detail,
+      });
       clearSession();
     }
     throw new ApiError(parsed.detail || `Request failed with ${response.status}`, {
