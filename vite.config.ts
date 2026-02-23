@@ -772,6 +772,7 @@ const subscriptionHandler = async (req: IncomingMessage, res: ServerResponse, ne
         updated.publicUrl = `${origin}${SUBSCRIPTION_PATH}`;
       }
       sendJson(res, 200, updated);
+      return;
     } catch (error) {
       sendProblem(res, 400, {
         title: 'Validation failed',
@@ -779,6 +780,7 @@ const subscriptionHandler = async (req: IncomingMessage, res: ServerResponse, ne
         instance: url.pathname,
         code: 'invalid_profile',
       });
+      return;
     }
   }
 
@@ -819,6 +821,7 @@ const subscriptionHandler = async (req: IncomingMessage, res: ServerResponse, ne
     }
     STORE.saveRule(payload);
     sendJson(res, 200, { success: true });
+    return;
   }
 
   if (url.pathname === RULES_PATH && req.method === 'DELETE') {
@@ -854,6 +857,7 @@ const subscriptionHandler = async (req: IncomingMessage, res: ServerResponse, ne
       return;
     }
     sendJson(res, 200, STORE.simulateTraffic(payload));
+    return;
   }
 
   if (url.pathname === PROXY_LATENCY_PATH && req.method === 'POST') {
@@ -880,6 +884,7 @@ const subscriptionHandler = async (req: IncomingMessage, res: ServerResponse, ne
       }),
     );
     sendJson(res, 200, results);
+    return;
   }
 
   if (url.pathname === VERSIONS_PATH && req.method === 'GET') {
@@ -895,6 +900,7 @@ const subscriptionHandler = async (req: IncomingMessage, res: ServerResponse, ne
     const payload =
       (await parseJsonBody<{ summary?: string; author?: string }>(req, res, url.pathname, { required: false })) || {};
     sendJson(res, 200, STORE.publishCurrentProfile(payload.summary, payload.author));
+    return;
   }
 
   if (url.pathname === ROLLBACK_PATH && req.method === 'POST') {
@@ -916,6 +922,7 @@ const subscriptionHandler = async (req: IncomingMessage, res: ServerResponse, ne
       const origin = getOrigin(req);
       updated.publicUrl = `${origin}${SUBSCRIPTION_PATH}?token=${new URL(updated.publicUrl).searchParams.get('token')}`;
       sendJson(res, 200, updated);
+      return;
     } catch (error) {
       sendProblem(res, 400, {
         title: 'Rollback failed',
@@ -923,6 +930,7 @@ const subscriptionHandler = async (req: IncomingMessage, res: ServerResponse, ne
         instance: url.pathname,
         code: 'rollback_failed',
       });
+      return;
     }
   }
 
@@ -965,6 +973,7 @@ const subscriptionHandler = async (req: IncomingMessage, res: ServerResponse, ne
       picture: payload.picture,
     });
     sendJson(res, 200, { success: true });
+    return;
   }
 
   if (url.pathname === USERS_PATH && req.method === 'GET') {
@@ -1133,6 +1142,7 @@ const subscriptionHandler = async (req: IncomingMessage, res: ServerResponse, ne
         metadata: payload.metadata,
       });
       sendJson(res, 200, { success: true, user: updated });
+      return;
     } catch (error) {
       sendProblem(res, 400, {
         title: 'Connect report rejected',
@@ -1140,6 +1150,7 @@ const subscriptionHandler = async (req: IncomingMessage, res: ServerResponse, ne
         instance: url.pathname,
         code: 'connect_report_invalid',
       });
+      return;
     }
   }
 
@@ -1216,6 +1227,7 @@ const subscriptionHandler = async (req: IncomingMessage, res: ServerResponse, ne
         metadata: payload.metadata,
       });
       sendJson(res, 200, { success: true, received: true });
+      return;
     } catch (error) {
       sendProblem(res, 400, {
         title: 'Connection log rejected',
@@ -1223,6 +1235,7 @@ const subscriptionHandler = async (req: IncomingMessage, res: ServerResponse, ne
         instance: url.pathname,
         code: 'connection_log_invalid',
       });
+      return;
     }
   }
 
@@ -1280,6 +1293,7 @@ const subscriptionHandler = async (req: IncomingMessage, res: ServerResponse, ne
     try {
       const updated = STORE.updateUserDisplayName(id, payload.displayName);
       sendJson(res, 200, updated);
+      return;
     } catch (error) {
       sendProblem(res, 400, {
         title: 'Profile update failed',
@@ -1287,6 +1301,7 @@ const subscriptionHandler = async (req: IncomingMessage, res: ServerResponse, ne
         instance: url.pathname,
         code: 'profile_update_failed',
       });
+      return;
     }
   }
 
