@@ -156,4 +156,16 @@ describe('ConfigStore persistence hardening', () => {
     expect(afterOutbounds.length).toBe(beforeOutbounds.length);
     expect(afterOutbounds[0]?.payload).toMatchObject({ tag: 'direct' });
   });
+
+  it('rejects invalid global profile structure before writing', () => {
+    const { store, root } = createStore();
+    fixtures.add(root);
+
+    expect(() => store.saveUnifiedProfile('not-json')).toThrow();
+    expect(() => store.saveUnifiedProfile('[]')).toThrow('invalid_profile_root');
+    expect(() => store.saveUnifiedProfile('{\"log\": \"invalid\"}')).toThrow('invalid_profile_log');
+    expect(() => store.saveUnifiedProfile('{\"outbounds\": {\"tag\":1}}')).toThrow('invalid_profile_outbounds');
+    expect(() => store.saveUnifiedProfile('{\"dns\":{\"servers\":\"bad\"}}')).toThrow('invalid_profile_dns_servers');
+    expect(() => store.saveUnifiedProfile('{\"route\":{\"rules\":\"bad\"}}')).toThrow('invalid_profile_route_rules');
+  });
 });

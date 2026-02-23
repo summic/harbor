@@ -28,6 +28,87 @@ const DEFAULT_USER_ID = 'u1';
 
 type JsonObject = Record<string, any>;
 
+const ISO_STRING_TYPE = 'string';
+
+type ProfileSection = Record<string, unknown>;
+
+const asObject = (value: unknown): ProfileSection | null => {
+  return value && typeof value === 'object' && !Array.isArray(value) ? (value as ProfileSection) : null;
+};
+
+const asArray = (value: unknown): unknown[] | null => {
+  return Array.isArray(value) ? value : null;
+};
+
+const validateProfileSection = (name: string, section: unknown, requiredFields: Record<string, string>): void => {
+  const obj = asObject(section);
+  if (!obj) {
+    throw new Error(`invalid_profile_section:${name}`);
+  }
+  for (const [field, expectedType] of Object.entries(requiredFields)) {
+    const value = obj[field];
+    if (value === undefined) continue;
+    const actualType = typeof value;
+    if (actualType !== expectedType) {
+      throw new Error(`invalid_profile_section_type:${name}.${field}`);
+    }
+  }
+};
+
+const validateProfileShape = (profile: unknown): void => {
+  const root = asObject(profile);
+  if (!root) {
+    throw new Error('invalid_profile_root');
+  }
+
+  if (Object.prototype.hasOwnProperty.call(root, 'log') && asObject(root.log) === null) {
+    throw new Error('invalid_profile_log');
+  }
+  if (Object.prototype.hasOwnProperty.call(root, 'ntp') && asObject(root.ntp) === null) {
+    throw new Error('invalid_profile_ntp');
+  }
+  if (Object.prototype.hasOwnProperty.call(root, 'inbounds') && asArray(root.inbounds) === null) {
+    throw new Error('invalid_profile_inbounds');
+  }
+  if (Object.prototype.hasOwnProperty.call(root, 'outbounds') && asArray(root.outbounds) === null) {
+    throw new Error('invalid_profile_outbounds');
+  }
+
+  const dns = asObject(root.dns) ?? null;
+  if (dns) {
+    if (Object.prototype.hasOwnProperty.call(dns, 'servers') && asArray(dns.servers) === null) {
+      throw new Error('invalid_profile_dns_servers');
+    }
+    if (Object.prototype.hasOwnProperty.call(dns, 'rules') && asArray(dns.rules) === null) {
+      throw new Error('invalid_profile_dns_rules');
+    }
+    validateProfileSection('dns', dns, {
+      final: ISO_STRING_TYPE,
+      strategy: ISO_STRING_TYPE,
+      independent_cache: 'boolean',
+      address: ISO_STRING_TYPE,
+      detour: ISO_STRING_TYPE,
+      server_port: 'number',
+      type: ISO_STRING_TYPE,
+    });
+  }
+
+  const route = asObject(root.route) ?? null;
+  if (route) {
+    validateProfileSection('route', route, {
+      final: ISO_STRING_TYPE,
+      auto_detect_interface: 'boolean',
+      default_domain_resolver: ISO_STRING_TYPE,
+    });
+    if (Object.prototype.hasOwnProperty.call(route, 'rule_set') && asArray(route.rule_set) === null) {
+      throw new Error('invalid_profile_route_rule_set');
+    }
+    if (Object.prototype.hasOwnProperty.call(route, 'rules') && asArray(route.rules) === null) {
+      throw new Error('invalid_profile_route_rules');
+    }
+  }
+};
+
 type RuleRow = {
   id: number;
   scope: 'global' | 'user';
@@ -258,8 +339,12 @@ export class ConfigStore {
         priority INTEGER NOT NULL DEFAULT 0,
         enabled INTEGER NOT NULL DEFAULT 1,
         payload_json TEXT NOT NULL,
-        updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        updated_at TEXT NOT NULL DEFAULT (STRFTIME('%Y-%m-%dT%H:%M:%fZ', 'now')),
+        CHECK ((scope = 'global' AND user_id IS NULL) OR (scope = 'user' AND user_id IS NOT NULL)),
+        CHECK (LENGTH(TRIM(module)) > 0)
       );
+      CREATE INDEX IF NOT EXISTS idx_rule_entries_scope_user_module
+        ON rule_entries(scope, user_id, module);
       CREATE TABLE IF NOT EXISTS revisions (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         version TEXT NOT NULL,
@@ -270,7 +355,7 @@ export class ConfigStore {
       );
       CREATE TABLE IF NOT EXISTS schema_migrations (
         id TEXT PRIMARY KEY,
-        applied_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        applied_at TEXT NOT NULL DEFAULT (STRFTIME('%Y-%m-%dT%H:%M:%fZ', 'now'))
       );
     `);
     this.ensureUsersSchema();
@@ -309,6 +394,7 @@ export class ConfigStore {
     this.migrateUserProfileAuditsV1();
     this.migrateApiRequestLogsV1();
     this.migrateImportSingboxConfigFromFile();
+    this.migrateRuleEntryIndexes();
   }
 
   private migrateClientConnectTelemetryV1() {
@@ -405,6 +491,20 @@ export class ConfigStore {
       );
       CREATE INDEX IF NOT EXISTS idx_api_request_logs_path_time
         ON api_request_logs(path, occurred_at DESC);
+    `);
+    this.markMigrationApplied(migrationId);
+  }
+
+  private migrateRuleEntryIndexes() {
+    const migrationId = '20260301_rule_entries_constraints_indexes';
+    if (this.isMigrationApplied(migrationId)) return;
+    this.db.exec(`
+      CREATE INDEX IF NOT EXISTS idx_rule_entries_scope_module
+        ON rule_entries(scope, module);
+      CREATE INDEX IF NOT EXISTS idx_rule_entries_user_module
+        ON rule_entries(user_id, module);
+      CREATE INDEX IF NOT EXISTS idx_rule_entries_updated_at
+        ON rule_entries(updated_at DESC);
     `);
     this.markMigrationApplied(migrationId);
   }
@@ -575,6 +675,7 @@ export class ConfigStore {
     timestamp: string,
   ) {
     void timestamp;
+    validateProfileShape(profile);
     this.withTransaction(() => {
       if (scope == 'global') {
         this.db.prepare(`DELETE FROM rule_entries WHERE scope = 'global'`).run();
@@ -950,7 +1051,7 @@ export class ConfigStore {
       this.db
         .prepare(
           `UPDATE rule_entries
-           SET scope=?, user_id=?, module=?, rule_key=?, priority=?, enabled=?, payload_json=?, updated_at=CURRENT_TIMESTAMP
+           SET scope=?, user_id=?, module=?, rule_key=?, priority=?, enabled=?, payload_json=?, updated_at=(STRFTIME('%Y-%m-%dT%H:%M:%fZ', 'now'))
            WHERE id=?`,
         )
         .run(input.scope, userId, input.module, input.rule_key ?? null, priority, enabled, payload, input.id);
