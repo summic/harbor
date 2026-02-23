@@ -32,6 +32,66 @@ const resolveSubscriptionUrl = () => {
   return `https://beforeve.com${DEFAULT_SUBSCRIPTION_PATH}`;
 };
 
+export class ApiError extends Error {
+  status: number;
+  code?: string;
+  instance?: string;
+  type?: string;
+  title?: string;
+  errors?: Array<{ field?: string; message: string }>;
+
+  constructor(message: string, init: { status: number; title?: string; code?: string; instance?: string; type?: string; errors?: Array<{ field?: string; message: string }> }) {
+    super(message);
+    this.name = 'ApiError';
+    this.status = init.status;
+    this.title = init.title;
+    this.code = init.code;
+    this.instance = init.instance;
+    this.type = init.type;
+    this.errors = init.errors;
+  }
+}
+
+const parseProblemDetail = async (response: Response) => {
+  const contentType = response.headers.get('content-type')?.toLowerCase() ?? '';
+  const rawText = await response.text();
+  if (contentType.includes('application/problem+json') || contentType.includes('application/json')) {
+    try {
+      const parsed = JSON.parse(rawText) as {
+        title?: string;
+        detail?: string;
+        code?: string;
+        instance?: string;
+        type?: string;
+        errors?: Array<{ field?: string; message: string }>;
+      };
+      if (parsed && typeof parsed === 'object') {
+        return {
+          title: typeof parsed.title === 'string' ? parsed.title : 'Request failed',
+          detail: typeof parsed.detail === 'string' ? parsed.detail : rawText || 'Request failed',
+          code: typeof parsed.code === 'string' ? parsed.code : undefined,
+          instance: typeof parsed.instance === 'string' ? parsed.instance : undefined,
+          type: typeof parsed.type === 'string' ? parsed.type : undefined,
+          errors: Array.isArray(parsed.errors) ? parsed.errors : undefined,
+        };
+      }
+    } catch {
+      // fall through
+    }
+  }
+  if (rawText && rawText.trim().startsWith('<')) {
+    const fallback = rawText.replace(/<[^>]*>/g, '').trim().slice(0, 300);
+    return {
+      title: 'Request failed',
+      detail: fallback || `Request failed with ${response.status}`,
+    };
+  }
+  return {
+    title: 'Request failed',
+    detail: rawText || `Request failed with ${response.status}`,
+  };
+};
+
 const fetchJson = async <T>(path: string, init?: RequestInit): Promise<T> => {
   const session = loadSession();
   const token = session?.accessToken || session?.idToken;
@@ -50,8 +110,15 @@ const fetchJson = async <T>(path: string, init?: RequestInit): Promise<T> => {
     headers: mergedHeaders,
   });
   if (!response.ok) {
-    const message = await response.text();
-    throw new Error(message || `Request failed with ${response.status}`);
+    const parsed = await parseProblemDetail(response);
+    throw new ApiError(parsed.detail || `Request failed with ${response.status}`, {
+      status: response.status,
+      title: parsed.title,
+      code: parsed.code,
+      instance: parsed.instance,
+      type: parsed.type,
+      errors: parsed.errors,
+    });
   }
   return response.json() as Promise<T>;
 };

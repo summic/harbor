@@ -26,6 +26,19 @@ const QUALITY_OBSERVABILITY_PATH = '/api/quality/observability';
 const HEALTH_PATH = '/api/v1/health';
 const PROFILE_AUDITS_PATH = '/api/v1/client/profile/audits';
 const ADMIN_SUB = 'deeed4b7-748b-4301-8c9e-dfe0893a80cf';
+const TRUST_PROXY_HEADERS = (process.env.SAIL_TRUST_PROXY_HEADERS || '').trim().toLowerCase() === 'true';
+const TRUSTED_ORIGIN_HOSTS = new Set(
+  (process.env.SAIL_TRUSTED_ORIGINS || 'harbor.beforeve.com,localhost,127.0.0.1')
+    .split(',')
+    .map((item) => item.trim().toLowerCase())
+    .filter(Boolean),
+);
+const ALLOWED_USERINFO_HOSTS = new Set(
+  (process.env.SAIL_ALLOWED_USERINFO_HOSTS || 'auth0.kylith.com,id.kylith.com')
+    .split(',')
+    .map((item) => item.trim().toLowerCase())
+    .filter(Boolean),
+);
 const SUBSCRIBE_TOKEN_COMPAT =
   (process.env.SAIL_SUBSCRIBE_TOKEN_COMPAT || '').trim().toLowerCase() === 'true';
 
@@ -44,10 +57,34 @@ const STORE = new ConfigStore({
   },
 });
 
+const normalizeHeaderHost = (rawHost?: string) => {
+  if (!rawHost) return undefined;
+  const host = rawHost.split(',')[0]?.trim();
+  if (!host) return undefined;
+  const colonIndex = host.lastIndexOf(':');
+  const hostOnly =
+    colonIndex > -1 && !host.startsWith('[') ? host.slice(0, colonIndex).toLowerCase() : host.toLowerCase();
+  if (!TRUSTED_ORIGIN_HOSTS.has(hostOnly)) {
+    return undefined;
+  }
+  return host;
+};
+
+const getRequestProto = (req: IncomingMessage) => {
+  if (TRUST_PROXY_HEADERS) {
+    const proto = req.headers['x-forwarded-proto'];
+    if (typeof proto === 'string' && /^(https?|wss?)$/i.test(proto.trim())) {
+      return proto.trim().toLowerCase();
+    }
+  }
+  return 'http';
+};
+
 const getOrigin = (req: IncomingMessage) => {
-  const host = req.headers.host ?? 'localhost:5173';
-  const proto = (req.headers['x-forwarded-proto'] as string | undefined) ?? 'http';
-  return `${proto}://${host}`;
+  const host =
+    normalizeHeaderHost(req.headers.host) ??
+    '127.0.0.1:5173';
+  return `${getRequestProto(req)}://${host}`;
 };
 
 const readBody = async (req: IncomingMessage): Promise<string> =>
@@ -132,24 +169,96 @@ const parseJwtPayload = (token: string): Record<string, unknown> | null => {
   }
 };
 
-const isTrustedIssuer = (issuer: string): boolean => {
-  try {
-    const host = new URL(issuer).hostname.toLowerCase();
-    return host === 'auth0.kylith.com' || host === 'id.kylith.com' || host.endsWith('.kylith.com');
-  } catch {
-    return false;
-  }
+const buildUserInfoCandidates = (): string[] => {
+  const candidates = [...ENV_USERINFO_URLS, ...DEFAULT_USERINFO_URLS];
+  return Array.from(new Set(candidates.filter((candidate) => {
+    try {
+      const url = new URL(candidate);
+      const host = url.hostname.toLowerCase();
+      return (
+        ['http:', 'https:'].includes(url.protocol) &&
+        (ALLOWED_USERINFO_HOSTS.has(host) || host.endsWith('.kylith.com'))
+      );
+    } catch {
+      return false;
+    }
+  })));
 };
 
-const buildUserInfoCandidates = (accessToken: string): string[] => {
-  const candidates = [...ENV_USERINFO_URLS, ...DEFAULT_USERINFO_URLS];
-  const payload = parseJwtPayload(accessToken);
-  const issuer = typeof payload?.iss === 'string' ? payload.iss.trim() : '';
-  if (issuer) {
-    const normalizedIssuer = issuer.replace(/\/+$/, '');
-    candidates.unshift(`${normalizedIssuer}/userinfo`, `${normalizedIssuer}/oauth2/userinfo`);
+const normalizeAuthHeader = (value: string | string[] | undefined): string | undefined => {
+  if (!value) return undefined;
+  const raw = Array.isArray(value) ? value[0] : value;
+  const trimmed = raw.trim();
+  return trimmed ? trimmed : undefined;
+};
+
+const requestIP = (req: IncomingMessage): string => {
+  const directIp = req.socket.remoteAddress?.trim();
+  if (TRUST_PROXY_HEADERS) {
+    const forwarded = normalizeAuthHeader(req.headers['x-forwarded-for']);
+    if (forwarded) {
+      return forwarded.split(',')[0].trim();
+    }
+    const realIp = normalizeAuthHeader(req.headers['x-real-ip'] as string | undefined);
+    if (realIp) {
+      return realIp;
+    }
   }
-  return Array.from(new Set(candidates));
+  return directIp || 'unknown';
+};
+
+const isAllowedUserSub = (sub: string, expectedSub: string | undefined) => {
+  if (!expectedSub) return false;
+  return sub === expectedSub;
+};
+
+const isAdminSub = (sub: string) => sub === ADMIN_SUB;
+
+const requireAuth = async (
+  req: IncomingMessage,
+  res: ServerResponse,
+  pathname: string,
+): Promise<AuthInfo | null> => {
+  const accessToken = extractBearerToken(req);
+  if (!accessToken) {
+    sendProblem(res, 401, {
+      title: 'Authentication failed',
+      detail: 'Bearer token is required',
+      instance: pathname,
+      code: 'missing_bearer_token',
+    });
+    return null;
+  }
+  const authInfo = await fetchAuthInfo(accessToken);
+  if (!authInfo?.sub) {
+    sendProblem(res, 401, {
+      title: 'Authentication failed',
+      detail: 'Invalid access token',
+      instance: pathname,
+      code: 'invalid_access_token',
+    });
+    return null;
+  }
+  return authInfo;
+};
+
+const requireAdmin = async (
+  req: IncomingMessage,
+  res: ServerResponse,
+  pathname: string,
+): Promise<AuthInfo | null> => {
+  const authInfo = await requireAuth(req, res, pathname);
+  if (!authInfo) return null;
+  if (!isAdminSub(authInfo.sub)) {
+    sendProblem(res, 403, {
+      title: 'Forbidden',
+      detail: 'Admin scope required',
+      instance: pathname,
+      code: 'forbidden',
+    });
+    return null;
+  }
+  return authInfo;
 };
 
 const extractBearerToken = (req: IncomingMessage): string | null => {
@@ -159,17 +268,6 @@ const extractBearerToken = (req: IncomingMessage): string | null => {
   if (!scheme || !value || scheme.toLowerCase() !== 'bearer') return null;
   const token = value.trim();
   return token ? token : null;
-};
-
-const requestIP = (req: IncomingMessage): string => {
-  const forwarded = req.headers['x-forwarded-for'];
-  if (typeof forwarded === 'string' && forwarded.trim()) {
-    return forwarded.split(',')[0].trim();
-  }
-  if (Array.isArray(forwarded) && forwarded.length > 0) {
-    return forwarded[0];
-  }
-  return req.socket.remoteAddress ?? 'unknown';
 };
 
 const sanitizeReportedIp = (reportedIp: string | undefined, req: IncomingMessage): string | undefined => {
@@ -242,7 +340,7 @@ const fetchAuthInfo = async (accessToken: string): Promise<AuthInfo | null> => {
   if (cached && cached.expiresAt > Date.now()) {
     return { sub: cached.sub };
   }
-  const candidates = buildUserInfoCandidates(accessToken);
+  const candidates = buildUserInfoCandidates();
   for (const userInfoURL of candidates) {
     try {
       const response = await fetch(userInfoURL, {
@@ -262,18 +360,39 @@ const fetchAuthInfo = async (accessToken: string): Promise<AuthInfo | null> => {
       continue;
     }
   }
-  // Compatibility fallback: some issued access tokens may not be accepted by userinfo,
-  // but still carry sub/iss claims we can use for telemetry attribution.
-  const jwtPayload = parseJwtPayload(accessToken);
-  const sub = typeof jwtPayload?.sub === 'string' ? jwtPayload.sub.trim() : '';
-  const iss = typeof jwtPayload?.iss === 'string' ? jwtPayload.iss.trim() : '';
-  const exp = typeof jwtPayload?.exp === 'number' ? jwtPayload.exp : null;
-  const isExpired = typeof exp === 'number' ? Date.now() >= exp * 1000 : false;
-  if (sub && iss && !isExpired && isTrustedIssuer(iss)) {
-    tokenSubCache.set(accessToken, { sub, expiresAt: Date.now() + TOKEN_SUB_CACHE_TTL_MS });
-    return { sub };
-  }
   return null;
+};
+
+const requireOwnOrAdmin = async (
+  req: IncomingMessage,
+  res: ServerResponse,
+  pathname: string,
+  targetSub: string,
+): Promise<AuthInfo | null> => {
+  const authInfo = await requireAuth(req, res, pathname);
+  if (!authInfo) {
+    return null;
+  }
+  if (!isAdminSub(authInfo.sub) && !isAllowedUserSub(authInfo.sub, targetSub)) {
+    sendProblem(res, 403, {
+      title: 'Forbidden',
+      detail: 'You do not have permission to access this resource',
+      instance: pathname,
+      code: 'forbidden',
+    });
+    return null;
+  }
+  return authInfo;
+};
+
+const safeParseId = (raw: string | undefined): string | null => {
+  if (!raw) return null;
+  try {
+    const decoded = decodeURIComponent(raw).trim();
+    return decoded || null;
+  } catch {
+    return null;
+  }
 };
 
 const measureTcpLatency = (host: string, port: number, timeoutMs: number): Promise<number | null> =>
@@ -312,24 +431,8 @@ const subscriptionHandler = async (req: IncomingMessage, res: ServerResponse, ne
   }
 
   if (url.pathname === PROFILE_AUDITS_PATH && req.method === 'GET') {
-    const accessToken = extractBearerToken(req);
-    if (!accessToken) {
-      sendProblem(res, 401, {
-        title: 'Authentication failed',
-        detail: 'Bearer token is required',
-        instance: url.pathname,
-        code: 'missing_bearer_token',
-      });
-      return;
-    }
-    const authInfo = await fetchAuthInfo(accessToken);
-    if (!authInfo?.sub) {
-      sendProblem(res, 401, {
-        title: 'Authentication failed',
-        detail: 'Invalid access token',
-        instance: url.pathname,
-        code: 'invalid_access_token',
-      });
+    const authInfo = await requireAuth(req, res, url.pathname);
+    if (!authInfo) {
       return;
     }
     const limit = Number(url.searchParams.get('limit') ?? '20');
@@ -338,24 +441,8 @@ const subscriptionHandler = async (req: IncomingMessage, res: ServerResponse, ne
   }
 
   if (url.pathname === PROFILE_PATH && req.method === 'GET') {
-    const accessToken = extractBearerToken(req);
-    if (!accessToken) {
-      sendProblem(res, 401, {
-        title: 'Authentication failed',
-        detail: 'Bearer token is required',
-        instance: url.pathname,
-        code: 'missing_bearer_token',
-      });
-      return;
-    }
-    const authInfo = await fetchAuthInfo(accessToken);
-    if (!authInfo?.sub) {
-      sendProblem(res, 401, {
-        title: 'Authentication failed',
-        detail: 'Invalid access token',
-        instance: url.pathname,
-        code: 'invalid_access_token',
-      });
+    const authInfo = await requireAuth(req, res, url.pathname);
+    if (!authInfo) {
       return;
     }
     const scope = (url.searchParams.get('scope') as 'effective' | 'global' | 'user' | null) || 'effective';
@@ -439,6 +526,8 @@ const subscriptionHandler = async (req: IncomingMessage, res: ServerResponse, ne
   }
 
   if (url.pathname === RULES_PATH && req.method === 'GET') {
+    const authInfo = await requireAdmin(req, res, url.pathname);
+    if (!authInfo) return;
     const scope = url.searchParams.get('scope') as 'global' | 'user' | null;
     const module = url.searchParams.get('module') || undefined;
     const userId = url.searchParams.get('user_id') || undefined;
@@ -449,6 +538,8 @@ const subscriptionHandler = async (req: IncomingMessage, res: ServerResponse, ne
   }
 
   if (url.pathname === RULES_PATH && req.method === 'POST') {
+    const authInfo = await requireAdmin(req, res, url.pathname);
+    if (!authInfo) return;
     try {
       const raw = await readBody(req);
       const payload = JSON.parse(raw) as {
@@ -485,6 +576,8 @@ const subscriptionHandler = async (req: IncomingMessage, res: ServerResponse, ne
   }
 
   if (url.pathname === RULES_PATH && req.method === 'DELETE') {
+    const authInfo = await requireAdmin(req, res, url.pathname);
+    if (!authInfo) return;
     const id = Number(url.searchParams.get('id'));
     if (!Number.isFinite(id)) {
       sendProblem(res, 400, {
@@ -501,6 +594,8 @@ const subscriptionHandler = async (req: IncomingMessage, res: ServerResponse, ne
   }
 
   if (url.pathname === SIMULATE_PATH && req.method === 'POST') {
+    const authInfo = await requireAdmin(req, res, url.pathname);
+    if (!authInfo) return;
     try {
       const raw = await readBody(req);
       const payload = JSON.parse(raw) as { target?: string; protocol?: string; port?: number };
@@ -527,6 +622,8 @@ const subscriptionHandler = async (req: IncomingMessage, res: ServerResponse, ne
   }
 
   if (url.pathname === PROXY_LATENCY_PATH && req.method === 'POST') {
+    const authInfo = await requireAdmin(req, res, url.pathname);
+    if (!authInfo) return;
     try {
       const raw = await readBody(req);
       const payload = JSON.parse(raw) as {
@@ -561,11 +658,15 @@ const subscriptionHandler = async (req: IncomingMessage, res: ServerResponse, ne
   }
 
   if (url.pathname === VERSIONS_PATH && req.method === 'GET') {
+    const authInfo = await requireAdmin(req, res, url.pathname);
+    if (!authInfo) return;
     sendJson(res, 200, STORE.listVersions());
     return;
   }
 
   if (url.pathname === PUBLISH_PATH && req.method === 'POST') {
+    const authInfo = await requireAdmin(req, res, url.pathname);
+    if (!authInfo) return;
     try {
       const raw = await readBody(req);
       const payload = raw ? JSON.parse(raw) as { summary?: string; author?: string } : {};
@@ -583,6 +684,8 @@ const subscriptionHandler = async (req: IncomingMessage, res: ServerResponse, ne
   }
 
   if (url.pathname === ROLLBACK_PATH && req.method === 'POST') {
+    const authInfo = await requireAdmin(req, res, url.pathname);
+    if (!authInfo) return;
     try {
       const raw = await readBody(req);
       const payload = JSON.parse(raw) as { id?: string };
@@ -612,6 +715,10 @@ const subscriptionHandler = async (req: IncomingMessage, res: ServerResponse, ne
   }
 
   if (url.pathname === AUTH_SYNC_USER_PATH && req.method === 'POST') {
+    const authInfo = await requireAuth(req, res, url.pathname);
+    if (!authInfo) {
+      return;
+    }
     try {
       const raw = await readBody(req);
       const payload = JSON.parse(raw) as {
@@ -627,6 +734,15 @@ const subscriptionHandler = async (req: IncomingMessage, res: ServerResponse, ne
           detail: 'sub is required',
           instance: url.pathname,
           code: 'missing_sub',
+        });
+        return;
+      }
+      if (payload.sub !== authInfo.sub) {
+        sendProblem(res, 403, {
+          title: 'Forbidden',
+          detail: 'Token sub does not match payload',
+          instance: url.pathname,
+          code: 'forbidden',
         });
         return;
       }
@@ -651,16 +767,22 @@ const subscriptionHandler = async (req: IncomingMessage, res: ServerResponse, ne
   }
 
   if (url.pathname === USERS_PATH && req.method === 'GET') {
+    const authInfo = await requireAdmin(req, res, url.pathname);
+    if (!authInfo) return;
     sendJson(res, 200, STORE.listUsers());
     return;
   }
 
   if (url.pathname === DASHBOARD_PATH && req.method === 'GET') {
+    const authInfo = await requireAdmin(req, res, url.pathname);
+    if (!authInfo) return;
     sendJson(res, 200, STORE.getDashboardSummary());
     return;
   }
 
   if (url.pathname === FAILED_DOMAINS_PATH && req.method === 'GET') {
+    const authInfo = await requireAdmin(req, res, url.pathname);
+    if (!authInfo) return;
     const window = url.searchParams.get('window') ?? undefined;
     const limitRaw = Number(url.searchParams.get('limit') ?? '20');
     const userId = url.searchParams.get('userId') ?? undefined;
@@ -682,6 +804,8 @@ const subscriptionHandler = async (req: IncomingMessage, res: ServerResponse, ne
     (url.pathname === QUALITY_OBSERVABILITY_PATH || url.pathname === QUALITY_OBSERVABILITY_V1_PATH) &&
     req.method === 'GET'
   ) {
+    const authInfo = await requireAdmin(req, res, url.pathname);
+    if (!authInfo) return;
     const window = url.searchParams.get('window') ?? undefined;
     const topNRaw = Number(url.searchParams.get('topN') ?? '10');
     const bucket = url.searchParams.get('bucket') ?? undefined;
@@ -699,7 +823,18 @@ const subscriptionHandler = async (req: IncomingMessage, res: ServerResponse, ne
 
   const userTargetsListMatch = url.pathname.match(/^\/api\/v1\/users\/([^/]+)\/targets$/);
   if (userTargetsListMatch && req.method === 'GET') {
-    const id = decodeURIComponent(userTargetsListMatch[1]);
+    const id = safeParseId(userTargetsListMatch[1]);
+    if (!id) {
+      sendProblem(res, 400, {
+        title: 'Validation failed',
+        detail: 'user id is required',
+        instance: url.pathname,
+        code: 'invalid_user_id',
+      });
+      return;
+    }
+    const authInfo = await requireOwnOrAdmin(req, res, url.pathname, id);
+    if (!authInfo) return;
     const limitRaw = Number(url.searchParams.get('limit') ?? '100');
     const items = STORE.listUserTargetAggregates(id, limitRaw);
     sendJson(res, 200, items);
@@ -708,8 +843,28 @@ const subscriptionHandler = async (req: IncomingMessage, res: ServerResponse, ne
 
   const userTargetDetailMatch = url.pathname.match(/^\/api\/v1\/users\/([^/]+)\/targets\/(.+)$/);
   if (userTargetDetailMatch && req.method === 'GET') {
-    const id = decodeURIComponent(userTargetDetailMatch[1]);
-    const target = decodeURIComponent(userTargetDetailMatch[2]);
+    const id = safeParseId(userTargetDetailMatch[1]);
+    if (!id) {
+      sendProblem(res, 400, {
+        title: 'Validation failed',
+        detail: 'user id is required',
+        instance: url.pathname,
+        code: 'invalid_user_id',
+      });
+      return;
+    }
+    const authInfo = await requireOwnOrAdmin(req, res, url.pathname, id);
+    if (!authInfo) return;
+    const target = safeParseId(userTargetDetailMatch[2]);
+    if (!target) {
+      sendProblem(res, 400, {
+        title: 'Validation failed',
+        detail: 'target is required',
+        instance: url.pathname,
+        code: 'invalid_target',
+      });
+      return;
+    }
     const detail = STORE.getUserTargetDetail(id, target);
     if (!detail) {
       sendProblem(res, 404, {
@@ -726,26 +881,8 @@ const subscriptionHandler = async (req: IncomingMessage, res: ServerResponse, ne
 
   if (url.pathname === CLIENT_CONNECT_REPORT_PATH && req.method === 'POST') {
     try {
-      const accessToken = extractBearerToken(req);
-      if (!accessToken) {
-        sendProblem(res, 401, {
-          title: 'Authentication failed',
-          detail: 'Bearer token is required',
-          instance: url.pathname,
-          code: 'missing_bearer_token',
-        });
-        return;
-      }
-      const authInfo = await fetchAuthInfo(accessToken);
-      if (!authInfo?.sub) {
-        sendProblem(res, 401, {
-          title: 'Authentication failed',
-          detail: 'Invalid access token',
-          instance: url.pathname,
-          code: 'invalid_access_token',
-        });
-        return;
-      }
+      const authInfo = await requireAuth(req, res, url.pathname);
+      if (!authInfo) return;
 
       const raw = await readBody(req);
       const payload = JSON.parse(raw) as {
@@ -808,26 +945,8 @@ const subscriptionHandler = async (req: IncomingMessage, res: ServerResponse, ne
 
   if (url.pathname === CLIENT_CONNECTIONS_REPORT_PATH && req.method === 'POST') {
     try {
-      const accessToken = extractBearerToken(req);
-      if (!accessToken) {
-        sendProblem(res, 401, {
-          title: 'Authentication failed',
-          detail: 'Bearer token is required',
-          instance: url.pathname,
-          code: 'missing_bearer_token',
-        });
-        return;
-      }
-      const authInfo = await fetchAuthInfo(accessToken);
-      if (!authInfo?.sub) {
-        sendProblem(res, 401, {
-          title: 'Authentication failed',
-          detail: 'Invalid access token',
-          instance: url.pathname,
-          code: 'invalid_access_token',
-        });
-        return;
-      }
+      const authInfo = await requireAuth(req, res, url.pathname);
+      if (!authInfo) return;
 
       const raw = await readBody(req);
       const payload = JSON.parse(raw) as {
@@ -910,7 +1029,18 @@ const subscriptionHandler = async (req: IncomingMessage, res: ServerResponse, ne
   }
 
   if (url.pathname.startsWith(`${USERS_PATH}/`) && req.method === 'GET') {
-    const id = decodeURIComponent(url.pathname.slice(USERS_PATH.length + 1));
+    const id = safeParseId(url.pathname.slice(USERS_PATH.length + 1));
+    if (!id) {
+      sendProblem(res, 400, {
+        title: 'Validation failed',
+        detail: 'user id is required',
+        instance: url.pathname,
+        code: 'invalid_user_id',
+      });
+      return;
+    }
+    const authInfo = await requireOwnOrAdmin(req, res, url.pathname, id);
+    if (!authInfo) return;
     const user = STORE.getUser(id);
     if (!user) {
       sendProblem(res, 404, {
@@ -927,7 +1057,18 @@ const subscriptionHandler = async (req: IncomingMessage, res: ServerResponse, ne
 
   if (url.pathname.startsWith(`${USERS_PATH}/`) && req.method === 'PATCH') {
     try {
-      const id = decodeURIComponent(url.pathname.slice(USERS_PATH.length + 1));
+      const id = safeParseId(url.pathname.slice(USERS_PATH.length + 1));
+      if (!id) {
+        sendProblem(res, 400, {
+          title: 'Validation failed',
+          detail: 'user id is required',
+          instance: url.pathname,
+          code: 'invalid_user_id',
+        });
+        return;
+      }
+      const authInfo = await requireOwnOrAdmin(req, res, url.pathname, id);
+      if (!authInfo) return;
       const raw = await readBody(req);
       const payload = JSON.parse(raw) as { displayName?: string };
       if (!payload?.displayName || !payload.displayName.trim()) {
