@@ -3,10 +3,13 @@ import fs from 'fs';
 import type { IncomingMessage, ServerResponse } from 'http';
 import { defineConfig, loadEnv } from 'vite';
 import react from '@vitejs/plugin-react';
+import { failedDomainStore } from './utils/failed-domain-store';
 
 const SUBSCRIPTION_TOKEN = 'u1-alice-7f8a9d2b';
 const SUBSCRIPTION_PATH = '/api/v1/client/subscribe';
 const PROFILE_PATH = '/api/v1/client/profile';
+const CLIENT_FAILED_DOMAINS_REPORT_PATH = '/api/v1/client/failed_domains';
+const FAILED_DOMAINS_PATH = '/api/v1/failures/domains';
 const PROFILE_STORE_PATH = path.resolve(__dirname, '.local-data', 'unified-profile.json');
 
 const SUBSCRIPTION_PROFILE = {
@@ -203,6 +206,59 @@ const subscriptionHandler = async (req: IncomingMessage, res: ServerResponse, ne
       sendJson(res, 400, { error: 'invalid_request' });
       return;
     }
+  }
+
+  if (url.pathname === CLIENT_FAILED_DOMAINS_REPORT_PATH && req.method === 'POST') {
+    try {
+      const raw = await readBody(req);
+      const payload = JSON.parse(raw) as {
+        occurredAt?: string;
+        domain?: string;
+        outboundTag?: string;
+        outboundType?: string;
+        networkType?: string;
+        reasonLabel?: string;
+        confidence?: number;
+        metadata?: Record<string, unknown>;
+      };
+      if (!payload.domain || !payload.domain.trim()) {
+        sendJson(res, 400, { error: 'missing_domain' });
+        return;
+      }
+      failedDomainStore.ingest({
+        occurredAt: payload.occurredAt,
+        domain: payload.domain,
+        outboundTag: payload.outboundTag,
+        outboundType: payload.outboundType,
+        networkType: payload.networkType,
+        reasonLabel: payload.reasonLabel,
+        confidence: payload.confidence,
+        metadata: payload.metadata,
+      });
+      sendJson(res, 200, { success: true, received: true });
+      return;
+    } catch {
+      sendJson(res, 400, { error: 'invalid_request' });
+      return;
+    }
+  }
+
+  if (url.pathname === FAILED_DOMAINS_PATH && req.method === 'GET') {
+    const window = url.searchParams.get('window') ?? undefined;
+    const limitRaw = Number(url.searchParams.get('limit') ?? '20');
+    const userId = url.searchParams.get('userId') ?? undefined;
+    const outboundType = url.searchParams.get('outboundType') ?? undefined;
+    sendJson(
+      res,
+      200,
+      failedDomainStore.list({
+        window,
+        limit: Number.isFinite(limitRaw) ? limitRaw : 20,
+        userId,
+        outboundType,
+      }),
+    );
+    return;
   }
 
   if (url.pathname !== SUBSCRIPTION_PATH) {
