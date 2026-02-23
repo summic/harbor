@@ -23,6 +23,7 @@ const AUTH_SYNC_USER_PATH = '/api/v1/auth/sync-user';
 const USERS_PATH = '/api/v1/users';
 const CLIENT_CONNECT_REPORT_PATH = '/api/v1/client/connect';
 const CLIENT_CONNECTIONS_REPORT_PATH = '/api/v1/client/connections';
+const CLIENT_FAILED_DOMAINS_REPORT_PATH = '/api/v1/client/failed_domains';
 const DASHBOARD_PATH = '/api/v1/dashboard';
 const FAILED_DOMAINS_PATH = '/api/v1/failures/domains';
 const QUALITY_OBSERVABILITY_V1_PATH = '/api/v1/quality/observability';
@@ -1246,6 +1247,86 @@ const subscriptionHandler = async (req: IncomingMessage, res: ServerResponse, ne
         detail: error instanceof Error ? error.message : 'invalid_request',
         instance: url.pathname,
         code: 'connection_log_invalid',
+      });
+      return;
+    }
+  }
+
+  if (url.pathname === CLIENT_FAILED_DOMAINS_REPORT_PATH && req.method === 'POST') {
+    const authInfo = await requireAuth(req, res, url.pathname);
+    if (!authInfo) return;
+
+    const payload = await parseJsonBody<{
+      occurredAt?: string;
+      domain?: string;
+      outboundTag?: string;
+      outboundType?: string;
+      networkType?: string;
+      reasonLabel?: string;
+      confidence?: number;
+      metadata?: Record<string, unknown>;
+    }>(req, res, url.pathname);
+    if (!payload) return;
+
+    const domain = typeof payload.domain === 'string' ? payload.domain.trim() : '';
+    if (!domain) {
+      sendProblem(res, 400, {
+        title: 'Validation failed',
+        detail: 'domain is required',
+        instance: url.pathname,
+        code: 'missing_domain',
+      });
+      return;
+    }
+
+    const metadata = payload.metadata || {};
+    const reasonFromMetadata =
+      typeof metadata.reason === 'string'
+        ? metadata.reason
+        : typeof metadata.reason_label === 'string'
+          ? metadata.reason_label
+          : undefined;
+    const reasonLabel =
+      (typeof payload.reasonLabel === 'string' ? payload.reasonLabel.trim() : '') ||
+      (reasonFromMetadata?.trim() || '') ||
+      'failed_domain';
+
+    try {
+      STORE.ingestClientConnectionLog(authInfo.sub, {
+        occurredAt: payload.occurredAt,
+        connected: false,
+        target: domain,
+        sourceIp: requestIP(req),
+        outboundTag:
+          (typeof payload.outboundTag === 'string' ? payload.outboundTag : undefined) ||
+          (typeof metadata.outbound === 'string' ? String(metadata.outbound) : undefined) ||
+          (typeof metadata.outbound_tag === 'string' ? String(metadata.outbound_tag) : undefined),
+        outboundType:
+          (typeof payload.outboundType === 'string' ? payload.outboundType : undefined) ||
+          (typeof metadata.outbound_type === 'string' ? String(metadata.outbound_type) : undefined),
+        isDns:
+          reasonLabel.toLowerCase().includes('dns') ||
+          (typeof metadata.is_dns === 'string' ? metadata.is_dns.toLowerCase() === 'true' : metadata.is_dns === true),
+        error: reasonLabel,
+        networkType: payload.networkType,
+        requestCount: 1,
+        successCount: 0,
+        blockedCount: 0,
+        metadata: {
+          ...metadata,
+          source: typeof metadata.source === 'string' ? metadata.source : 'failed_domain_report',
+          reason_label: reasonLabel,
+          confidence: Number.isFinite(payload.confidence) ? Number(payload.confidence) : undefined,
+        },
+      });
+      sendJson(res, 200, { success: true, received: true });
+      return;
+    } catch (error) {
+      sendProblem(res, 400, {
+        title: 'Failed domain report rejected',
+        detail: error instanceof Error ? error.message : 'invalid_request',
+        instance: url.pathname,
+        code: 'failed_domain_report_invalid',
       });
       return;
     }
