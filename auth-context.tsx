@@ -10,7 +10,7 @@ import {
   startLogin,
   updateSessionUser,
 } from './auth';
-import { mockApi } from './api';
+import { ApiError, mockApi } from './api';
 
 type AuthContextValue = {
   loading: boolean;
@@ -40,6 +40,23 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setSession(null);
     setError(message);
   }, []);
+
+  const refreshSessionAfterLogin = React.useCallback(async () => {
+    try {
+      await mockApi.syncCurrentUserFromSession();
+      return true;
+    } catch (error) {
+      if (error instanceof ApiError && error.status === 401) {
+        const message =
+          error.code === 'invalid_access_token'
+            ? `登录令牌无效（${error.message || 'invalid access token'}），请重新登录。`
+            : `认证失败（${error.code || 'authentication_failed'}），请重新登录。`;
+        invalidateSession(message);
+        return false;
+      }
+      return true;
+    }
+  }, [invalidateSession]);
 
   React.useEffect(() => {
     let cancelled = false;
@@ -83,17 +100,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         const callbackSession = await handleAuthCallbackIfPresent();
         if (!cancelled && callbackSession) {
           setSession(callbackSession);
-          try {
-            await mockApi.syncCurrentUserFromSession();
-          } catch {
-            // keep auth flow resilient
-          }
+          await refreshSessionAfterLogin();
         } else if (!cancelled && (callbackSession || existing)) {
-          try {
-            await mockApi.syncCurrentUserFromSession();
-          } catch {
-            // keep auth flow resilient
-          }
+          await refreshSessionAfterLogin();
         }
       } catch (e) {
         if (!cancelled) {
