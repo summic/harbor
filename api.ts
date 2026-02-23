@@ -119,7 +119,10 @@ const emitAuthInvalidation = (detail: AuthInvalidationDetail) => {
 const fetchJson = async <T>(path: string, init?: RequestInit): Promise<T> => {
   const session = await resolveActiveSession();
   const token = session?.accessToken;
-  const tokenType = (session?.tokenType || 'Bearer').toLowerCase() === 'bearer' ? 'Bearer' : session?.tokenType || 'Bearer';
+  const tokenType =
+    (session?.tokenType || 'Bearer').toLowerCase() === 'bearer'
+      ? 'Bearer'
+      : session?.tokenType || 'Bearer';
   const initHeaders = new Headers(init?.headers ?? {});
   const mergedHeaders = new Headers();
   mergedHeaders.set('Accept', 'application/json');
@@ -140,7 +143,7 @@ const fetchJson = async <T>(path: string, init?: RequestInit): Promise<T> => {
       isAuthProblem({ code: parsed.code, status: response.status, detail: parsed.detail }) &&
       token
     ) {
-      const refreshed = await resolveActiveSession();
+      const refreshed = await resolveActiveSession({ forceRefresh: true });
       if (!refreshed) {
         clearSession();
         emitAuthInvalidation({

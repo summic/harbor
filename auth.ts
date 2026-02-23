@@ -210,7 +210,13 @@ const getRefreshPayload = async (session: AuthSession): Promise<AuthSession | nu
   return refreshed;
 };
 
-export const resolveActiveSession = async (): Promise<Nullable<AuthSession>> => {
+type ResolveActiveSessionOptions = {
+  forceRefresh?: boolean;
+};
+
+export const resolveActiveSession = async (
+  options: ResolveActiveSessionOptions = {},
+): Promise<Nullable<AuthSession>> => {
   const session = loadSession();
   if (!session) return null;
   const normalizedSession = { ...session };
@@ -227,7 +233,14 @@ export const resolveActiveSession = async (): Promise<Nullable<AuthSession>> => 
     }
   }
 
-  if (!isSessionExpired(normalizedSession)) return normalizedSession;
+  if (!options.forceRefresh && !isSessionExpired(normalizedSession)) return normalizedSession;
+
+  if (options.forceRefresh && normalizedSession.refreshToken) {
+    const refreshed = await getRefreshPayload(normalizedSession);
+    if (refreshed) return refreshed;
+    clearSession();
+    return null;
+  }
 
   if (!normalizedSession.refreshToken) {
     clearSession();
