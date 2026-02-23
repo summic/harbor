@@ -121,7 +121,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       cancelled = true;
       window.removeEventListener('harbor:auth-invalid', handleAuthInvalidation);
     };
-  }, [ssoEnabled, invalidateSession]);
+  }, [ssoEnabled, invalidateSession, refreshSessionAfterLogin]);
 
   const login = React.useCallback(async () => {
     setError(null);
