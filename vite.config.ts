@@ -43,6 +43,24 @@ const ALLOWED_USERINFO_HOSTS = new Set(
     .map((item) => item.trim().toLowerCase())
     .filter(Boolean),
 );
+const OIDC_INTROSPECTION_URL = (
+  process.env.SAIL_OIDC_INTROSPECTION_URL ||
+  process.env.VITE_OIDC_INTROSPECTION_URL ||
+  process.env.VITE_OAUTH_INTROSPECTION_URL ||
+  ''
+).trim();
+const OIDC_INTROSPECTION_CLIENT_ID = (
+  process.env.SAIL_OIDC_INTROSPECTION_CLIENT_ID ||
+  process.env.VITE_OIDC_INTROSPECTION_CLIENT_ID ||
+  process.env.VITE_OAUTH_CLIENT_ID ||
+  ''
+).trim();
+const OIDC_INTROSPECTION_CLIENT_SECRET = (
+  process.env.SAIL_OIDC_INTROSPECTION_CLIENT_SECRET ||
+  process.env.VITE_OIDC_INTROSPECTION_CLIENT_SECRET ||
+  process.env.VITE_OAUTH_CLIENT_SECRET ||
+  ''
+).trim();
 const STATIC_USERINFO_URLS = [
   'https://auth0.kylith.com/userinfo',
   'https://id.kylith.com/userinfo',
@@ -296,7 +314,103 @@ const buildUserInfoCandidates = (): string[] => {
     } catch {
       return false;
     }
-  })));
+  }))); 
+};
+
+const truncateJsonBody = (rawText: string | undefined): string => {
+  if (!rawText) {
+    return '<empty>';
+  }
+  const normalized = rawText.replace(/\s+/g, ' ').trim();
+  return normalized.length > 400 ? `${normalized.slice(0, 400)}...` : normalized;
+};
+
+const readResponseBodyText = async (response: Response): Promise<string> => {
+  try {
+    return await response.text();
+  } catch {
+    return '<unreadable response body>';
+  }
+};
+
+const fetchUserInfoSub = async (userInfoURL: string, accessToken: string) => {
+  const response = await fetch(userInfoURL, {
+    method: 'GET',
+    headers: {
+      Accept: 'application/json',
+      Authorization: `Bearer ${accessToken}`,
+    },
+  });
+  const rawBody = await readResponseBodyText(response);
+  const bodyText = truncateJsonBody(rawBody);
+  if (!response.ok) {
+    throw new Error(`userinfo ${response.status}: ${bodyText}`);
+  }
+  let payload: { sub?: string } = {};
+  try {
+    payload = JSON.parse(rawBody) as { sub?: string };
+  } catch {
+    throw new Error(`userinfo malformed response: ${bodyText}`);
+  }
+  const sub = typeof payload.sub === 'string' ? payload.sub.trim() : '';
+  return { sub: sub || '', bodyText };
+};
+
+const fetchIntrospectionSub = async (accessToken: string): Promise<{ sub: string; source: 'introspection' } | null> => {
+  if (!OIDC_INTROSPECTION_URL || !accessToken) {
+    return null;
+  }
+
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/x-www-form-urlencoded',
+    Accept: 'application/json',
+  };
+
+  const bodyItems = [
+    ['token_type_hint', 'access_token'],
+    ['token', accessToken],
+  ];
+
+  if (OIDC_INTROSPECTION_CLIENT_ID) {
+    bodyItems.push(['client_id', OIDC_INTROSPECTION_CLIENT_ID]);
+  }
+
+  if (OIDC_INTROSPECTION_CLIENT_SECRET) {
+    const raw = `${OIDC_INTROSPECTION_CLIENT_ID}:${OIDC_INTROSPECTION_CLIENT_SECRET}`;
+    headers.Authorization = `Basic ${Buffer.from(raw).toString('base64')}`;
+  }
+
+  const body = new URLSearchParams(bodyItems).toString();
+  const response = await fetch(OIDC_INTROSPECTION_URL, {
+    method: 'POST',
+    headers,
+    body,
+  });
+  const rawBody = await readResponseBodyText(response);
+  const bodyText = truncateJsonBody(rawBody);
+  if (!response.ok) {
+    throw new Error(`introspection ${response.status}: ${bodyText}`);
+  }
+  let payload: {
+    active?: boolean;
+    sub?: string;
+  } = {};
+  try {
+    payload = JSON.parse(rawBody) as {
+      active?: boolean;
+      sub?: string;
+    };
+  } catch {
+    throw new Error(`introspection malformed response: ${bodyText}`);
+  }
+  if (!payload?.active) {
+    throw new Error(`introspection inactive: ${bodyText}`);
+  }
+  const sub = typeof payload.sub === 'string' ? payload.sub.trim() : '';
+  if (!sub) {
+    throw new Error(`introspection missing sub: ${bodyText}`);
+  }
+  return { sub, source: 'introspection' };
 };
 
 const normalizeAuthHeader = (value: string | string[] | undefined): string | undefined => {
@@ -455,26 +569,42 @@ const fetchAuthInfo = async (accessToken: string): Promise<AuthInfo | null> => {
   if (cached && cached.expiresAt > Date.now()) {
     return { sub: cached.sub };
   }
+
+  const tokenSuffix = accessToken.slice(-6);
+  console.info(`[harbor][auth] check token=...${tokenSuffix} length=${accessToken.length}`);
+
   const candidates = buildUserInfoCandidates();
   for (const userInfoURL of candidates) {
     try {
-      const response = await fetch(userInfoURL, {
-        method: 'GET',
-        headers: {
-          Accept: 'application/json',
-          Authorization: `Bearer ${accessToken}`,
-        },
-      });
-      if (!response.ok) continue;
-      const payload = (await response.json()) as { sub?: string };
-      const sub = typeof payload.sub === 'string' ? payload.sub.trim() : '';
-      if (!sub) continue;
+      const { sub, bodyText } = await fetchUserInfoSub(userInfoURL, accessToken);
+      if (!sub) {
+        console.warn(`[harbor][auth] userinfo success without sub url=${userInfoURL} body=${bodyText}`);
+        continue;
+      }
       tokenSubCache.set(accessToken, { sub, expiresAt: Date.now() + TOKEN_SUB_CACHE_TTL_MS });
+      console.info(`[harbor][auth] userinfo success url=${userInfoURL} sub=${sub}`);
       return { sub };
-    } catch {
-      continue;
+    } catch (error) {
+      console.warn(`[harbor][auth] userinfo failed url=${userInfoURL} reason=${
+        error instanceof Error ? error.message : 'unknown'
+      }`);
     }
   }
+
+  if (OIDC_INTROSPECTION_URL) {
+    try {
+      const introspection = await fetchIntrospectionSub(accessToken);
+      if (introspection?.sub) {
+        const sub = introspection.sub;
+        tokenSubCache.set(accessToken, { sub, expiresAt: Date.now() + TOKEN_SUB_CACHE_TTL_MS });
+        console.info(`[harbor][auth] introspection success sub=${sub}`);
+        return { sub };
+      }
+    } catch (error) {
+      console.warn(`[harbor][auth] introspection failed reason=${error instanceof Error ? error.message : 'unknown'}`);
+    }
+  }
+
   return null;
 };
 
