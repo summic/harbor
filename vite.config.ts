@@ -88,6 +88,8 @@ const getOrigin = (req: IncomingMessage) => {
 };
 
 const MAX_JSON_BODY_BYTES = 256 * 1024;
+const RATE_LIMIT_WINDOW_MS = Number(process.env.SAIL_RATE_LIMIT_WINDOW_MS || 60_000);
+const RATE_LIMIT_MAX_REQUESTS = Number(process.env.SAIL_RATE_LIMIT_MAX_REQUESTS || 300);
 const REQUEST_ID_HEADER = 'x-request-id';
 
 const readBody = async (req: IncomingMessage, maxBytes = MAX_JSON_BODY_BYTES): Promise<string> =>
@@ -192,6 +194,83 @@ const emitRequestSummary = (
     console.warn(message);
   } else {
     console.log(message);
+  }
+};
+
+type ApiRateBucket = {
+  windowStart: number;
+  count: number;
+};
+
+const apiRateLimitBuckets = new Map<string, ApiRateBucket>();
+
+const normalizeRateLimitResult = (value: number, fallback: number) => {
+  if (!Number.isFinite(value) || value <= 0) {
+    return fallback;
+  }
+  return Math.round(value);
+};
+
+const checkApiRateLimit = (req: IncomingMessage, res: ServerResponse, pathname: string): boolean => {
+  const windowMs = normalizeRateLimitResult(RATE_LIMIT_WINDOW_MS, 60_000);
+  const maxRequests = normalizeRateLimitResult(RATE_LIMIT_MAX_REQUESTS, 300);
+  if (!windowMs || !maxRequests) {
+    return true;
+  }
+  const key = `${requestIP(req)}:${pathname}`;
+  const now = Date.now();
+  const windowStart = now - windowMs;
+  const record = apiRateLimitBuckets.get(key);
+  if (!record || record.windowStart <= windowStart) {
+    apiRateLimitBuckets.set(key, { windowStart: now, count: 1 });
+    res.setHeader('X-RateLimit-Limit', String(maxRequests));
+    res.setHeader('X-RateLimit-Remaining', String(maxRequests - 1));
+    res.setHeader('X-RateLimit-Reset', String(now + windowMs));
+    return true;
+  }
+  if (record.count >= maxRequests) {
+    const resetAfterMs = Math.max(1000, record.windowStart + windowMs - now);
+    res.statusCode = 429;
+    res.setHeader('Content-Type', 'application/problem+json; charset=utf-8');
+    res.setHeader('Cache-Control', 'no-store');
+    res.setHeader('Retry-After', String(Math.ceil(resetAfterMs / 1000)));
+    res.setHeader('X-RateLimit-Limit', String(maxRequests));
+    res.setHeader('X-RateLimit-Remaining', '0');
+    res.setHeader('X-RateLimit-Reset', String(record.windowStart + windowMs));
+    res.end(
+      JSON.stringify(
+        {
+          type: 'https://harbor.beforeve.com/problems/rate_limited',
+          title: 'Too Many Requests',
+          status: 429,
+          detail: 'API rate limit exceeded',
+          instance: pathname,
+          code: 'rate_limited',
+          metadata: {
+            windowMs,
+            maxRequests,
+          },
+        },
+        null,
+        2,
+      ),
+    );
+    return false;
+  }
+  record.count += 1;
+  res.setHeader('X-RateLimit-Limit', String(maxRequests));
+  res.setHeader('X-RateLimit-Remaining', String(Math.max(0, maxRequests - record.count)));
+  apiRateLimitBuckets.set(key, record);
+  return true;
+};
+
+const cleanupRateLimitBuckets = () => {
+  const now = Date.now();
+  const windowMs = normalizeRateLimitResult(RATE_LIMIT_WINDOW_MS, 60_000);
+  for (const [key, record] of apiRateLimitBuckets) {
+    if (record.windowStart + windowMs < now) {
+      apiRateLimitBuckets.delete(key);
+    }
   }
 };
 
@@ -526,6 +605,12 @@ const subscriptionHandler = async (req: IncomingMessage, res: ServerResponse, ne
   res.on('finish', () => {
     emitRequestSummary(req, res, requestId, startedAt, route);
   });
+  cleanupRateLimitBuckets();
+  if (url.pathname.startsWith('/api/')) {
+    if (!checkApiRateLimit(req, res, url.pathname)) {
+      return;
+    }
+  }
 
   if (url.pathname === HEALTH_PATH && req.method === 'GET') {
     sendJson(res, 200, {
