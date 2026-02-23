@@ -608,26 +608,35 @@ const subscriptionHandler = async (req: IncomingMessage, res: ServerResponse, ne
       return;
     }
     const scope = (url.searchParams.get('scope') as 'effective' | 'global' | 'user' | null) || 'user';
-    let updated;
-    if (scope === 'global') {
-      if (!isAdminSub(authInfo.sub)) {
-        sendProblem(res, 403, {
-          title: 'Forbidden',
-          detail: 'Admin scope required',
-          instance: url.pathname,
-          code: 'forbidden',
-        });
-        return;
+    try {
+      let updated;
+      if (scope === 'global') {
+        if (!isAdminSub(authInfo.sub)) {
+          sendProblem(res, 403, {
+            title: 'Forbidden',
+            detail: 'Admin scope required',
+            instance: url.pathname,
+            code: 'forbidden',
+          });
+          return;
+        }
+        updated = STORE.saveUnifiedProfile(payload.content, payload.publicUrl);
+      } else {
+        updated = STORE.saveUserUnifiedProfile(authInfo.sub, payload.content);
       }
-      updated = STORE.saveUnifiedProfile(payload.content, payload.publicUrl);
-    } else {
-      updated = STORE.saveUserUnifiedProfile(authInfo.sub, payload.content);
+      const origin = getOrigin(req);
+      if (origin.startsWith('http')) {
+        updated.publicUrl = `${origin}${SUBSCRIPTION_PATH}`;
+      }
+      sendJson(res, 200, updated);
+    } catch (error) {
+      sendProblem(res, 400, {
+        title: 'Validation failed',
+        detail: error instanceof Error ? error.message : 'invalid profile payload',
+        instance: url.pathname,
+        code: 'invalid_profile',
+      });
     }
-    const origin = getOrigin(req);
-    if (origin.startsWith('http')) {
-      updated.publicUrl = `${origin}${SUBSCRIPTION_PATH}`;
-    }
-    sendJson(res, 200, updated);
   }
 
   if (url.pathname === RULES_PATH && req.method === 'GET') {
