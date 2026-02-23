@@ -2117,6 +2117,7 @@ export class ConfigStore {
            upload_bytes,
            download_bytes,
            occurred_at,
+           outbound_tag,
            COALESCE(outbound_type, json_extract(metadata_json, '$.outbound_type'), '') AS outbound_type
          FROM client_connect_logs
          ORDER BY id DESC
@@ -2127,6 +2128,7 @@ export class ConfigStore {
       upload_bytes: number;
       download_bytes: number;
       occurred_at: string;
+      outbound_tag: string | null;
       outbound_type: string | null;
     }>;
 
@@ -2136,7 +2138,9 @@ export class ConfigStore {
       const offset = Math.floor((ts - bucketStarts[0]) / hourMs);
       if (offset < 0 || offset >= 24) continue;
       const outboundType = this.normalizeOutboundType(row.outbound_type);
-      if (outboundType === 'proxy') {
+      const outboundTag = this.normalizeOutboundTag(row.outbound_tag);
+      const outboundPolicy = (outboundTag || outboundType).toLowerCase();
+      if (outboundPolicy !== 'direct') {
         uploadSeries[offset] += Number(row.upload_bytes || 0);
         downloadSeries[offset] += Number(row.download_bytes || 0);
       }
