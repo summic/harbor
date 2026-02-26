@@ -1,14 +1,15 @@
 
-import { DomainRule, ProxyNode, ProxyGroup, RoutingRule, DnsUpstream, HostsEntry, ConfigVersion, UnifiedProfile, User, ProtocolType, TrafficSimulationResult } from './types';
+import { DomainRule, DomainGroup, ProxyNode, ProxyGroup, RoutingRule, DnsUpstream, HostsEntry, ConfigVersion, UnifiedProfile, User, ProtocolType, TrafficSimulationResult, ClientDeviceReportPayload, ClientConnectionReportPayload, UserTargetAggregate, UserTargetDetail, UserProfileAudit, DashboardSummary, CoreSettings, FailedDomainSummary } from './types';
 import { QualityObservability, normalizeObservabilityResponse } from './utils/quality';
-import { loadSession } from './auth';
+import { clearSession, loadSession, resolveActiveSession } from './auth';
 
 const sleep = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL ?? '';
 const RULES_PATH = '/api/v1/rules';
-const QUALITY_MOCK_FALLBACK = import.meta.env.VITE_QUALITY_MOCK_FALLBACK !== 'false';
-const DEFAULT_SUBSCRIPTION_PATH = '/api/v1/client/subscribe?token=u1-alice-7f8a9d2b';
+const QUALITY_MOCK_FALLBACK = import.meta.env.VITE_QUALITY_MOCK_FALLBACK === 'true';
+const QUALITY_OBSERVABILITY_PATH = '/api/v1/quality/observability';
+const DEFAULT_SUBSCRIPTION_PATH = '/api/v1/client/subscribe';
 const SIMULATE_TRAFFIC_PATH = '/api/v1/simulate/traffic';
 const PROXY_LATENCY_PATH = '/api/v1/proxies/latency';
 const VERSIONS_PATH = '/api/v1/client/versions';
@@ -16,6 +17,13 @@ const PUBLISH_PATH = '/api/v1/client/publish';
 const ROLLBACK_PATH = '/api/v1/client/rollback';
 const AUTH_SYNC_USER_PATH = '/api/v1/auth/sync-user';
 const USERS_PATH = '/api/v1/users';
+const CLIENT_CONNECT_REPORT_PATH = '/api/v1/client/connect';
+const CLIENT_CONNECTIONS_REPORT_PATH = '/api/v1/client/connections';
+const DASHBOARD_PATH = '/api/v1/dashboard';
+const FAILED_DOMAINS_PATH = '/api/v1/failures/domains';
+const userTargetsPath = (id: string) => `${USERS_PATH}/${encodeURIComponent(id)}/targets`;
+const userTargetDetailPath = (id: string, target: string) =>
+  `${USERS_PATH}/${encodeURIComponent(id)}/targets/${encodeURIComponent(target)}`;
 
 const resolveSubscriptionUrl = () => {
   if (typeof window !== 'undefined' && window.location?.origin) {
@@ -24,19 +32,189 @@ const resolveSubscriptionUrl = () => {
   return `https://beforeve.com${DEFAULT_SUBSCRIPTION_PATH}`;
 };
 
+export class ApiError extends Error {
+  status: number;
+  code?: string;
+  instance?: string;
+  type?: string;
+  title?: string;
+  errors?: Array<{ field?: string; message: string }>;
+
+  constructor(message: string, init: { status: number; title?: string; code?: string; instance?: string; type?: string; errors?: Array<{ field?: string; message: string }> }) {
+    super(message);
+    this.name = 'ApiError';
+    this.status = init.status;
+    this.title = init.title;
+    this.code = init.code;
+    this.instance = init.instance;
+    this.type = init.type;
+    this.errors = init.errors;
+  }
+}
+
+const parseProblemDetail = async (response: Response) => {
+  const contentType = response.headers.get('content-type')?.toLowerCase() ?? '';
+  const rawText = await response.text();
+  if (contentType.includes('application/problem+json') || contentType.includes('application/json')) {
+    try {
+      const parsed = JSON.parse(rawText) as {
+        title?: string;
+        detail?: string;
+        code?: string;
+        instance?: string;
+        type?: string;
+        errors?: Array<{ field?: string; message: string }>;
+      };
+      if (parsed && typeof parsed === 'object') {
+        return {
+          title: typeof parsed.title === 'string' ? parsed.title : 'Request failed',
+          detail: typeof parsed.detail === 'string' ? parsed.detail : rawText || 'Request failed',
+          code: typeof parsed.code === 'string' ? parsed.code : undefined,
+          instance: typeof parsed.instance === 'string' ? parsed.instance : undefined,
+          type: typeof parsed.type === 'string' ? parsed.type : undefined,
+          errors: Array.isArray(parsed.errors) ? parsed.errors : undefined,
+        };
+      }
+    } catch {
+      // fall through
+    }
+  }
+  if (rawText && rawText.trim().startsWith('<')) {
+    const fallback = rawText.replace(/<[^>]*>/g, '').trim().slice(0, 300);
+    return {
+      title: 'Request failed',
+      detail: fallback || `Request failed with ${response.status}`,
+    };
+  }
+  return {
+    title: 'Request failed',
+    detail: rawText || `Request failed with ${response.status}`,
+  };
+};
+
+const isAuthProblem = (parsed: {
+  code?: string;
+  status?: number;
+  detail?: string;
+}) => {
+  const code = typeof parsed?.code === 'string' ? parsed.code : '';
+  return (
+    parsed?.status === 401 &&
+    (code === 'invalid_access_token' || code === 'missing_bearer_token' || code === 'invalid_token')
+  );
+};
+
+type AuthInvalidationDetail = {
+  code: string;
+  path: string;
+  status: number;
+  detail?: string;
+};
+
+const emitAuthInvalidation = (detail: AuthInvalidationDetail) => {
+  if (typeof window === 'undefined') return;
+  window.dispatchEvent(new CustomEvent('harbor:auth-invalid', { detail }));
+};
+
 const fetchJson = async <T>(path: string, init?: RequestInit): Promise<T> => {
-  const token = loadSession()?.accessToken;
+  const session = await resolveActiveSession();
+  const token = session?.accessToken;
+  const tokenType =
+    (session?.tokenType || 'Bearer').toLowerCase() === 'bearer'
+      ? 'Bearer'
+      : session?.tokenType || 'Bearer';
+  const initHeaders = new Headers(init?.headers ?? {});
+  const mergedHeaders = new Headers();
+  mergedHeaders.set('Accept', 'application/json');
+  if (token) {
+    mergedHeaders.set('Authorization', `${tokenType} ${token}`);
+  }
+  initHeaders.forEach((value, key) => {
+    mergedHeaders.set(key, value);
+  });
+  const { headers: _ignoredHeaders, ...restInit } = init ?? {};
   const response = await fetch(`${API_BASE}${path}`, {
-    headers: {
-      Accept: 'application/json',
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      ...(init?.headers ?? {}),
-    },
-    ...init,
+    ...restInit,
+    headers: mergedHeaders,
   });
   if (!response.ok) {
-    const message = await response.text();
-    throw new Error(message || `Request failed with ${response.status}`);
+    const parsed = await parseProblemDetail(response);
+    if (
+      isAuthProblem({ code: parsed.code, status: response.status, detail: parsed.detail }) &&
+      token
+    ) {
+      const refreshed = await resolveActiveSession({ forceRefresh: true });
+      if (!refreshed) {
+        clearSession();
+        emitAuthInvalidation({
+          code: parsed.code || 'invalid_access_token',
+          path,
+          status: response.status,
+          detail: parsed.detail,
+        });
+        throw new ApiError(parsed.detail || `Request failed with ${response.status}`, {
+          status: response.status,
+          title: parsed.title,
+          code: parsed.code,
+          instance: parsed.instance,
+          type: parsed.type,
+          errors: parsed.errors,
+        });
+      }
+
+      const hasRefreshedToken = refreshed.accessToken !== token;
+      const hasRefreshedTokenType = hasRefreshedToken
+        ? (refreshed.tokenType || tokenType || 'Bearer')
+        : tokenType;
+      if (hasRefreshedToken) {
+        const retryHeaders = new Headers(initHeaders);
+        retryHeaders.set('Accept', 'application/json');
+        retryHeaders.set(
+          'Authorization',
+          `${hasRefreshedTokenType.toLowerCase() === 'bearer' ? 'Bearer' : hasRefreshedTokenType} ${refreshed.accessToken}`,
+        );
+        const retryResponse = await fetch(`${API_BASE}${path}`, {
+          ...restInit,
+          headers: retryHeaders,
+        });
+        if (retryResponse.ok) {
+          return retryResponse.json() as Promise<T>;
+        }
+        const retryParsed = await parseProblemDetail(retryResponse);
+        if (retryParsed.code) {
+          emitAuthInvalidation({
+            code: retryParsed.code,
+            path,
+            status: retryResponse.status,
+            detail: retryParsed.detail,
+          });
+          clearSession();
+        }
+        throw new ApiError(retryParsed.detail || `Request failed with ${retryResponse.status}`, {
+          status: retryResponse.status,
+          title: retryParsed.title,
+          code: retryParsed.code,
+          instance: retryParsed.instance,
+          type: retryParsed.type,
+          errors: retryParsed.errors,
+        });
+      }
+      clearSession();
+      emitAuthInvalidation({
+        code: parsed.code || 'invalid_access_token',
+        path,
+        status: response.status,
+        detail: parsed.detail,
+      });
+    }
+    throw new ApiError(parsed.detail || `Request failed with ${response.status}`, {
+      status: response.status,
+      title: parsed.title,
+      code: parsed.code,
+      instance: parsed.instance,
+      type: parsed.type,
+      errors: parsed.errors,
+    });
   }
   return response.json() as Promise<T>;
 };
@@ -146,16 +324,18 @@ const domainRuleId = (group: string, type: DomainRule['type'], value: string) =>
 
 const domainRuleKeyToField = (type: DomainRule['type']) => {
   switch (type) {
-    case 'exact':
+    case 'domain':
       return 'domain';
-    case 'suffix':
+    case 'domain_suffix':
       return 'domain_suffix';
-    case 'wildcard':
+    case 'domain_keyword':
       return 'domain_keyword';
-    case 'regex':
+    case 'domain_regex':
       return 'domain_regex';
+    case 'ip_cidr':
+      return 'ip_cidr';
     default:
-      return 'domain_suffix';
+      return 'domain';
   }
 };
 
@@ -282,6 +462,94 @@ const loadConfig = async (): Promise<JsonObject> => {
   return parseJsonObject(profile.content);
 };
 
+const listOutboundTags = (config: JsonObject): string[] => {
+  const outbounds = Array.isArray(config.outbounds) ? config.outbounds : [];
+  const tags = outbounds
+    .map((item) => (typeof item?.tag === 'string' ? item.tag : ''))
+    .filter((tag) => !!tag);
+  return [...new Set(tags)].sort((a, b) => a.localeCompare(b));
+};
+
+const toCoreSettings = (config: JsonObject): CoreSettings => {
+  const inbound = Array.isArray(config.inbounds) ? config.inbounds.find((item) => item?.type === 'tun') : undefined;
+  const tunAddressRaw = Array.isArray(inbound?.address)
+    ? inbound.address[0]
+    : inbound?.address ?? inbound?.inet4_address ?? '172.19.0.1/30';
+  return {
+    logDisabled: Boolean(config.log?.disabled),
+    logLevel: (config.log?.level ?? 'info') as CoreSettings['logLevel'],
+    logOutput: String(config.log?.output ?? ''),
+    logTimestamp: config.log?.timestamp !== false,
+    ntpEnabled: config.ntp?.enabled !== false,
+    ntpServer: String(config.ntp?.server ?? 'time.apple.com'),
+    ntpServerPort: Number(config.ntp?.server_port ?? 123),
+    ntpInterval: String(config.ntp?.interval ?? '30m'),
+    ntpDetour: String(config.ntp?.detour ?? 'direct'),
+    ntpDomainResolver: String(config.ntp?.domain_resolver ?? 'dns_direct'),
+    tunTag: String(inbound?.tag ?? 'tun-in'),
+    tunAddress: String(tunAddressRaw ?? '172.19.0.1/30'),
+    tunAutoRoute: inbound?.auto_route !== false,
+    tunStrictRoute: inbound?.strict_route !== false,
+    tunStack: (inbound?.stack ?? 'mixed') as CoreSettings['tunStack'],
+    routeFinal: String(config.route?.final ?? 'proxy'),
+    routeAutoDetectInterface: config.route?.auto_detect_interface !== false,
+    routeDefaultDomainResolver: String(config.route?.default_domain_resolver ?? 'dns_direct'),
+    dnsFinal: String(config.dns?.final ?? 'dns_direct'),
+    dnsIndependentCache: config.dns?.independent_cache !== false,
+    dnsStrategy: (config.dns?.strategy ?? 'prefer_ipv4') as CoreSettings['dnsStrategy'],
+  };
+};
+
+const applyCoreSettings = (config: JsonObject, payload: CoreSettings): JsonObject => {
+  const next = JSON.parse(JSON.stringify(config)) as JsonObject;
+  next.log = {
+    ...(next.log ?? {}),
+    disabled: payload.logDisabled,
+    level: payload.logLevel,
+    output: payload.logOutput,
+    timestamp: payload.logTimestamp,
+  };
+  next.ntp = {
+    ...(next.ntp ?? {}),
+    enabled: payload.ntpEnabled,
+    server: payload.ntpServer,
+    server_port: payload.ntpServerPort,
+    interval: payload.ntpInterval,
+    detour: payload.ntpDetour,
+    domain_resolver: payload.ntpDomainResolver,
+  };
+  const inbounds = Array.isArray(next.inbounds) ? next.inbounds : [];
+  const tunIndex = inbounds.findIndex((item) => item?.type === 'tun');
+  const tunInbound = {
+    ...(tunIndex >= 0 ? inbounds[tunIndex] : {}),
+    type: 'tun',
+    tag: payload.tunTag,
+    auto_route: payload.tunAutoRoute,
+    strict_route: payload.tunStrictRoute,
+    stack: payload.tunStack,
+    address: [payload.tunAddress],
+  };
+  if (tunIndex >= 0) {
+    inbounds[tunIndex] = tunInbound;
+  } else {
+    inbounds.unshift(tunInbound);
+  }
+  next.inbounds = inbounds;
+  next.route = {
+    ...(next.route ?? {}),
+    final: payload.routeFinal,
+    auto_detect_interface: payload.routeAutoDetectInterface,
+    default_domain_resolver: payload.routeDefaultDomainResolver,
+  };
+  next.dns = {
+    ...(next.dns ?? {}),
+    final: payload.dnsFinal,
+    independent_cache: payload.dnsIndependentCache,
+    strategy: payload.dnsStrategy,
+  };
+  return next;
+};
+
 const listModuleRules = async (module: string): Promise<RuleEntryItem[]> => {
   const query = `?scope=global&module=${encodeURIComponent(module)}`;
   const data = await fetchJson<{ items: RuleEntryItem[] }>(`${RULES_PATH}${query}`);
@@ -349,6 +617,20 @@ const collectRouteSetOutbounds = (config: JsonObject): Map<string, string> => {
   return outbounds;
 };
 
+const collectDnsRuleSetServers = (config: JsonObject): Map<string, string> => {
+  const servers = new Map<string, string>();
+  const rules = Array.isArray(config.dns?.rules) ? config.dns.rules : [];
+  for (const rule of rules) {
+    if (!Array.isArray(rule?.rule_set) || typeof rule?.server !== 'string') continue;
+    for (const tag of rule.rule_set) {
+      if (typeof tag === 'string') {
+        servers.set(tag, rule.server);
+      }
+    }
+  }
+  return servers;
+};
+
 const toDomainRules = (config: JsonObject): DomainRule[] => {
   const result: DomainRule[] = [];
   const routeSetOutbounds = collectRouteSetOutbounds(config);
@@ -362,10 +644,11 @@ const toDomainRules = (config: JsonObject): DomainRule[] => {
 
     for (const rule of set.rules) {
       const mappings: Array<{ key: string; type: DomainRule['type'] }> = [
-        { key: 'domain', type: 'exact' },
-        { key: 'domain_suffix', type: 'suffix' },
-        { key: 'domain_keyword', type: 'wildcard' },
-        { key: 'domain_regex', type: 'regex' },
+        { key: 'domain', type: 'domain' },
+        { key: 'domain_suffix', type: 'domain_suffix' },
+        { key: 'domain_keyword', type: 'domain_keyword' },
+        { key: 'domain_regex', type: 'domain_regex' },
+        { key: 'ip_cidr', type: 'ip_cidr' },
       ];
       for (const mapping of mappings) {
         const value = rule?.[mapping.key];
@@ -468,6 +751,159 @@ const deleteDomainInConfig = (config: JsonObject, ruleId: string): JsonObject =>
   return next;
 };
 
+const toDomainGroups = (config: JsonObject): DomainGroup[] => {
+  const routeSetOutbounds = collectRouteSetOutbounds(config);
+  const dnsRuleSetServers = collectDnsRuleSetServers(config);
+  const rules = toDomainRules(config);
+  const countByGroup = new Map<string, number>();
+  for (const rule of rules) {
+    countByGroup.set(rule.group, (countByGroup.get(rule.group) ?? 0) + 1);
+  }
+  const ruleSets = Array.isArray(config.route?.rule_set) ? config.route.rule_set : [];
+  const groups = ruleSets
+    .filter((set: JsonObject) => set?.type === 'inline' && typeof set?.tag === 'string')
+    .map((set: JsonObject) => {
+      const name = String(set.tag);
+      return {
+        id: `domain-group:${encodeURIComponent(name)}`,
+        name,
+        action: outboundToAction(routeSetOutbounds.get(name)),
+        dnsServer: dnsRuleSetServers.get(name),
+        ruleCount: countByGroup.get(name) ?? 0,
+      } as DomainGroup;
+    })
+    .sort((a, b) => a.name.localeCompare(b.name));
+  return groups;
+};
+
+const ensureDomainGroupInConfig = (
+  config: JsonObject,
+  name: string,
+  action: DomainGroup['action'],
+): JsonObject => {
+  const next = JSON.parse(JSON.stringify(config)) as JsonObject;
+  next.route = next.route ?? {};
+  next.route.rule_set = Array.isArray(next.route.rule_set) ? next.route.rule_set : [];
+  next.route.rules = Array.isArray(next.route.rules) ? next.route.rules : [];
+
+  const ruleSets = next.route.rule_set as JsonObject[];
+  const routeRules = next.route.rules as JsonObject[];
+  const outbound = domainActionToOutbound(action);
+
+  const set = ruleSets.find((item) => item?.type === 'inline' && item?.tag === name);
+  if (!set) {
+    ruleSets.push({ type: 'inline', tag: name, rules: [] });
+  }
+
+  const mapping = routeRules.find((item) => Array.isArray(item?.rule_set) && item.rule_set.includes(name));
+  if (mapping) {
+    mapping.outbound = outbound;
+  } else {
+    routeRules.push({ rule_set: [name], outbound });
+  }
+
+  return next;
+};
+
+const renameDomainGroupInConfig = (
+  config: JsonObject,
+  from: string,
+  to: string,
+): JsonObject => {
+  if (!from || !to || from === to) return config;
+  const next = JSON.parse(JSON.stringify(config)) as JsonObject;
+  next.route = next.route ?? {};
+  next.route.rule_set = Array.isArray(next.route.rule_set) ? next.route.rule_set : [];
+  next.route.rules = Array.isArray(next.route.rules) ? next.route.rules : [];
+
+  const ruleSets = next.route.rule_set as JsonObject[];
+  const routeRules = next.route.rules as JsonObject[];
+  const dnsRules = Array.isArray(next.dns?.rules) ? (next.dns.rules as JsonObject[]) : [];
+  for (const item of ruleSets) {
+    if (item?.type === 'inline' && item?.tag === from) {
+      item.tag = to;
+    }
+  }
+  for (const item of routeRules) {
+    if (!Array.isArray(item?.rule_set)) continue;
+    item.rule_set = item.rule_set.map((value: unknown) => (value === from ? to : value));
+  }
+  for (const item of dnsRules) {
+    if (!Array.isArray(item?.rule_set)) continue;
+    item.rule_set = item.rule_set.map((value: unknown) => (value === from ? to : value));
+  }
+  return next;
+};
+
+const updateDomainGroupActionInConfig = (
+  config: JsonObject,
+  name: string,
+  action: DomainGroup['action'],
+): JsonObject => {
+  const next = JSON.parse(JSON.stringify(config)) as JsonObject;
+  next.route = next.route ?? {};
+  next.route.rules = Array.isArray(next.route.rules) ? next.route.rules : [];
+  const routeRules = next.route.rules as JsonObject[];
+  const outbound = domainActionToOutbound(action);
+  const mapping = routeRules.find((item) => Array.isArray(item?.rule_set) && item.rule_set.includes(name));
+  if (mapping) {
+    mapping.outbound = outbound;
+  } else {
+    routeRules.push({ rule_set: [name], outbound });
+  }
+  return next;
+};
+
+const updateDomainGroupDnsInConfig = (
+  config: JsonObject,
+  name: string,
+  dnsServer?: string,
+): JsonObject => {
+  const next = JSON.parse(JSON.stringify(config)) as JsonObject;
+  next.dns = next.dns ?? {};
+  next.dns.rules = Array.isArray(next.dns.rules) ? next.dns.rules : [];
+  const dnsRules = next.dns.rules as JsonObject[];
+
+  const existingIndex = dnsRules.findIndex(
+    (item) => Array.isArray(item?.rule_set) && item.rule_set.includes(name),
+  );
+
+  if (!dnsServer || !dnsServer.trim()) {
+    if (existingIndex >= 0) {
+      dnsRules.splice(existingIndex, 1);
+    }
+    return next;
+  }
+
+  if (existingIndex >= 0) {
+    dnsRules[existingIndex].server = dnsServer;
+  } else {
+    dnsRules.push({ rule_set: [name], server: dnsServer });
+  }
+
+  return next;
+};
+
+const deleteDomainGroupInConfig = (config: JsonObject, name: string): JsonObject => {
+  const next = JSON.parse(JSON.stringify(config)) as JsonObject;
+  next.route = next.route ?? {};
+  next.route.rule_set = Array.isArray(next.route.rule_set) ? next.route.rule_set : [];
+  next.route.rules = Array.isArray(next.route.rules) ? next.route.rules : [];
+
+  next.route.rule_set = (next.route.rule_set as JsonObject[]).filter(
+    (item) => !(item?.type === 'inline' && item?.tag === name),
+  );
+  next.route.rules = (next.route.rules as JsonObject[]).filter(
+    (item) => !(Array.isArray(item?.rule_set) && item.rule_set.includes(name)),
+  );
+  next.dns = next.dns ?? {};
+  next.dns.rules = Array.isArray(next.dns.rules) ? next.dns.rules : [];
+  next.dns.rules = (next.dns.rules as JsonObject[]).filter(
+    (item) => !(Array.isArray(item?.rule_set) && item.rule_set.includes(name)),
+  );
+  return next;
+};
+
 const toProxyNodes = (config: JsonObject): ProxyNode[] => {
   const outbounds = Array.isArray(config.outbounds) ? config.outbounds : [];
   return outbounds
@@ -524,6 +960,12 @@ const ensureOutboundSection = (config: JsonObject): JsonObject => {
 
 const decodeProxyTagFromId = (id: string): string | null => {
   const matched = /^proxy:(.+)$/.exec(id);
+  if (!matched) return null;
+  return decodeURIComponent(matched[1]);
+};
+
+const decodeGroupTagFromId = (id: string): string | null => {
+  const matched = /^group:(.+)$/.exec(id);
   if (!matched) return null;
   return decodeURIComponent(matched[1]);
 };
@@ -595,6 +1037,75 @@ const deleteProxyInConfig = (config: JsonObject, id: string): JsonObject => {
   return next;
 };
 
+const upsertProxyGroupInConfig = (
+  config: JsonObject,
+  payload: {
+    id?: string;
+    name: string;
+    type: ProxyGroup['type'];
+    outbounds: string[];
+    defaultOutbound?: string;
+    url?: string;
+    interval?: string;
+  },
+): JsonObject => {
+  const next = ensureOutboundSection(config);
+  const outbounds = next.outbounds as JsonObject[];
+  const targetTag = payload.id ? decodeGroupTagFromId(payload.id) : null;
+  const existingIndex = targetTag
+    ? outbounds.findIndex((item) => String(item?.tag ?? '') === targetTag)
+    : -1;
+
+  const nextTag = payload.name.trim();
+  const base = existingIndex >= 0 ? outbounds[existingIndex] : {};
+  const type = payload.type === 'manual' ? 'selector' : payload.type;
+  const members = Array.from(
+    new Set(payload.outbounds.map((item) => item.trim()).filter(Boolean)),
+  );
+  const nextPayload: JsonObject = {
+    ...base,
+    tag: nextTag,
+    type,
+    outbounds: members,
+    interrupt_exist_connections: false,
+  };
+
+  if (type === 'selector') {
+    if (payload.defaultOutbound?.trim()) {
+      nextPayload.default = payload.defaultOutbound.trim();
+    } else {
+      delete nextPayload.default;
+    }
+    delete nextPayload.url;
+    delete nextPayload.interval;
+    delete nextPayload.tolerance;
+    delete nextPayload.idle_timeout;
+  } else {
+    if (payload.url?.trim()) {
+      nextPayload.url = payload.url.trim();
+    }
+    if (payload.interval?.trim()) {
+      nextPayload.interval = payload.interval.trim();
+    }
+    if (type === 'urltest') {
+      nextPayload.tolerance = Number(nextPayload.tolerance ?? 80);
+      nextPayload.idle_timeout = String(nextPayload.idle_timeout ?? '30m');
+    } else {
+      delete nextPayload.tolerance;
+      delete nextPayload.idle_timeout;
+    }
+    delete nextPayload.default;
+  }
+
+  if (existingIndex >= 0) {
+    outbounds[existingIndex] = nextPayload;
+  } else {
+    outbounds.push(nextPayload);
+  }
+
+  return next;
+};
+
 const toRoutingRules = (config: JsonObject): RoutingRule[] => {
   const rules = Array.isArray(config.route?.rules) ? config.route.rules : [];
   return rules.map((rule, index) => {
@@ -650,14 +1161,21 @@ const splitExpr = (value: string): string[] =>
     .map((item) => item.trim())
     .filter(Boolean);
 
+const KNOWN_MATCH_KEYS = new Set(['rule_set', 'domain', 'domain_suffix', 'ip_cidr', 'geosite', 'geoip', 'protocol', 'port', 'process_name']);
+
 const parseMatchExpr = (expr: string): { key?: string; value: string } => {
-  const parts = expr.split(':');
-  if (parts.length >= 2) {
-    const key = parts[0].trim();
-    const value = parts.slice(1).join(':').trim();
-    return { key, value };
+  const trimmed = expr.trim();
+  const sepIndex = trimmed.indexOf(':');
+  if (sepIndex <= 0) return { value: trimmed };
+
+  const maybeKey = trimmed.slice(0, sepIndex).trim();
+  if (!KNOWN_MATCH_KEYS.has(maybeKey)) {
+    return { value: trimmed };
   }
-  return { value: expr.trim() };
+
+  const value = trimmed.slice(sepIndex + 1).trim();
+  if (!value) return { value: trimmed };
+  return { key: maybeKey, value };
 };
 
 const routingRuleToConfigRule = (rule: {
@@ -846,6 +1364,10 @@ const upsertDnsServerInConfig = (config: JsonObject, server: {
   const list = next.dns.servers as JsonObject[];
   const index = list.findIndex((item) => String(item?.tag ?? '') === tag);
 
+  const normalizedDetour = typeof server.detour === 'string' && server.detour.trim()
+    ? server.detour.trim()
+    : undefined;
+
   let payload: JsonObject;
   if (server.type === 'hosts') {
     const existing = index >= 0 ? list[index] : {};
@@ -863,21 +1385,21 @@ const upsertDnsServerInConfig = (config: JsonObject, server: {
       tag,
       server: host,
       ...(portRaw && Number.isFinite(Number(portRaw)) ? { server_port: Number(portRaw) } : {}),
-      ...(server.detour ? { detour: server.detour } : {}),
+      ...(normalizedDetour ? { detour: normalizedDetour } : {}),
     };
   } else if (server.type === 'doh') {
     payload = {
       type: 'https',
       tag,
       server: server.address,
-      ...(server.detour ? { detour: server.detour } : {}),
+      ...(normalizedDetour ? { detour: normalizedDetour } : {}),
     };
   } else {
     payload = {
       type: 'udp',
       tag,
       server: server.address,
-      ...(server.detour ? { detour: server.detour } : {}),
+      ...(normalizedDetour ? { detour: normalizedDetour } : {}),
     };
   }
 
@@ -997,6 +1519,7 @@ const mockUsers: User[] = [
         { domain: 'stackoverflow.com', count: 450 },
         { domain: 'youtube.com', count: 320 }
       ],
+      topDirect: [],
       topBlocked: [
         { domain: 'analytics.google.com', count: 210 },
         { domain: 'doubleclick.net', count: 150 },
@@ -1026,6 +1549,7 @@ const mockUsers: User[] = [
         { domain: 'salesforce.com', count: 800 },
         { domain: 'linkedin.com', count: 400 }
       ],
+      topDirect: [],
       topBlocked: [
         { domain: 'netflix.com', count: 50 },
         { domain: 'tiktok.com', count: 20 }
@@ -1049,6 +1573,7 @@ const mockUsers: User[] = [
       totalRequests: 150,
       successRate: 90.0,
       topAllowed: [{ domain: 'google.com', count: 50 }],
+      topDirect: [],
       topBlocked: []
     }
   }
@@ -1077,14 +1602,59 @@ export const mockApi = {
     return toDomainRules(config);
   },
 
+  getDomainGroups: async (): Promise<DomainGroup[]> => {
+    await sleep(160);
+    const config = await loadConfig();
+    return toDomainGroups(config);
+  },
+
+  saveDomainGroup: async (payload: {
+    id?: string;
+    name: string;
+    action: DomainGroup['action'];
+    previousName?: string;
+    dnsServer?: string;
+  }): Promise<DomainGroup[]> => {
+    await sleep(180);
+    const targetName = payload.name.trim();
+    if (!targetName) throw new Error('group name is required');
+
+    let config = await loadConfig();
+    config = ensureDomainGroupInConfig(config, targetName, payload.action);
+
+    const fromName = payload.previousName?.trim();
+    if (fromName && fromName !== targetName) {
+      config = renameDomainGroupInConfig(config, fromName, targetName);
+    }
+    config = updateDomainGroupActionInConfig(config, targetName, payload.action);
+    config = updateDomainGroupDnsInConfig(config, targetName, payload.dnsServer);
+
+    await replaceModuleRows('route.rule_set', Array.isArray(config.route?.rule_set) ? config.route.rule_set : [], 'tag');
+    await replaceModuleRows('route.rules', Array.isArray(config.route?.rules) ? config.route.rules : []);
+    await replaceModuleRows('dns.rules', Array.isArray(config.dns?.rules) ? config.dns.rules : []);
+    const synced = await loadConfig();
+    return toDomainGroups(synced);
+  },
+
+  deleteDomainGroup: async (name: string): Promise<DomainGroup[]> => {
+    await sleep(160);
+    const config = await loadConfig();
+    const nextConfig = deleteDomainGroupInConfig(config, name);
+    await replaceModuleRows('route.rule_set', Array.isArray(nextConfig.route?.rule_set) ? nextConfig.route.rule_set : [], 'tag');
+    await replaceModuleRows('route.rules', Array.isArray(nextConfig.route?.rules) ? nextConfig.route.rules : []);
+    await replaceModuleRows('dns.rules', Array.isArray(nextConfig.dns?.rules) ? nextConfig.dns.rules : []);
+    const synced = await loadConfig();
+    return toDomainGroups(synced);
+  },
+
   saveDomainRule: async (payload: Partial<DomainRule> & { id?: string }): Promise<DomainRule[]> => {
     await sleep(180);
     const config = await loadConfig();
     const current = toDomainRules(config);
     const existing = payload.id ? current.find((item) => item.id === payload.id) : undefined;
     const nextRule: DomainRule = {
-      id: payload.id || domainRuleId(payload.group || 'custom', (payload.type as DomainRule['type']) || 'suffix', payload.value || ''),
-      type: (payload.type as DomainRule['type']) || existing?.type || 'suffix',
+      id: payload.id || domainRuleId(payload.group || 'custom', (payload.type as DomainRule['type']) || 'domain_suffix', payload.value || ''),
+      type: (payload.type as DomainRule['type']) || existing?.type || 'domain_suffix',
       value: payload.value || existing?.value || '',
       group: payload.group || existing?.group || 'custom',
       action: (payload.action as DomainRule['action']) || existing?.action || 'PROXY',
@@ -1128,6 +1698,26 @@ export const mockApi = {
     await sleep(180);
     const config = await loadConfig();
     return toProxyGroups(config);
+  },
+
+  saveProxyGroup: async (payload: {
+    id?: string;
+    name: string;
+    type: ProxyGroup['type'];
+    outbounds: string[];
+    defaultOutbound?: string;
+    url?: string;
+    interval?: string;
+  }): Promise<ProxyGroup[]> => {
+    await sleep(180);
+    if (!payload.name.trim()) {
+      throw new Error('group name is required');
+    }
+    const config = await loadConfig();
+    const nextConfig = upsertProxyGroupInConfig(config, payload);
+    await replaceModuleRows('outbounds', Array.isArray(nextConfig.outbounds) ? nextConfig.outbounds : [], 'tag');
+    const synced = await loadConfig();
+    return toProxyGroups(synced);
   },
 
   saveProxyNode: async (payload: {
@@ -1239,6 +1829,39 @@ export const mockApi = {
     await sleep(180);
     const config = await loadConfig();
     return toDnsServers(config);
+  },
+
+  getSettings: async (): Promise<CoreSettings> => {
+    await sleep(120);
+    const config = await loadConfig();
+    return toCoreSettings(config);
+  },
+
+  getOutboundTags: async (): Promise<string[]> => {
+    await sleep(100);
+    const config = await loadConfig();
+    return listOutboundTags(config);
+  },
+
+  saveSettings: async (payload: CoreSettings): Promise<CoreSettings> => {
+    await sleep(160);
+    const config = await loadConfig();
+    const nextConfig = applyCoreSettings(config, payload);
+    await replaceMetaRow('meta.log', nextConfig.log ?? {});
+    await replaceMetaRow('meta.ntp', nextConfig.ntp ?? {});
+    await replaceMetaRow('meta.dns', {
+      final: nextConfig.dns?.final ?? 'dns_direct',
+      independent_cache: nextConfig.dns?.independent_cache ?? false,
+      strategy: nextConfig.dns?.strategy ?? 'prefer_ipv4',
+    });
+    await replaceMetaRow('meta.route', {
+      final: nextConfig.route?.final ?? 'proxy',
+      auto_detect_interface: nextConfig.route?.auto_detect_interface ?? true,
+      default_domain_resolver: nextConfig.route?.default_domain_resolver ?? 'dns_direct',
+    });
+    await replaceModuleRows('inbounds', Array.isArray(nextConfig.inbounds) ? nextConfig.inbounds : [], 'tag');
+    const synced = await loadConfig();
+    return toCoreSettings(synced);
   },
 
   saveDnsServer: async (payload: {
@@ -1372,12 +1995,38 @@ export const mockApi = {
 
   getUnifiedProfile: async (): Promise<UnifiedProfile> => {
     await sleep(200);
-    return refreshUnifiedProfile();
+    const remote = await fetchJson<UnifiedProfile>('/api/v1/client/profile?scope=global');
+    mockProfileData = { ...remote };
+    return remote;
+  },
+
+  getMyUnifiedProfile: async (): Promise<UnifiedProfile> => {
+    await sleep(180);
+    return fetchJson<UnifiedProfile>('/api/v1/client/profile?scope=user');
+  },
+
+  saveMyUnifiedProfile: async (payload: { content: string }): Promise<UnifiedProfile> => {
+    await sleep(250);
+    return fetchJson<UnifiedProfile>('/api/v1/client/profile?scope=user', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+  },
+
+  getEffectiveUnifiedProfile: async (): Promise<UnifiedProfile> => {
+    await sleep(180);
+    return fetchJson<UnifiedProfile>('/api/v1/client/profile?scope=effective');
+  },
+
+  getMyProfileAudits: async (limit = 20): Promise<UserProfileAudit[]> => {
+    await sleep(120);
+    return fetchJson<UserProfileAudit[]>(`/api/v1/client/profile/audits?limit=${Math.max(1, Math.min(100, limit))}`);
   },
 
   saveUnifiedProfile: async (payload: { content: string; publicUrl?: string }): Promise<UnifiedProfile> => {
     await sleep(300);
-    const remote = await fetchJson<UnifiedProfile>('/api/v1/client/profile', {
+    const remote = await fetchJson<UnifiedProfile>('/api/v1/client/profile?scope=global', {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
@@ -1395,6 +2044,53 @@ export const mockApi = {
     }
   },
 
+  getDashboardSummary: async (): Promise<DashboardSummary> => {
+    await sleep(120);
+    try {
+      return await fetchJson<DashboardSummary>(DASHBOARD_PATH);
+    } catch {
+      const users = await mockApi.getUsers();
+      const activeUsers = users.filter((user) => user.status === 'active').length;
+      const upload = users.reduce((sum, user) => sum + user.traffic.upload, 0);
+      const download = users.reduce((sum, user) => sum + user.traffic.download, 0);
+      return {
+        stats: {
+          activeUsers,
+          activeNodes: 0,
+          systemLoadPercent: 0,
+          configVersion: 'v0.0.0',
+        },
+        traffic: {
+          uploadSeries: Array.from({ length: 24 }, (_, index) => Math.floor((upload / 24) * (index / 23))),
+          downloadSeries: Array.from({ length: 24 }, (_, index) => Math.floor((download / 24) * (index / 23))),
+        },
+        devices: {
+          series: Array.from({ length: 24 }, () => users.reduce((sum, user) => sum + user.devices.length, 0)),
+        },
+        syncRequests: {
+          series: Array.from({ length: 24 }, () => 0),
+        },
+        auditLogs: [],
+      };
+    }
+  },
+
+  getFailedDomains: async (input?: {
+    window?: string;
+    limit?: number;
+    userId?: string;
+    outboundType?: string;
+  }): Promise<FailedDomainSummary[]> => {
+    await sleep(100);
+    const params = new URLSearchParams();
+    if (input?.window) params.set('window', input.window);
+    if (Number.isFinite(input?.limit as number)) params.set('limit', String(Math.trunc(input?.limit as number)));
+    if (input?.userId) params.set('userId', input.userId);
+    if (input?.outboundType) params.set('outboundType', input.outboundType);
+    const query = params.toString();
+    return fetchJson<FailedDomainSummary[]>(`${FAILED_DOMAINS_PATH}${query ? `?${query}` : ''}`);
+  },
+
   getUser: async (id: string): Promise<User | undefined> => {
     await sleep(180);
     try {
@@ -1402,7 +2098,60 @@ export const mockApi = {
     } catch {
       return mockUsers.find(u => u.id === id);
     }
-  }
+  },
+
+  getUserTargets: async (id: string, limit = 200): Promise<UserTargetAggregate[]> => {
+    await sleep(160);
+    try {
+      return await fetchJson<UserTargetAggregate[]>(`${userTargetsPath(id)}?limit=${Math.max(1, Math.min(500, limit))}`);
+    } catch {
+      return [];
+    }
+  },
+
+  getUserTargetDetail: async (id: string, target: string): Promise<UserTargetDetail | undefined> => {
+    await sleep(120);
+    try {
+      return await fetchJson<UserTargetDetail>(userTargetDetailPath(id, target));
+    } catch {
+      return undefined;
+    }
+  },
+
+  reportClientConnect: async (payload: ClientDeviceReportPayload): Promise<User | undefined> => {
+    const response = await fetchJson<{ success: boolean; user?: User }>(CLIENT_CONNECT_REPORT_PATH, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    return response.user;
+  },
+
+  reportClientConnections: async (payload: ClientConnectionReportPayload): Promise<User | undefined> => {
+    const response = await fetchJson<{ success: boolean; user?: User }>(CLIENT_CONNECTIONS_REPORT_PATH, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    return response.user;
+  },
+
+  updateCurrentUserDisplayName: async (displayName: string): Promise<User> => {
+    const session = loadSession();
+    const sub = session?.user?.sub;
+    const name = displayName.trim();
+    if (!sub) {
+      throw new Error('missing_user_sub');
+    }
+    if (!name) {
+      throw new Error('display_name_required');
+    }
+    return fetchJson<User>(`${USERS_PATH}/${encodeURIComponent(sub)}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ displayName: name }),
+    });
+  },
 };
 
 export const qualityApi = {
@@ -1414,7 +2163,7 @@ export const qualityApi = {
     const query = search.toString();
 
     try {
-      const payload = await fetchJson<unknown>(`/api/quality/observability${query ? `?${query}` : ''}`);
+      const payload = await fetchJson<unknown>(`${QUALITY_OBSERVABILITY_PATH}${query ? `?${query}` : ''}`);
       return normalizeObservabilityResponse(payload);
     } catch (error) {
       if (QUALITY_MOCK_FALLBACK) {

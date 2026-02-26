@@ -1,5 +1,5 @@
 {
-  "name": "BoxMaster - sing-box Config Manager",
-  "description": "A high-performance, accessible management interface for sing-box configurations, featuring domain rules, proxy nodes, routing policies, and DNS/Hosts management.",
+  "name": "Harbor - Sail Config Console",
+  "description": "Harbor is the management console for Sail, covering sing-box domains, proxies, routing, DNS/Hosts, and publishing workflows.",
   "requestFramePermissions": []
 }

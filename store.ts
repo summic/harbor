@@ -9,7 +9,10 @@ interface AppState {
 }
 
 export const useAppStore = create<AppState>((set) => ({
-  isSidebarOpen: true,
+  isSidebarOpen:
+    typeof window !== 'undefined'
+      ? window.matchMedia('(min-width: 768px)').matches
+      : true,
   toggleSidebar: () => set((state) => ({ isSidebarOpen: !state.isSidebarOpen })),
   activeThemeColor: 'blue',
   setActiveThemeColor: (color) => set({ activeThemeColor: color }),

@@ -1,5 +1,5 @@
 
-export type RuleType = 'exact' | 'suffix' | 'wildcard' | 'regex';
+export type RuleType = 'domain' | 'domain_suffix' | 'domain_keyword' | 'domain_regex' | 'ip_cidr';
 export type ActionType = 'DIRECT' | 'PROXY' | 'BLOCK';
 export type ProtocolType = 'Shadowsocks' | 'VLESS' | 'VMess' | 'Trojan' | 'Hysteria2' | 'TUIC' | 'WireGuard' | 'Direct' | 'Block' | 'DNS' | 'Selector' | 'URLTest';
 export type OutboundType = 'manual' | 'urltest' | 'fallback';
@@ -13,6 +13,14 @@ export interface DomainRule {
   priority: number;
   enabled: boolean;
   note?: string;
+}
+
+export interface DomainGroup {
+  id: string;
+  name: string;
+  action: ActionType;
+  dnsServer?: string;
+  ruleCount: number;
 }
 
 export interface ProxyNode {
@@ -54,6 +62,30 @@ export interface DnsUpstream {
   detour?: string;
   strategy: 'ipv4_only' | 'ipv6_only' | 'prefer_ipv4' | 'prefer_ipv6' | 'auto';
   enabled: boolean;
+}
+
+export interface CoreSettings {
+  logDisabled: boolean;
+  logLevel: 'trace' | 'debug' | 'info' | 'warn' | 'error';
+  logOutput: string;
+  logTimestamp: boolean;
+  ntpEnabled: boolean;
+  ntpServer: string;
+  ntpServerPort: number;
+  ntpInterval: string;
+  ntpDetour: string;
+  ntpDomainResolver: string;
+  tunTag: string;
+  tunAddress: string;
+  tunAutoRoute: boolean;
+  tunStrictRoute: boolean;
+  tunStack: 'mixed' | 'system';
+  routeFinal: string;
+  routeAutoDetectInterface: boolean;
+  routeDefaultDomainResolver: string;
+  dnsFinal: string;
+  dnsIndependentCache: boolean;
+  dnsStrategy: 'ipv4_only' | 'ipv6_only' | 'prefer_ipv4' | 'prefer_ipv6' | 'auto';
 }
 
 export interface HostsEntry {
@@ -128,11 +160,81 @@ export interface TrafficStats {
   total: number; // bytes
 }
 
+export interface DashboardSummary {
+  stats: {
+    activeUsers: number;
+    activeNodes: number;
+    systemLoadPercent: number;
+    configVersion: string;
+  };
+  traffic: {
+    uploadSeries: number[];
+    downloadSeries: number[];
+  };
+  devices: {
+    series: number[];
+  };
+  syncRequests: {
+    series: number[];
+  };
+  auditLogs: Array<{
+    event: string;
+    admin: string;
+    time: string;
+    target: string;
+  }>;
+}
+
+export interface FailedDomainSummary {
+  domain: string;
+  failures: number;
+  requests: number;
+  successRate: number;
+  lastError: string | null;
+  lastSeen: string;
+  outboundType: string;
+}
+
 export interface AccessLogSummary {
   totalRequests: number;
   successRate: number; // percentage
   topAllowed: { domain: string; count: number }[];
+  topDirect: { domain: string; count: number }[];
   topBlocked: { domain: string; count: number }[];
+}
+
+export interface UserTargetAggregate {
+  target: string;
+  policy?: string;
+  requests: number;
+  uploadBytes: number;
+  downloadBytes: number;
+  blockedRequests: number;
+  successRate: number;
+  lastSeen: string;
+}
+
+export interface UserTargetDetail {
+  target: string;
+  requests: number;
+  uploadBytes: number;
+  downloadBytes: number;
+  blockedRequests: number;
+  successRate: number;
+  lastSeen: string;
+  outboundTypes: Array<{ type: string; count: number }>;
+  recent: Array<{
+    occurredAt: string;
+    outboundTag: string;
+    outboundType: string;
+    networkType: string | null;
+    requestCount: number;
+    successCount: number;
+    blockedCount: number;
+    uploadBytes: number;
+    downloadBytes: number;
+    error: string | null;
+  }>;
 }
 
 export interface User {
@@ -147,4 +249,48 @@ export interface User {
   lastOnline: string;
   logs: AccessLogSummary;
   created: string;
+}
+
+export interface UserProfileAudit {
+  id: number;
+  timestamp: string;
+  summary: string;
+  contentSize: number;
+}
+
+export interface ClientDeviceReport {
+  id: string;
+  name?: string;
+  model?: string;
+  osName?: string;
+  osVersion?: string;
+  appVersion?: string;
+  ip?: string;
+  location?: string;
+}
+
+export interface ClientDeviceReportPayload {
+  occurredAt?: string;
+  connected?: boolean;
+  networkType?: string;
+  device?: ClientDeviceReport;
+  metadata?: Record<string, unknown>;
+}
+
+export interface ClientConnectionReportPayload {
+  occurredAt?: string;
+  connected?: boolean;
+  target?: string;
+  outboundTag?: string;
+  outboundType?: string;
+  latencyMs?: number;
+  error?: string;
+  networkType?: string;
+  requestCount?: number;
+  successCount?: number;
+  blockedCount?: number;
+  uploadBytes?: number;
+  downloadBytes?: number;
+  device?: ClientDeviceReport;
+  metadata?: Record<string, unknown>;
 }

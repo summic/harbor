@@ -1,42 +1,51 @@
 
 import React from 'react';
-import { useLocation, Link } from 'react-router-dom';
+import { useLocation, Link, useNavigate } from 'react-router-dom';
 import { 
   LayoutDashboard, 
-  Activity,
-  Globe, 
   Zap, 
-  Shuffle, 
+  Orbit,
   Settings2, 
-  Send, 
   Menu, 
   X,
-  ShieldCheck,
+  Anchor,
   FileJson,
   Users,
+  Shield,
+  AlertTriangle,
   ChevronDown,
   LogOut,
   Bell
 } from 'lucide-react';
 import { useAppStore } from '../store';
 import { useAuth } from '../auth-context';
+import { buildInfo } from '../utils/build-info';
 
 const navItems = [
   { path: '/', label: 'Dashboard', icon: LayoutDashboard },
-  { path: '/quality', label: 'Quality', icon: Activity },
-  { path: '/domains', label: 'Domains', icon: Globe },
+  { path: '/settings', label: 'Settings', icon: Settings2 },
+  { path: '/policy', label: 'Policy', icon: Shield },
   { path: '/proxies', label: 'Proxies', icon: Zap },
-  { path: '/routing', label: 'Routing', icon: Shuffle },
-  { path: '/dns-hosts', label: 'DNS & Hosts', icon: Settings2 },
+  { path: '/dns-hosts', label: 'DNS', icon: Settings2 },
+  { path: '/simulation', label: 'Simulation', icon: Orbit },
+  { path: '/failed-domains', label: 'Failed Domains', icon: AlertTriangle },
   { path: '/users', label: 'Users', icon: Users },
   { path: '/profile', label: 'Unified Profile', icon: FileJson },
-  { path: '/publish', label: 'Publish', icon: Send },
 ];
+
+const isRouteActive = (itemPath: string, currentPath: string): boolean => {
+  if (itemPath === '/') {
+    return currentPath === '/';
+  }
+  return currentPath === itemPath || currentPath.startsWith(`${itemPath}/`);
+};
 
 export const AppShell: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { isSidebarOpen, toggleSidebar } = useAppStore();
   const location = useLocation();
+  const navigate = useNavigate();
   const auth = useAuth();
+  const isAdmin = auth.isAdmin;
   const user = auth.session?.user as Record<string, unknown> | undefined;
   const displayName =
     (user?.name as string | undefined) ||
@@ -68,64 +77,103 @@ export const AppShell: React.FC<{ children: React.ReactNode }> = ({ children }) 
     .map((part) => part[0]?.toUpperCase() || '')
     .join('') || 'KU';
 
+  const closeSidebarOnMobile = () => {
+    if (typeof window === 'undefined') return;
+    if (window.matchMedia('(max-width: 767px)').matches && isSidebarOpen) {
+      toggleSidebar();
+    }
+  };
+
   return (
     <div className="flex h-dvh w-full overflow-hidden bg-slate-50">
-      {/* Sidebar */}
-      <aside className={`
-        fixed inset-y-0 left-0 z-50 w-64 bg-white border-r border-slate-200 transition-transform duration-200 ease-in-out md:relative md:translate-x-0
-        ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full'}
-      `}>
-        <div className="flex h-16 items-center px-6 border-b border-slate-100">
-          <ShieldCheck className="h-6 w-6 text-blue-600 mr-2" />
-          <span className="font-bold text-lg tracking-tight">BoxMaster</span>
-        </div>
-        
-        <nav className="flex-1 overflow-y-auto p-4 space-y-1">
-          {navItems.map((item) => {
-            const isActive = location.pathname === item.path;
-            const Icon = item.icon;
-            return (
-              <Link
-                key={item.path}
-                to={item.path}
-                className={`
-                  flex items-center px-4 py-2.5 rounded-lg text-sm font-medium transition-colors
-                  ${isActive 
-                    ? 'bg-blue-50 text-blue-700' 
-                    : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'}
-                `}
-              >
-                <Icon className={`h-4 w-4 mr-3 ${isActive ? 'text-blue-600' : 'text-slate-400'}`} />
-                {item.label}
-              </Link>
-            );
-          })}
-        </nav>
+      {isAdmin ? (
+        <>
+          {/* Sidebar */}
+          <aside
+            className={`
+            fixed inset-y-0 left-0 z-50 w-64 bg-white border-r border-slate-200 transition-transform duration-200 ease-in-out md:relative md:translate-x-0 overflow-hidden
+            ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full'}
+          `}
+          >
+            <Link
+              to="/"
+              onClick={closeSidebarOnMobile}
+              className="flex h-16 items-center px-6 border-b border-slate-100 hover:bg-slate-50 transition-colors"
+            >
+              <Anchor className="h-6 w-6 text-blue-600 mr-2" />
+              <div className="leading-tight">
+                <div className="font-bold text-lg tracking-tight">Harbor</div>
+                <div className="text-[10px] text-slate-500 font-medium">for Sail</div>
+              </div>
+            </Link>
 
-        <div className="p-4 border-t border-slate-100 text-[10px] text-slate-400 font-mono text-center">
-          BoxMaster Manager v2.0
-        </div>
-      </aside>
+            <nav className="flex-1 overflow-y-auto p-4 space-y-1">
+              {navItems.map((item) => {
+                const isActive = isRouteActive(item.path, location.pathname);
+                const Icon = item.icon;
+                return (
+                  <Link
+                    key={item.path}
+                    to={item.path}
+                    onClick={closeSidebarOnMobile}
+                    className={`
+                    flex items-center px-4 py-2.5 rounded-lg text-sm font-medium transition-colors
+                    ${isActive
+                      ? 'bg-blue-50 text-blue-700'
+                      : 'text-slate-600 hover:bg-slate-50 hover:text-slate-900'}
+                  `}
+                  >
+                    <Icon className={`h-4 w-4 mr-3 ${isActive ? 'text-blue-600' : 'text-slate-400'}`} />
+                    {item.label}
+                  </Link>
+                );
+              })}
+            </nav>
+
+            <div className="h-14 border-t border-slate-100" />
+
+            <div className="pointer-events-none absolute bottom-1 left-1">
+              <svg viewBox="0 0 96 96" className="h-28 w-28 fill-none stroke-slate-300/40" aria-hidden="true">
+                <path d="M34 86h28" strokeWidth="3" strokeLinecap="round" />
+                <path d="M40 86l5-38h6l5 38" strokeWidth="3" strokeLinejoin="round" />
+                <path d="M41 48h14l-2-8h-10z" strokeWidth="3" strokeLinejoin="round" />
+                <path d="M42 40h12v-8H42z" strokeWidth="2.5" strokeLinejoin="round" className="stroke-amber-300/70 fill-amber-200/20" />
+                <path d="M48 32v-8" strokeWidth="3" strokeLinecap="round" />
+                <path d="M48 18l4 2-4 2-4-2z" strokeWidth="3" strokeLinejoin="round" />
+                <path d="M58 34l10-4" strokeWidth="3" strokeLinecap="round" />
+                <path d="M38 34l-10-4" strokeWidth="3" strokeLinecap="round" />
+                <path d="M60 42l14-2" strokeWidth="3" strokeLinecap="round" />
+                <path d="M36 42l-14-2" strokeWidth="3" strokeLinecap="round" />
+              </svg>
+              <div className="absolute bottom-3 left-24 text-slate-300/45">
+                <svg viewBox="0 0 64 24" className="h-5 w-14 fill-none stroke-current" aria-hidden="true">
+                  <path d="M2 19h60" strokeWidth="1.5" strokeLinecap="round" className="stroke-slate-300/35" />
+                  <path d="M24 18h16l-2 3H26z" strokeWidth="1.4" strokeLinejoin="round" />
+                  <path d="M30 18V9" strokeWidth="1.4" strokeLinecap="round" />
+                  <path d="M30 10l8 5h-8z" strokeWidth="1.2" strokeLinejoin="round" className="fill-slate-300/20" />
+                  <path d="M30 11l-5 4h5z" strokeWidth="1.2" strokeLinejoin="round" className="fill-slate-300/15" />
+                </svg>
+              </div>
+            </div>
+          </aside>
+        </>
+      ) : null}
 
       {/* Main Content Area */}
       <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
         <header className="h-16 bg-white border-b border-slate-200 flex items-center justify-between px-6 shrink-0 safe-pt z-20">
-          <button 
-            onClick={toggleSidebar} 
-            className="p-2 -ml-2 text-slate-500 hover:bg-slate-50 rounded-md md:hidden"
-            aria-label="Toggle menu"
-          >
-            {isSidebarOpen ? <X size={20} /> : <Menu size={20} />}
-          </button>
-          
+          {isAdmin ? (
+            <button
+              onClick={toggleSidebar}
+              className="p-2 -ml-2 text-slate-500 hover:bg-slate-50 rounded-md md:hidden"
+              aria-label="Toggle menu"
+            >
+              {isSidebarOpen ? <X size={20} /> : <Menu size={20} />}
+            </button>
+          ) : (
+            <div />
+          )}
           <div className="flex-1 flex items-center justify-end gap-6">
-            <div className="hidden md:flex items-center gap-2 px-3 py-1 bg-emerald-50 text-emerald-700 text-xs font-semibold rounded-full border border-emerald-200">
-              <span className="w-1.5 h-1.5 bg-emerald-500 rounded-full animate-pulse"></span>
-              SYSTEM ONLINE
-            </div>
-            
-            <div className="h-6 w-px bg-slate-200 hidden md:block"></div>
-
             <button className="relative p-2 text-slate-400 hover:text-slate-600 transition-colors">
               <Bell size={20} />
               <span className="absolute top-1.5 right-1.5 w-2 h-2 bg-rose-500 rounded-full border border-white"></span>
@@ -159,7 +207,10 @@ export const AppShell: React.FC<{ children: React.ReactNode }> = ({ children }) 
                    <p className="text-xs text-slate-700 truncate">{role}</p>
                    {sub ? <p className="text-[11px] text-slate-400 truncate mt-1">sub: {sub}</p> : null}
                  </div>
-                 <button className="w-full text-left px-4 py-2 text-sm text-slate-600 hover:bg-slate-50 hover:text-blue-600 transition-colors">
+                 <button
+                   onClick={() => navigate('/account')}
+                   className="w-full text-left px-4 py-2 text-sm text-slate-600 hover:bg-slate-50 hover:text-blue-600 transition-colors"
+                 >
                    Account Settings
                  </button>
                  <button className="w-full text-left px-4 py-2 text-sm text-slate-600 hover:bg-slate-50 hover:text-blue-600 transition-colors">
@@ -178,14 +229,22 @@ export const AppShell: React.FC<{ children: React.ReactNode }> = ({ children }) 
         </header>
 
         <main className="flex-1 overflow-y-auto p-6 relative">
-          <div className="max-w-7xl mx-auto space-y-6 pb-20">
+          <div className="max-w-7xl mx-auto space-y-6 pb-10">
             {children}
           </div>
+          <footer className="max-w-7xl mx-auto pt-6 pb-4 text-[11px] text-slate-400 border-t border-slate-100 mt-4">
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+              <span>{buildInfo.copyrightText}</span>
+              <span>Version v{buildInfo.appVersion}</span>
+              <span>Last updated {buildInfo.buildTimeText}</span>
+              <span>Commit #{buildInfo.gitSha}</span>
+            </div>
+          </footer>
         </main>
       </div>
       
       {/* Mobile Backdrop */}
-      {isSidebarOpen && (
+      {isAdmin && isSidebarOpen && (
         <div 
           className="fixed inset-0 bg-slate-900/50 z-40 md:hidden" 
           onClick={toggleSidebar}

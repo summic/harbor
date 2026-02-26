@@ -8,21 +8,25 @@ import {
   logout as oidcLogout,
   oidcConfig,
   startLogin,
+  updateSessionUser,
 } from './auth';
-import { mockApi } from './api';
+import { ApiError, mockApi } from './api';
 
 type AuthContextValue = {
   loading: boolean;
   error: string | null;
   session: AuthSession | null;
   isAuthenticated: boolean;
+  isAdmin: boolean;
   ssoEnabled: boolean;
   ssoConfigured: boolean;
   login: () => Promise<void>;
   logout: () => void;
+  updateDisplayName: (displayName: string) => void;
 };
 
 const AuthContext = React.createContext<AuthContextValue | undefined>(undefined);
+const ADMIN_SUB = 'deeed4b7-748b-4301-8c9e-dfe0893a80cf';
 
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [loading, setLoading] = React.useState(true);
@@ -30,9 +34,52 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [session, setSession] = React.useState<AuthSession | null>(null);
   const ssoEnabled = oidcConfig.enabled;
   const ssoConfigured = isSsoConfigured();
+  const isAdmin = (session?.user?.sub ?? '') === ADMIN_SUB;
+  const invalidateSession = React.useCallback((message = 'Session expired, please sign in again.') => {
+    clearSession();
+    setSession(null);
+    setError(message);
+  }, []);
+
+  const refreshSessionAfterLogin = React.useCallback(async () => {
+    try {
+      await mockApi.syncCurrentUserFromSession();
+      return true;
+    } catch (error) {
+      if (error instanceof ApiError && error.status === 401) {
+        const message =
+          error.code === 'invalid_access_token'
+            ? `登录令牌无效（${error.message || 'invalid access token'}），请重新登录。`
+            : `认证失败（${error.code || 'authentication_failed'}），请重新登录。`;
+        invalidateSession(message);
+        return false;
+      }
+      return true;
+    }
+  }, [invalidateSession]);
 
   React.useEffect(() => {
     let cancelled = false;
+    const handleAuthInvalidation = (event: Event) => {
+      const detail = (event as CustomEvent).detail as
+        | {
+            code?: string;
+            path?: string;
+            detail?: string;
+          }
+        | undefined;
+      const code = (detail?.code || '').toLowerCase();
+      const reason =
+        code === 'invalid_access_token'
+          ? `登录令牌无效（${detail?.detail || 'invalid access token'}），请重新登录。`
+          : code === 'missing_bearer_token'
+            ? '未检测到有效登录令牌，请重新登录。'
+            : '认证失败，请重新登录。';
+      if (!cancelled) {
+        invalidateSession(reason);
+      }
+    };
+    window.addEventListener('harbor:auth-invalid', handleAuthInvalidation);
     const run = async () => {
       try {
         if (!ssoEnabled) {
@@ -53,17 +100,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         const callbackSession = await handleAuthCallbackIfPresent();
         if (!cancelled && callbackSession) {
           setSession(callbackSession);
-          try {
-            await mockApi.syncCurrentUserFromSession();
-          } catch {
-            // keep auth flow resilient
-          }
+          await refreshSessionAfterLogin();
         } else if (!cancelled && (callbackSession || existing)) {
-          try {
-            await mockApi.syncCurrentUserFromSession();
-          } catch {
-            // keep auth flow resilient
-          }
+          await refreshSessionAfterLogin();
         }
       } catch (e) {
         if (!cancelled) {
@@ -80,8 +119,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     run();
     return () => {
       cancelled = true;
+      window.removeEventListener('harbor:auth-invalid', handleAuthInvalidation);
     };
-  }, [ssoEnabled]);
+  }, [ssoEnabled, invalidateSession, refreshSessionAfterLogin]);
 
   const login = React.useCallback(async () => {
     setError(null);
@@ -93,15 +133,35 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     oidcLogout();
   }, []);
 
+  const updateDisplayName = React.useCallback((displayName: string) => {
+    const trimmed = displayName.trim();
+    if (!trimmed) return;
+    const next = updateSessionUser({ name: trimmed, preferred_username: trimmed });
+    if (next) {
+      setSession(next);
+    } else if (session?.user) {
+      setSession({
+        ...session,
+        user: {
+          ...session.user,
+          name: trimmed,
+          preferred_username: trimmed,
+        },
+      });
+    }
+  }, [session]);
+
   const value: AuthContextValue = {
     loading,
     error,
     session,
     isAuthenticated: !!session?.accessToken,
+    isAdmin,
     ssoEnabled,
     ssoConfigured,
     login,
     logout,
+    updateDisplayName,
   };
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
