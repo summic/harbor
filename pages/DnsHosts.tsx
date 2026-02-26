@@ -9,6 +9,7 @@ import { DnsUpstream, HostsEntry } from '../types';
 const DnsModal: React.FC<{
   open: boolean;
   initial?: DnsUpstream | null;
+  outboundTags: string[];
   onClose: () => void;
   onSubmit: (payload: {
     id?: string;
@@ -18,7 +19,7 @@ const DnsModal: React.FC<{
     detour?: string;
     strategy?: DnsUpstream['strategy'];
   }) => void;
-}> = ({ open, initial, onClose, onSubmit }) => {
+}> = ({ open, initial, outboundTags, onClose, onSubmit }) => {
   const [name, setName] = React.useState('');
   const [type, setType] = React.useState<DnsUpstream['type']>('dot');
   const [address, setAddress] = React.useState('');
@@ -62,13 +63,20 @@ const DnsModal: React.FC<{
         ) : null}
         <div>
           <label className="block text-xs font-semibold text-slate-500 mb-1.5 uppercase">Detour (Optional)</label>
-          <input
+          <select
             value={detour}
             onChange={(e) => setDetour(e.target.value)}
-            placeholder="e.g. proxy (route DNS server connection via specific outbound tag)"
-            className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm"
-          />
-          <p className="mt-1 text-xs text-slate-400">Use an outbound tag to route this DNS server connection through a specific path.</p>
+            className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm bg-white"
+          >
+            <option value="">(none)</option>
+            {outboundTags.map((tag) => (
+              <option key={tag} value={tag}>{tag}</option>
+            ))}
+            {detour && !outboundTags.includes(detour) ? (
+              <option value={detour}>{detour} (current)</option>
+            ) : null}
+          </select>
+          <p className="mt-1 text-xs text-slate-400">Choose an outbound tag to route this DNS server connection through a specific path.</p>
         </div>
         <div className="flex justify-end gap-2 pt-2">
           <button onClick={onClose} className="px-4 py-2 border border-slate-200 rounded-lg text-sm font-semibold text-slate-600">Cancel</button>
@@ -145,6 +153,7 @@ export const DnsHostsPage: React.FC = () => {
   const queryClient = useQueryClient();
   const { data: dns, isLoading: loadingDns } = useQuery({ queryKey: ['dns'], queryFn: mockApi.getDns });
   const { data: hosts, isLoading: loadingHosts } = useQuery({ queryKey: ['hosts'], queryFn: mockApi.getHosts });
+  const { data: outboundTags = [] } = useQuery({ queryKey: ['outboundTags'], queryFn: mockApi.getOutboundTags });
   const [batchText, setBatchText] = React.useState('');
   const [dnsModalOpen, setDnsModalOpen] = React.useState(false);
   const [editingDns, setEditingDns] = React.useState<DnsUpstream | null>(null);
@@ -333,6 +342,7 @@ export const DnsHostsPage: React.FC = () => {
       <DnsModal
         open={dnsModalOpen}
         initial={editingDns}
+        outboundTags={outboundTags}
         onClose={() => setDnsModalOpen(false)}
         onSubmit={(payload) => {
           if (!payload.name) return;
