@@ -176,8 +176,8 @@ describe('api config management flows', () => {
 
     await mockApi.syncCurrentUserFromSession();
     await mockApi.saveDomainGroup({ name: 'new-group', action: 'PROXY', dnsServer: 'dns_proxy' });
-    await mockApi.saveDomainRule({ type: 'suffix', value: 'google.com', group: 'new-group', action: 'PROXY' });
-    await mockApi.deleteDomainRule('domain:new-group:suffix:google.com');
+    await mockApi.saveDomainRule({ type: 'domain_suffix', value: 'google.com', group: 'new-group', action: 'PROXY' });
+    await mockApi.deleteDomainRule('domain:new-group:domain_suffix:google.com');
     await mockApi.saveProxyNode({ name: 'HK-1', protocol: 'Shadowsocks', address: '1.1.1.1', port: 443 });
     await mockApi.deleteProxyNode('proxy:HK-1');
     await mockApi.saveProxyGroup({ name: 'G-PROXY', type: 'manual', outbounds: ['GZ-Ucloud'], defaultOutbound: 'GZ-Ucloud' });

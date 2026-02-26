@@ -73,7 +73,7 @@ describe('Policy related pages render', () => {
   beforeEach(() => {
     routeState.groupName = 'kn-system';
     queryState.domains = [
-      { id: 'd1', type: 'suffix', value: 'kylith.com', group: 'kn-system', action: 'PROXY', priority: 10, enabled: true },
+      { id: 'd1', type: 'domain_suffix', value: 'kylith.com', group: 'kn-system', action: 'PROXY', priority: 10, enabled: true },
     ];
     queryState.proxies = [
       { id: 'p1', name: 'GZ-Ucloud', protocol: 'Shadowsocks', address: '1.1.1.1', port: 443, enabled: true, latency: 88, lastChecked: '10:00' },
@@ -96,7 +96,7 @@ describe('Policy related pages render', () => {
     const { DomainsPage } = await import('../pages/Domains');
     const html = renderToStaticMarkup(<DomainsPage />);
     expect(html).toContain('Policy Rules');
-    expect(html).toContain('Add Domain Rule');
+    expect(html).toContain('Add Rule');
     expect(html).toContain('kylith.com');
   });
 

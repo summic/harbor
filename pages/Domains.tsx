@@ -15,7 +15,7 @@ const DomainRuleModal: React.FC<{
 }> = ({ isOpen, onClose, initial, fixedGroup, onSave }) => {
   const isEdit = Boolean(initial);
   const [formData, setFormData] = React.useState<Partial<DomainRule>>({
-    type: 'suffix',
+    type: 'domain_suffix',
     value: '',
     group: '',
     action: 'PROXY',
@@ -27,7 +27,7 @@ const DomainRuleModal: React.FC<{
     if (!isOpen) return;
     setFormData(
       initial ?? {
-        type: 'suffix',
+        type: 'domain_suffix',
         value: '',
         group: fixedGroup,
         action: 'PROXY',
@@ -61,10 +61,11 @@ const DomainRuleModal: React.FC<{
                 value={formData.type}
                 onChange={(e) => setFormData({ ...formData, type: e.target.value as RuleType })}
               >
-                <option value="suffix">Suffix</option>
-                <option value="exact">Exact</option>
-                <option value="wildcard">Wildcard</option>
-                <option value="regex">Regex</option>
+                <option value="domain">Domain</option>
+                <option value="domain_suffix">Domain Suffix</option>
+                <option value="domain_keyword">Domain Keyword</option>
+                <option value="domain_regex">Domain Regex</option>
+                <option value="ip_cidr">IP CIDR</option>
               </select>
             </div>
             <div className="col-span-2">
@@ -194,7 +195,7 @@ export const DomainsPage: React.FC = () => {
             className="inline-flex items-center px-4 py-2 bg-blue-600 text-white text-sm font-semibold rounded-lg hover:bg-blue-700"
           >
             <Plus size={16} className="mr-2" />
-            Add Domain Rule
+            Add Rule
           </button>
         </div>
       </div>

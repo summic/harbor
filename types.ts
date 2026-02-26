@@ -1,5 +1,5 @@
 
-export type RuleType = 'exact' | 'suffix' | 'wildcard' | 'regex';
+export type RuleType = 'domain' | 'domain_suffix' | 'domain_keyword' | 'domain_regex' | 'ip_cidr';
 export type ActionType = 'DIRECT' | 'PROXY' | 'BLOCK';
 export type ProtocolType = 'Shadowsocks' | 'VLESS' | 'VMess' | 'Trojan' | 'Hysteria2' | 'TUIC' | 'WireGuard' | 'Direct' | 'Block' | 'DNS' | 'Selector' | 'URLTest';
 export type OutboundType = 'manual' | 'urltest' | 'fallback';
