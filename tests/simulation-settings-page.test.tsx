@@ -151,6 +151,7 @@ describe('Simulation and Settings pages', () => {
 
     const readyHtml = renderToStaticMarkup(<SettingsPage />);
     expect(readyHtml).toContain('Route Final');
+    expect(readyHtml).toContain('DNS Final Server Tag');
     expect(readyHtml).toContain('Unified Profile');
     expect(readyHtml).toContain('Settings saved.');
   });

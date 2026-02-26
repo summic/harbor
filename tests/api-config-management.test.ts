@@ -162,8 +162,10 @@ describe('api config management flows', () => {
     expect(proxyGroups.some((g) => g.name === 'AUTO')).toBe(true);
     expect(routing.length).toBeGreaterThan(0);
     expect(dns.length).toBeGreaterThan(0);
+    expect(dns.find((s) => s.name === 'dns_proxy')?.detour).toBe('proxy');
     expect(hosts.some((h) => h.hostname === 'chat-staging.beforeve.com')).toBe(true);
     expect(settings.routeFinal).toBe('proxy');
+    expect(settings.dnsFinal).toBe('dns_proxy');
     expect(tags).toContain('direct');
     expect(latency.some((n) => typeof n.latency === 'number')).toBe(true);
     expect(simulation.route.finalOutbound).toBe('proxy');
@@ -185,6 +187,7 @@ describe('api config management flows', () => {
     await mockApi.moveRoutingRule({ id: 'route-1', direction: 'down' });
     await mockApi.deleteRoutingRule('route-1');
     await mockApi.saveDnsServer({ name: 'dns_new', type: 'dot', address: '1.1.1.1:853', detour: 'proxy' });
+    await mockApi.saveDnsServer({ name: 'dns_new', type: 'dot', address: '1.1.1.1:853', detour: '   ' });
     await mockApi.deleteDnsServer('dns:dns_new');
     await mockApi.saveHostEntry({ hostname: 'api.beforeve.com', ip: '192.168.1.2', group: 'dns_hosts' });
     await mockApi.deleteHostEntry('host:dns_hosts:api.beforeve.com');
@@ -208,7 +211,7 @@ describe('api config management flows', () => {
       routeFinal: 'proxy',
       routeAutoDetectInterface: false,
       routeDefaultDomainResolver: 'dns_direct',
-      dnsFinal: 'dns_proxy',
+      dnsFinal: 'dns_manual',
       dnsIndependentCache: true,
       dnsStrategy: 'prefer_ipv4',
     });
@@ -217,5 +220,16 @@ describe('api config management flows', () => {
     expect(backend.rulesWrites.some((w) => w.module === 'route.rules')).toBe(true);
     expect(backend.rulesWrites.some((w) => w.module === 'dns.servers')).toBe(true);
     expect(backend.rulesWrites.some((w) => w.module === 'outbounds')).toBe(true);
+
+    const dnsServerWrites = backend.rulesWrites.filter((w) => w.module === 'dns.servers');
+    expect(dnsServerWrites.length).toBeGreaterThan(1);
+    const withDetour = dnsServerWrites.find((write) => write.payload?.tag === 'dns_new' && write.payload?.detour === 'proxy');
+    expect(withDetour).toBeTruthy();
+
+    const clearedDetour = dnsServerWrites.find((write) => write.payload?.tag === 'dns_new' && !('detour' in (write.payload as Record<string, unknown>)));
+    expect(clearedDetour).toBeTruthy();
+
+    const dnsMetaWrite = backend.rulesWrites.find((w) => w.module === 'meta.dns' && w.payload?.final === 'dns_manual');
+    expect(dnsMetaWrite).toBeTruthy();
   });
 });

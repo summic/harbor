@@ -1364,6 +1364,10 @@ const upsertDnsServerInConfig = (config: JsonObject, server: {
   const list = next.dns.servers as JsonObject[];
   const index = list.findIndex((item) => String(item?.tag ?? '') === tag);
 
+  const normalizedDetour = typeof server.detour === 'string' && server.detour.trim()
+    ? server.detour.trim()
+    : undefined;
+
   let payload: JsonObject;
   if (server.type === 'hosts') {
     const existing = index >= 0 ? list[index] : {};
@@ -1381,21 +1385,21 @@ const upsertDnsServerInConfig = (config: JsonObject, server: {
       tag,
       server: host,
       ...(portRaw && Number.isFinite(Number(portRaw)) ? { server_port: Number(portRaw) } : {}),
-      ...(server.detour ? { detour: server.detour } : {}),
+      ...(normalizedDetour ? { detour: normalizedDetour } : {}),
     };
   } else if (server.type === 'doh') {
     payload = {
       type: 'https',
       tag,
       server: server.address,
-      ...(server.detour ? { detour: server.detour } : {}),
+      ...(normalizedDetour ? { detour: normalizedDetour } : {}),
     };
   } else {
     payload = {
       type: 'udp',
       tag,
       server: server.address,
-      ...(server.detour ? { detour: server.detour } : {}),
+      ...(normalizedDetour ? { detour: normalizedDetour } : {}),
     };
   }
 
