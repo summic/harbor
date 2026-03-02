@@ -239,7 +239,7 @@ export const QualityObservabilityPage: React.FC = () => {
     <div className="space-y-8 animate-fade-in">
       <div className="flex flex-col gap-3">
         <div className="flex items-center gap-2 text-sm text-slate-500">
-          <ShieldAlert size={16} className="text-blue-600" /> Sail 服务质量体系 · 24h 观测
+          <ShieldAlert size={16} className="text-blue-600" /> Sail quality monitoring system · 24h observability
         </div>
         <h1 className="text-3xl font-bold text-slate-900">Quality Observability</h1>
         <p className="text-sm text-slate-500 max-w-2xl">
@@ -292,7 +292,7 @@ export const QualityObservabilityPage: React.FC = () => {
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <SectionCard
-          title="关键域名 TopN"
+          title="Top Domains"
           description="Top domains by request volume during the last 24 hours."
           actions={<Globe size={16} className="text-slate-400" />}
         >
@@ -307,7 +307,7 @@ export const QualityObservabilityPage: React.FC = () => {
         </SectionCard>
 
         <SectionCard
-          title="失败原因标准化展示"
+          title="Normalized Failure Reasons"
           description="Failure reasons normalized to a standard taxonomy."
           actions={<AlertTriangle size={16} className="text-slate-400" />}
         >

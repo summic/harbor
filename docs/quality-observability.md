@@ -1,20 +1,20 @@
-# Sail 服务质量体系一期（Console）
+# Sail Quality Monitoring (Console)
 
-本页面用于描述 console 侧质量观测视图的后端数据接入方式与标准化规则。
+This page describes how the console-side quality observability view integrates backend data and applies standardization rules.
 
-## 数据接口
+## API Endpoints
 
-console 通过以下接口获取 24h 稳定性、关键域名 TopN、失败原因分布。
+The console uses the following API to get 24h stability, top domains and failure reason distribution.
 
 ```
 GET /api/quality/observability?window=24h&bucket=1h&topN=10
 ```
 
-- `window`: 时间窗口，当前固定为 `24h`。
-- `bucket`: 采样粒度，当前固定为 `1h`。
-- `topN`: TopN 数量，当前固定为 `10`。
+- `window`: time window, currently fixed to `24h`.
+- `bucket`: sample granularity, currently fixed to `1h`.
+- `topN`: TopN count, currently fixed to `10`. 
 
-### 返回结构（推荐）
+### Response shape (recommended)
 
 ```
 {
@@ -42,35 +42,35 @@ GET /api/quality/observability?window=24h&bucket=1h&topN=10
 }
 ```
 
-## 失败原因标准化
+## Failure reason standardization
 
-前端会对失败原因做标准化展示，统一输出如下代码：
+The frontend normalizes failure reasons to standard codes:
 
-- `DNS_TIMEOUT`: DNS 查询超时
-- `DNS_REFUSED`: DNS 拒绝
-- `TLS_HANDSHAKE`: TLS 握手失败
-- `CONNECT_TIMEOUT`: 建连超时
-- `CONNECTION_RESET`: 连接被重置
-- `BLOCKED_POLICY`: 策略拦截
-- `AUTH_FAILED`: 鉴权失败
-- `UPSTREAM_5XX`: 上游 5xx
-- `UPSTREAM_4XX`: 上游 4xx
-- `RATE_LIMITED`: 限流
-- `UNKNOWN`: 其他/未知
+- `DNS_TIMEOUT`: DNS query timeout
+- `DNS_REFUSED`: DNS refused
+- `TLS_HANDSHAKE`: TLS handshake failed
+- `CONNECT_TIMEOUT`: connection timeout
+- `CONNECTION_RESET`: connection reset
+- `BLOCKED_POLICY`: policy blocked
+- `AUTH_FAILED`: authentication failed
+- `UPSTREAM_5XX`: upstream 5xx
+- `UPSTREAM_4XX`: upstream 4xx
+- `RATE_LIMITED`: rate limited
+- `UNKNOWN`: other/unknown
 
-后端可直接返回标准化 `code`，前端也支持常见别名自动归一，例如：
+The backend can return standard `code` directly. The frontend also auto-normalizes common aliases, for example:
 
 - `dns_query_timeout` → `DNS_TIMEOUT`
 - `policy_blocked` → `BLOCKED_POLICY`
 - `too_many_requests` → `RATE_LIMITED`
 
-## 兼容策略
+## Compatibility policy
 
-如果后端返回包裹结构（例如 `{ data: ... }`），前端会自动解包。
-字段命名差异（如 `top_domains`、`failure_reasons`）也会被兼容处理。
-数值字段允许返回字符串形式（如 `"99.2"`、`"12000"`），前端会自动解析为数值。
+If backend returns wrapped data (such as `{ data: ... }`), the frontend automatically unwraps it.
+Field name variations (like `top_domains`, `failure_reasons`) are handled by compatibility logic.
+Numeric fields may return as strings (e.g. `"99.2"`, `"12000"`) and the frontend parses them automatically.
 
-本地开发环境支持以下变量：
+Local development variables:
 
-- `VITE_API_BASE_URL`：后端 API 基地址（默认空，表示同源）
-- `VITE_QUALITY_MOCK_FALLBACK`：是否在接口错误时回退到内置 mock（默认 `true`，设为 `false` 可关闭）
+- `VITE_API_BASE_URL`: Backend API base URL (defaults to empty, which means same-origin)
+- `VITE_QUALITY_MOCK_FALLBACK`: Whether to fall back to built-in mock data on API errors (default is `true`, set to `false` to disable)

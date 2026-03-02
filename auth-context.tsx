@@ -49,8 +49,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       if (error instanceof ApiError && error.status === 401) {
         const message =
           error.code === 'invalid_access_token'
-            ? `登录令牌无效（${error.message || 'invalid access token'}），请重新登录。`
-            : `认证失败（${error.code || 'authentication_failed'}），请重新登录。`;
+            ? `Your login token is invalid (${error.message || 'invalid access token'}). Please sign in again.`
+            : `Authentication failed (${error.code || 'authentication_failed'}). Please sign in again.`;
         invalidateSession(message);
         return false;
       }
@@ -71,10 +71,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       const code = (detail?.code || '').toLowerCase();
       const reason =
         code === 'invalid_access_token'
-          ? `登录令牌无效（${detail?.detail || 'invalid access token'}），请重新登录。`
+          ? `Your login token is invalid (${detail?.detail || 'invalid access token'}). Please sign in again.`
           : code === 'missing_bearer_token'
-            ? '未检测到有效登录令牌，请重新登录。'
-            : '认证失败，请重新登录。';
+            ? 'No valid login token found. Please sign in again.'
+            : 'Authentication failed. Please sign in again.';
       if (!cancelled) {
         invalidateSession(reason);
       }

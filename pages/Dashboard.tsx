@@ -190,7 +190,7 @@ export const DashboardPage: React.FC = () => {
           <div className="lg:col-span-2">
             <ChartContainer
               title="Traffic Overview"
-              subtitle={`仅代理流量 · Upload ${fmtBytes(totalUpload)} · Download ${fmtBytes(totalDownload)} (24h)`}
+              subtitle={`Proxy traffic only · Upload ${fmtBytes(totalUpload)} · Download ${fmtBytes(totalDownload)} (24h)`}
               legend={
                 <>
                   <div className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-blue-500"></span> Download</div>
@@ -217,7 +217,7 @@ export const DashboardPage: React.FC = () => {
           <div className="lg:col-span-2">
             <SectionCard
               title="Top Domains (All Requests)"
-              description="按请求量排序，可切换看应用流量或 DNS 流量"
+              description="Sorted by request count. Switch between app traffic and DNS traffic"
               actions={<Globe size={16} className="text-slate-400" />}
             >
               <div className="mb-3 inline-flex rounded-lg border border-slate-200 bg-white p-1 text-xs">
@@ -245,7 +245,7 @@ export const DashboardPage: React.FC = () => {
                     <tr>
                       <th className="px-4 py-3 w-16">#</th>
                       <th className="px-4 py-3">Domain</th>
-                      <th className="px-4 py-3">策略</th>
+                      <th className="px-4 py-3">Policy</th>
                       <th className="px-4 py-3 text-right">Requests</th>
                       <th className="px-4 py-3 text-right">Share</th>
                     </tr>
@@ -278,7 +278,7 @@ export const DashboardPage: React.FC = () => {
             <div className="space-y-6">
               <SectionCard
                 title="Proxy Failures"
-                description="连接失败原因标准化统计"
+                description="Standardized connection failure reasons"
                 actions={<AlertTriangle size={16} className="text-slate-400" />}
               >
                 <div className="space-y-3">
@@ -308,7 +308,7 @@ export const DashboardPage: React.FC = () => {
 
               <SectionCard
                 title="Failed Domains"
-                description="最近 24h 请求失败域名聚合"
+                description="Top failed domains in the last 24h"
                 actions={<XCircle size={16} className="text-slate-400" />}
               >
                 <div className="space-y-2">
