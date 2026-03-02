@@ -324,16 +324,18 @@ const domainRuleId = (group: string, type: DomainRule['type'], value: string) =>
 
 const domainRuleKeyToField = (type: DomainRule['type']) => {
   switch (type) {
-    case 'exact':
+    case 'domain':
       return 'domain';
-    case 'suffix':
+    case 'domain_suffix':
       return 'domain_suffix';
-    case 'wildcard':
+    case 'domain_keyword':
       return 'domain_keyword';
-    case 'regex':
+    case 'domain_regex':
       return 'domain_regex';
+    case 'ip_cidr':
+      return 'ip_cidr';
     default:
-      return 'domain_suffix';
+      return 'domain';
   }
 };
 
@@ -642,10 +644,11 @@ const toDomainRules = (config: JsonObject): DomainRule[] => {
 
     for (const rule of set.rules) {
       const mappings: Array<{ key: string; type: DomainRule['type'] }> = [
-        { key: 'domain', type: 'exact' },
-        { key: 'domain_suffix', type: 'suffix' },
-        { key: 'domain_keyword', type: 'wildcard' },
-        { key: 'domain_regex', type: 'regex' },
+        { key: 'domain', type: 'domain' },
+        { key: 'domain_suffix', type: 'domain_suffix' },
+        { key: 'domain_keyword', type: 'domain_keyword' },
+        { key: 'domain_regex', type: 'domain_regex' },
+        { key: 'ip_cidr', type: 'ip_cidr' },
       ];
       for (const mapping of mappings) {
         const value = rule?.[mapping.key];
@@ -1361,6 +1364,10 @@ const upsertDnsServerInConfig = (config: JsonObject, server: {
   const list = next.dns.servers as JsonObject[];
   const index = list.findIndex((item) => String(item?.tag ?? '') === tag);
 
+  const normalizedDetour = typeof server.detour === 'string' && server.detour.trim()
+    ? server.detour.trim()
+    : undefined;
+
   let payload: JsonObject;
   if (server.type === 'hosts') {
     const existing = index >= 0 ? list[index] : {};
@@ -1378,21 +1385,21 @@ const upsertDnsServerInConfig = (config: JsonObject, server: {
       tag,
       server: host,
       ...(portRaw && Number.isFinite(Number(portRaw)) ? { server_port: Number(portRaw) } : {}),
-      ...(server.detour ? { detour: server.detour } : {}),
+      ...(normalizedDetour ? { detour: normalizedDetour } : {}),
     };
   } else if (server.type === 'doh') {
     payload = {
       type: 'https',
       tag,
       server: server.address,
-      ...(server.detour ? { detour: server.detour } : {}),
+      ...(normalizedDetour ? { detour: normalizedDetour } : {}),
     };
   } else {
     payload = {
       type: 'udp',
       tag,
       server: server.address,
-      ...(server.detour ? { detour: server.detour } : {}),
+      ...(normalizedDetour ? { detour: normalizedDetour } : {}),
     };
   }
 
@@ -1646,8 +1653,8 @@ export const mockApi = {
     const current = toDomainRules(config);
     const existing = payload.id ? current.find((item) => item.id === payload.id) : undefined;
     const nextRule: DomainRule = {
-      id: payload.id || domainRuleId(payload.group || 'custom', (payload.type as DomainRule['type']) || 'suffix', payload.value || ''),
-      type: (payload.type as DomainRule['type']) || existing?.type || 'suffix',
+      id: payload.id || domainRuleId(payload.group || 'custom', (payload.type as DomainRule['type']) || 'domain_suffix', payload.value || ''),
+      type: (payload.type as DomainRule['type']) || existing?.type || 'domain_suffix',
       value: payload.value || existing?.value || '',
       group: payload.group || existing?.group || 'custom',
       action: (payload.action as DomainRule['action']) || existing?.action || 'PROXY',

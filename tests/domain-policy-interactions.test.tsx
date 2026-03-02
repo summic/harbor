@@ -90,7 +90,7 @@ describe('Domain policy pages interactions', () => {
     ];
     queryState.dnsServers = [{ id: 'dns1', name: 'dns_direct', type: 'dot', address: '223.6.6.6:853', enabled: true }];
     queryState.domains = [
-      { id: 'd1', type: 'suffix', value: 'google.com', group: 'kn-system', action: 'PROXY', enabled: true, note: '', priority: 10 },
+      { id: 'd1', type: 'domain_suffix', value: 'google.com', group: 'kn-system', action: 'PROXY', enabled: true, note: '', priority: 10 },
     ];
     queryClientState.setQueryData.mockReset();
     queryClientState.invalidateQueries.mockReset();
@@ -161,7 +161,7 @@ describe('Domain policy pages interactions', () => {
     const renderer = await renderWithAct(<DomainsPage />);
     const root = renderer.root;
 
-    const addRuleButton = findButtonByText(root, 'Add Domain Rule');
+    const addRuleButton = findButtonByText(root, 'Add Rule');
     expect(addRuleButton).toBeDefined();
     await act(async () => {
       addRuleButton!.props.onClick();

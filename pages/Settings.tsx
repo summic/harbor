@@ -25,7 +25,7 @@ const defaultSettings: CoreSettings = {
   routeFinal: 'proxy',
   routeAutoDetectInterface: true,
   routeDefaultDomainResolver: 'dns_direct',
-  dnsFinal: 'dns_proxy',
+  dnsFinal: 'dns_direct',
   dnsIndependentCache: true,
   dnsStrategy: 'prefer_ipv4',
 };
@@ -146,8 +146,14 @@ export const SettingsPage: React.FC = () => {
             <input className="mt-1 w-full px-3 py-2 rounded-lg border border-slate-200 bg-slate-50" value={form.routeDefaultDomainResolver} onChange={(e) => update('routeDefaultDomainResolver', e.target.value)} />
           </label>
           <label className="text-sm text-slate-600">
-            DNS Final
-            <input className="mt-1 w-full px-3 py-2 rounded-lg border border-slate-200 bg-slate-50" value={form.dnsFinal} onChange={(e) => update('dnsFinal', e.target.value)} />
+            DNS Final Server Tag
+            <input
+              className="mt-1 w-full px-3 py-2 rounded-lg border border-slate-200 bg-slate-50"
+              value={form.dnsFinal}
+              onChange={(e) => update('dnsFinal', e.target.value)}
+              placeholder="e.g. dns_direct"
+            />
+            <span className="mt-1 block text-xs text-slate-400">Fallback DNS server tag used when no DNS rule matches.</span>
           </label>
         </div>
       </SectionCard>
