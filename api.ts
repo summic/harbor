@@ -133,10 +133,23 @@ const fetchJson = async <T>(path: string, init?: RequestInit): Promise<T> => {
     mergedHeaders.set(key, value);
   });
   const { headers: _ignoredHeaders, ...restInit } = init ?? {};
-  const response = await fetch(`${API_BASE}${path}`, {
-    ...restInit,
-    headers: mergedHeaders,
-  });
+  const requestUrl = `${API_BASE}${path}`;
+  const requestOnce = async (headers: Headers): Promise<Response> => {
+    try {
+      return await fetch(requestUrl, {
+        ...restInit,
+        headers,
+      });
+    } catch (error) {
+      const cause = error instanceof Error ? error.message : String(error);
+      throw new ApiError(`Failed to reach ${requestUrl}: ${cause || 'request failed'}`, {
+        status: 0,
+        code: 'network_error',
+      });
+    }
+  };
+
+  const response = await requestOnce(mergedHeaders);
   if (!response.ok) {
     const parsed = await parseProblemDetail(response);
     if (
@@ -173,10 +186,7 @@ const fetchJson = async <T>(path: string, init?: RequestInit): Promise<T> => {
           'Authorization',
           `${hasRefreshedTokenType.toLowerCase() === 'bearer' ? 'Bearer' : hasRefreshedTokenType} ${refreshed.accessToken}`,
         );
-        const retryResponse = await fetch(`${API_BASE}${path}`, {
-          ...restInit,
-          headers: retryHeaders,
-        });
+        const retryResponse = await requestOnce(retryHeaders);
         if (retryResponse.ok) {
           return retryResponse.json() as Promise<T>;
         }

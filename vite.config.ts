@@ -116,7 +116,24 @@ const getOrigin = (req: IncomingMessage) => {
   return `${getRequestProto(req)}://${host}`;
 };
 
-const MAX_JSON_BODY_BYTES = 256 * 1024;
+const parseMaxBodyBytes = (raw: string | undefined, fallback: number) => {
+  const parsed = Number.parseInt(raw, 10);
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    return fallback;
+  }
+  return parsed;
+};
+
+const MAX_JSON_BODY_BYTES = parseMaxBodyBytes(
+  process.env.SAIL_MAX_JSON_BODY_BYTES ||
+    process.env.SAIL_MAX_PAYLOAD_BYTES ||
+    process.env.VITE_MAX_JSON_BODY_BYTES,
+  256 * 1024,
+);
+const PROFILE_MAX_JSON_BODY_BYTES = parseMaxBodyBytes(
+  process.env.SAIL_MAX_PROFILE_JSON_BODY_BYTES || process.env.SAIL_MAX_PROFILE_PAYLOAD_BYTES,
+  50 * 1024 * 1024,
+);
 const REQUEST_ID_HEADER = 'x-request-id';
 
 const readBody = async (req: IncomingMessage, maxBytes = MAX_JSON_BODY_BYTES): Promise<string> =>
@@ -127,7 +144,7 @@ const readBody = async (req: IncomingMessage, maxBytes = MAX_JSON_BODY_BYTES): P
       bytes += chunk.length;
       if (bytes > maxBytes) {
         reject(new Error(`request body exceeds allowed size (${maxBytes} bytes)`));
-        req.destroy();
+        req.pause();
         return;
       }
       body += String(chunk);
@@ -152,6 +169,7 @@ const parseJsonBody = async <T>(
   } catch (error) {
     const message = error instanceof Error ? error.message : '';
     if (message.startsWith('request body exceeds allowed size')) {
+      req.resume();
       sendProblem(res, 413, {
         title: 'Payload too large',
         detail: message,
@@ -665,15 +683,17 @@ const subscriptionHandler = async (req: IncomingMessage, res: ServerResponse, ne
     return;
   }
 
-  const url = new URL(req.url, 'http://localhost');
   const requestId = getOrCreateRequestId(req);
   const startedAt = Date.now();
+  let route = req.url || '/';
   res.setHeader('X-Request-Id', requestId);
-  const route = `${url.pathname}${url.search}`;
-  res.on('finish', () => {
-    emitRequestSummary(req, res, requestId, startedAt, route);
-  });
-  if (url.pathname.startsWith('/api/')) {
+  try {
+    const url = new URL(req.url, 'http://localhost');
+    route = `${url.pathname}${url.search}`;
+    res.on('finish', () => {
+      emitRequestSummary(req, res, requestId, startedAt, route);
+    });
+    if (url.pathname.startsWith('/api/')) {
     API_RATE_LIMITER.cleanup();
     const rateLimit = API_RATE_LIMITER.check({ key: requestIP(req), route: url.pathname, now: startedAt });
     res.setHeader('X-RateLimit-Limit', String(rateLimit.limit));
@@ -740,7 +760,9 @@ const subscriptionHandler = async (req: IncomingMessage, res: ServerResponse, ne
   if (url.pathname === PROFILE_PATH && req.method === 'PUT') {
     const authInfo = await requireAuth(req, res, url.pathname);
     if (!authInfo) return;
-    const payload = await parseJsonBody<{ content?: string; publicUrl?: string }>(req, res, url.pathname);
+    const payload = await parseJsonBody<{ content?: string; publicUrl?: string }>(req, res, url.pathname, {
+      maxBytes: PROFILE_MAX_JSON_BODY_BYTES,
+    });
     if (!payload) return;
     if (typeof payload.content !== 'string') {
       sendProblem(res, 400, {
@@ -1465,6 +1487,21 @@ const subscriptionHandler = async (req: IncomingMessage, res: ServerResponse, ne
   }
   logSubscribeAudit(req, 'token_compat', { compatMode: true });
   sendJson(res, 200, profile);
+  } catch (error) {
+    if (!res.writableEnded) {
+      console.error(
+        `[harbor][request] unhandled error route=${route} requestId=${requestId} error=${
+          error instanceof Error ? error.message : 'unknown'
+        }`,
+      );
+      sendProblem(res, 500, {
+        title: 'Internal Server Error',
+        detail: error instanceof Error ? error.message : 'Unhandled error',
+        instance: route,
+        code: 'internal_server_error',
+      });
+    }
+  }
 };
 
 export default defineConfig(({ mode }) => {

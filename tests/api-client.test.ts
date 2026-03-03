@@ -200,4 +200,24 @@ describe('api client auth and retry flow', () => {
     expect(summary.traffic.uploadSeries.length).toBe(24);
     expect(summary.traffic.downloadSeries.length).toBe(24);
   });
+
+  it('converts fetch network failures into ApiError', async () => {
+    const fetchMock = vi.fn().mockRejectedValue(new TypeError('Failed to fetch'));
+    vi.stubGlobal('fetch', fetchMock);
+    authMocks.resolveActiveSession.mockResolvedValue({
+      accessToken: 'token-1',
+      tokenType: 'Bearer',
+      user: { sub: 'u1' },
+    });
+
+    const { ApiError, mockApi } = await import('../api');
+    const promise = mockApi.getUsers();
+
+    await expect(promise).rejects.toBeInstanceOf(ApiError);
+    await expect(promise).rejects.toMatchObject({
+      status: 0,
+      code: 'network_error',
+      message: expect.stringContaining('/api/v1/users'),
+    });
+  });
 });
