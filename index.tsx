@@ -3,6 +3,7 @@ import React from 'react';
 import ReactDOM from 'react-dom/client';
 import * as Sentry from '@sentry/react';
 import App from './App';
+import { buildInfo } from './utils/build-info';
 
 const SENTRY_DSN =
   'https://6cbe59d5a88a861d7b9e439e456d4080@o4504033821982720.ingest.us.sentry.io/4508000005193728';
@@ -10,6 +11,7 @@ const SENTRY_DSN =
 if (import.meta.env.PROD) {
   Sentry.init({
     dsn: SENTRY_DSN,
+    release: `harbor@${buildInfo.appVersion}`,
     environment: 'production',
   });
 }
