@@ -26,6 +26,8 @@ export const UnifiedProfilePage: React.FC = () => {
   const [isDirty, setIsDirty] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
+  const [saveResultMessage, setSaveResultMessage] = useState<string | null>(null);
+  const [saveResultType, setSaveResultType] = useState<'success' | 'error' | null>(null);
 
   // Initialize content
   useEffect(() => {
@@ -34,6 +36,8 @@ export const UnifiedProfilePage: React.FC = () => {
       setIsDirty(false);
       setError(null);
       setSaveError(null);
+      setSaveResultMessage(null);
+      setSaveResultType(null);
     }
   }, [profile]);
 
@@ -46,11 +50,15 @@ export const UnifiedProfilePage: React.FC = () => {
       setIsDirty(false);
       setError(null);
       setSaveError(null);
+      setSaveResultMessage('Saved successfully');
+      setSaveResultType('success');
       queryClient.invalidateQueries({ queryKey: ['profileVersions'] });
     },
     onError: (err) => {
       const message = err instanceof Error ? err.message : 'Save failed';
       setSaveError(message);
+      setSaveResultMessage(message);
+      setSaveResultType('error');
     },
   });
   const rollbackMutation = useMutation({
@@ -63,10 +71,14 @@ export const UnifiedProfilePage: React.FC = () => {
       setIsDirty(false);
       setError(null);
       setSaveError(null);
+      setSaveResultMessage(null);
+      setSaveResultType(null);
     },
     onError: (err) => {
       const message = err instanceof Error ? err.message : 'Rollback failed';
       setSaveError(message);
+      setSaveResultMessage(message);
+      setSaveResultType('error');
     },
   });
 
@@ -77,6 +89,8 @@ export const UnifiedProfilePage: React.FC = () => {
     try {
       JSON.parse(newVal);
       setError(null);
+      setSaveResultMessage(null);
+      setSaveResultType(null);
     } catch (e) {
       if (e instanceof Error) {
         // Optional: Parse error line number extraction could go here
@@ -90,6 +104,8 @@ export const UnifiedProfilePage: React.FC = () => {
   const handleSave = () => {
     if (error) return; 
     setSaveError(null);
+    setSaveResultMessage(null);
+    setSaveResultType(null);
     saveMutation.mutate({
       content: jsonContent,
     });
@@ -176,11 +192,6 @@ export const UnifiedProfilePage: React.FC = () => {
                 <span className="font-bold mr-2">ERROR:</span>{error}
               </div>
             )}
-            {saveError && !error && (
-              <div className="px-4 py-2 bg-amber-900/10 border-t border-amber-900/50 text-amber-300 text-xs font-mono truncate z-20">
-                <span className="font-bold mr-2">SAVE:</span>{saveError}
-              </div>
-            )}
           </div>
         </div>
 
@@ -222,6 +233,18 @@ export const UnifiedProfilePage: React.FC = () => {
                   )}
                   Save
                 </button>
+                {saveResultMessage && (
+                  <div
+                    className={`px-3 py-2 rounded-lg text-xs font-mono ${
+                      saveResultType === 'success'
+                        ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+                        : 'bg-rose-50 text-rose-700 border border-rose-200'
+                    }`}
+                  >
+                    <span className="font-bold mr-2">{saveResultType === 'success' ? 'SAVE:' : 'ERROR:'}</span>
+                    {saveResultMessage}
+                  </div>
+                )}
               </div>
             </div>
           </SectionCard>
