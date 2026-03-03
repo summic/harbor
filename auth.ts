@@ -117,6 +117,15 @@ const toSession = (
   if (!accessToken) {
     throw new Error('access_token is required');
   }
+  const decoded = parseJwtPayload(accessToken);
+  const tokenSub = typeof decoded?.sub === 'string' ? decoded.sub.trim() : '';
+  const mergedUser =
+    tokenSub && !raw.user?.sub
+      ? {
+          ...(raw.user ?? {}),
+          sub: tokenSub,
+        }
+      : raw.user;
   return {
     accessToken,
     idToken: raw.idToken || raw.id_token,
@@ -124,7 +133,7 @@ const toSession = (
     tokenType: raw.tokenType || raw.token_type || 'Bearer',
     scope: raw.scope,
     expiresAt: raw.expiresAt ?? raw.expires_at,
-    user: raw.user,
+    user: mergedUser,
   };
 };
 

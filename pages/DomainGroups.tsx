@@ -186,9 +186,11 @@ export const DomainGroupsPage: React.FC = () => {
                   className="hover:bg-slate-50/50 transition-colors group cursor-pointer"
                   onClick={() => navigate(`/policy/${encodeURIComponent(group.name)}/rules`)}
                 >
-                  <td className="px-6 py-4 font-medium text-slate-800 flex items-center gap-2">
-                    <Shield size={14} className="text-slate-400" />
-                    {group.name}
+                  <td className="px-6 py-4 font-medium text-slate-800">
+                    <span className="inline-flex items-center gap-2">
+                      <Shield size={14} className="text-slate-400" />
+                    <span className="break-all">{group.name}</span>
+                  </span>
                   </td>
                   <td className="px-6 py-4 text-center">
                     <span className={`px-2 py-1 rounded text-[10px] font-bold inline-flex items-center gap-1 ${
@@ -200,7 +202,7 @@ export const DomainGroupsPage: React.FC = () => {
                   <td className="px-6 py-4 text-slate-600">{group.dnsServer || '-'}</td>
                   <td className="px-6 py-4 text-right text-slate-600 tabular-nums">{group.ruleCount}</td>
                   <td className="px-6 py-4 text-right">
-                    <div className="flex items-center justify-end gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                    <div className="flex items-center justify-end gap-1">
                       <button
                         onClick={(event) => {
                           event.stopPropagation();

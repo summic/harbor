@@ -1,4 +1,5 @@
 import path from 'path';
+import dns from 'node:dns/promises';
 import net from 'net';
 import type { IncomingMessage, ServerResponse } from 'http';
 import { execSync } from 'child_process';
@@ -669,9 +670,24 @@ const safeParseId = (raw: string | undefined): string | null => {
   }
 };
 
-const measureTcpLatency = (host: string, port: number, timeoutMs: number): Promise<number | null> =>
+const resolveTargetAddress = async (host: string): Promise<string | null> => {
+  const trimmed = host.trim();
+  if (!trimmed) return null;
+  if (net.isIP(trimmed)) return trimmed;
+
+  try {
+    const records = await dns.lookup(trimmed, { all: true });
+    if (!Array.isArray(records) || records.length === 0) return null;
+    const ipv4 = records.find((item) => item.family === 4);
+    return ipv4?.address || records[0].address;
+  } catch {
+    return null;
+  }
+};
+
+const measureSingleTcpLatency = (host: string, port: number, timeoutMs: number): Promise<number | null> =>
   new Promise((resolve) => {
-    const started = Date.now();
+    const started = process.hrtime.bigint();
     const socket = new net.Socket();
     let settled = false;
     const finish = (latency: number | null) => {
@@ -681,11 +697,40 @@ const measureTcpLatency = (host: string, port: number, timeoutMs: number): Promi
       resolve(latency);
     };
     socket.setTimeout(timeoutMs);
-    socket.once('connect', () => finish(Date.now() - started));
+    socket.once('connect', () => {
+      const elapsedNs = Number(process.hrtime.bigint() - started);
+      const latency = elapsedNs / 1_000_000;
+      finish(Math.max(0, Number(latency.toFixed(2))));
+    });
     socket.once('timeout', () => finish(null));
     socket.once('error', () => finish(null));
     socket.connect(port, host);
   });
+
+const measureTcpLatency = async (host: string, port: number, timeoutMs: number, sampleCount = 3): Promise<number | null> => {
+  if (sampleCount <= 1) {
+    return measureSingleTcpLatency(host, port, timeoutMs);
+  }
+  const samples = (await Promise.all(
+    Array.from({ length: sampleCount }, () => measureSingleTcpLatency(host, port, timeoutMs)),
+  )).filter((value): value is number => typeof value === 'number');
+  if (samples.length === 0) return null;
+  samples.sort((a, b) => a - b);
+  return samples[Math.floor(samples.length / 2)];
+};
+
+const measureTcpLatencyToAddress = async (
+  host: string,
+  port: number,
+  timeoutMs: number,
+): Promise<{ latency: number | null; targetIp?: string }> => {
+  const targetIp = await resolveTargetAddress(host);
+  if (!targetIp) {
+    return { latency: null };
+  }
+  const latency = await measureTcpLatency(targetIp, port, timeoutMs);
+  return { latency, targetIp };
+};
 
 const subscriptionHandler = async (req: IncomingMessage, res: ServerResponse, next: () => void) => {
   if (!req.url) {
@@ -912,8 +957,16 @@ const subscriptionHandler = async (req: IncomingMessage, res: ServerResponse, ne
         if (!host || !Number.isFinite(port) || port <= 0) {
           return { id: String(target?.id ?? ''), latency: null, checkedAt };
         }
-        const latency = await measureTcpLatency(host, port, timeoutMs);
-        return { id: String(target?.id ?? ''), latency, checkedAt };
+        const { latency, targetIp } = await measureTcpLatencyToAddress(host, port, timeoutMs);
+        const response: { id: string; latency: number | null; checkedAt: string; targetIp?: string } = {
+          id: String(target?.id ?? ''),
+          latency,
+          checkedAt,
+        };
+        if (targetIp) {
+          response.targetIp = targetIp;
+        }
+        return response;
       }),
     );
     sendJson(res, 200, results);
