@@ -40,6 +40,63 @@ const asArray = (value: unknown): unknown[] | null => {
   return Array.isArray(value) ? value : null;
 };
 
+const asTag = (value: unknown): string | null => {
+  if (typeof value !== 'string') {
+    return null;
+  }
+  const tag = value.trim();
+  return tag.length > 0 ? tag : null;
+};
+
+const collectDnsTags = (dnsSection: ProfileSection): string[] => {
+  const dnsServers = asArray(dnsSection.servers) ?? [];
+  const tags: string[] = [];
+  const seen = new Set<string>();
+  for (const server of dnsServers) {
+    const serverObj = asObject(server);
+    const tag = asTag(serverObj?.tag);
+    if (tag && !seen.has(tag)) {
+      seen.add(tag);
+      tags.push(tag);
+    }
+  }
+  return tags;
+};
+
+const normalizeProfileDNSRefs = (profile: JsonObject): JsonObject => {
+  const dns = asObject(profile.dns);
+  if (!dns) {
+    return profile;
+  }
+
+  const route = asObject(profile.route);
+  const tags = collectDnsTags(dns);
+  if (tags.length === 0) {
+    delete dns.final;
+    if (route) {
+      delete route.default_domain_resolver;
+      profile.route = route;
+    }
+    return profile;
+  }
+
+  const dnsTagSet = new Set(tags);
+  const defaultTag = tags[0];
+
+  const currentDnsFinal = asTag(dns.final);
+  const currentRouteResolver = asTag(route?.default_domain_resolver);
+
+  dns.final = dnsTagSet.has(currentDnsFinal ?? '') ? currentDnsFinal : defaultTag;
+  if (route) {
+    route.default_domain_resolver = dnsTagSet.has(currentRouteResolver ?? '')
+      ? currentRouteResolver
+      : (dns.final as string);
+    profile.route = route;
+  }
+  profile.dns = dns;
+  return profile;
+};
+
 const validateProfileSection = (name: string, section: unknown, requiredFields: Record<string, string>): void => {
   const obj = asObject(section);
   if (!obj) {
@@ -742,6 +799,7 @@ export class ConfigStore {
   ) {
     void timestamp;
     validateProfileShape(profile);
+    const normalizedProfile = normalizeProfileDNSRefs(profile as JsonObject);
     this.withTransaction(() => {
       if (scope == 'global') {
         this.db.prepare(`DELETE FROM rule_entries WHERE scope = 'global'`).run();
@@ -749,7 +807,7 @@ export class ConfigStore {
         this.db.prepare(`DELETE FROM rule_entries WHERE scope = 'user' AND user_id = ?`).run(userId);
       }
 
-      const p = profile as JsonObject;
+      const p = normalizedProfile;
       const dns = (p.dns ?? {}) as JsonObject;
       const route = (p.route ?? {}) as JsonObject;
       let priority = 0;
@@ -757,7 +815,7 @@ export class ConfigStore {
       this.insertRule(scope, userId, 'meta.log', p.log ?? {}, priority++);
       this.insertRule(scope, userId, 'meta.ntp', p.ntp ?? {}, priority++);
       this.insertRule(scope, userId, 'meta.dns', {
-        final: dns.final ?? 'dns_direct',
+        final: dns.final,
         independent_cache: dns.independent_cache ?? false,
         strategy: dns.strategy ?? 'prefer_ipv4',
       }, priority++);
@@ -891,7 +949,7 @@ export class ConfigStore {
       rules: (byModule.get('route.rules') ?? []).map((row) => this.parseRowPayload(row)),
     };
 
-    return profile;
+    return normalizeProfileDNSRefs(profile);
   }
 
   compileProfile(userId: string = DEFAULT_USER_ID): Record<string, unknown> {
@@ -2626,7 +2684,12 @@ const simulateTrafficInternal = (profile: Record<string, any>, input: Simulation
     }
   }
 
-  let selectedDnsServer = typeof profile.dns?.final === 'string' ? profile.dns.final : 'dns_direct';
+  const dnsSection = asObject(profile.dns) ?? {};
+  const dnsTags = collectDnsTags(dnsSection);
+  const dnsTagSet = new Set(dnsTags);
+  const dnsFinalCandidate = typeof profile.dns?.final === 'string' ? profile.dns.final : '';
+  const selectedDnsServer =
+    dnsTagSet.has(dnsFinalCandidate) ? dnsFinalCandidate : dnsTags.length > 0 ? dnsTags[0] : '';
   let matchedDnsRule: string | undefined;
   for (let i = 0; i < dnsRules.length; i += 1) {
     const rule = dnsRules[i] as Record<string, any>;

@@ -79,7 +79,17 @@ const STORE = new ConfigStore({
     process.env.SAIL_IMPORT_PROFILE_PATH || path.resolve(__dirname, '..', 'singbox-config.json'),
   seedProfile: {
     log: { level: 'info', timestamp: true },
-    dns: { final: 'dns_direct', strategy: 'prefer_ipv4', servers: [], rules: [] },
+    dns: {
+      final: 'local',
+      strategy: 'prefer_ipv4',
+      servers: [
+        {
+          tag: 'local',
+          type: 'local',
+        },
+      ],
+      rules: [],
+    },
     inbounds: [],
     outbounds: [],
     route: { final: 'direct', rules: [], rule_set: [] },

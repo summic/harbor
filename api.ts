@@ -480,11 +480,37 @@ const listOutboundTags = (config: JsonObject): string[] => {
   return [...new Set(tags)].sort((a, b) => a.localeCompare(b));
 };
 
+const pickDNSRefTag = (dnsSection: JsonObject | undefined, preferredTag: unknown, fallbackTag: string): string => {
+  const servers = Array.isArray(dnsSection?.servers) ? dnsSection.servers : [];
+  const availableTags = new Set<string>();
+  for (const item of servers) {
+    if (typeof item?.tag === 'string' && item.tag.trim()) {
+      availableTags.add(item.tag.trim());
+    }
+  }
+  const preferred = typeof preferredTag === 'string' ? preferredTag.trim() : '';
+  if (preferred && availableTags.has(preferred)) {
+    return preferred;
+  }
+  if (fallbackTag) {
+    const fallback = fallbackTag.trim();
+    if (fallback && availableTags.has(fallback)) {
+      return fallback;
+    }
+  }
+  return availableTags.size > 0 ? [...availableTags][0] : '';
+};
+
 const toCoreSettings = (config: JsonObject): CoreSettings => {
   const inbound = Array.isArray(config.inbounds) ? config.inbounds.find((item) => item?.type === 'tun') : undefined;
   const tunAddressRaw = Array.isArray(inbound?.address)
     ? inbound.address[0]
     : inbound?.address ?? inbound?.inet4_address ?? '172.19.0.1/30';
+  const dnsSection = (config.dns as JsonObject) ?? {};
+  const routeDefaultCandidate = config.route?.default_domain_resolver;
+  const dnsFinalCandidate = dnsSection.final;
+  const routeFinalTag = pickDNSRefTag(dnsSection, routeDefaultCandidate, '');
+  const dnsFinalTag = pickDNSRefTag(dnsSection, dnsFinalCandidate, routeFinalTag);
   return {
     logDisabled: Boolean(config.log?.disabled),
     logLevel: (config.log?.level ?? 'info') as CoreSettings['logLevel'],
@@ -495,7 +521,7 @@ const toCoreSettings = (config: JsonObject): CoreSettings => {
     ntpServerPort: Number(config.ntp?.server_port ?? 123),
     ntpInterval: String(config.ntp?.interval ?? '30m'),
     ntpDetour: String(config.ntp?.detour ?? 'direct'),
-    ntpDomainResolver: String(config.ntp?.domain_resolver ?? 'dns_direct'),
+    ntpDomainResolver: pickDNSRefTag(dnsSection, config.ntp?.domain_resolver, dnsFinalTag),
     tunTag: String(inbound?.tag ?? 'tun-in'),
     tunAddress: String(tunAddressRaw ?? '172.19.0.1/30'),
     tunAutoRoute: inbound?.auto_route !== false,
@@ -503,8 +529,8 @@ const toCoreSettings = (config: JsonObject): CoreSettings => {
     tunStack: (inbound?.stack ?? 'mixed') as CoreSettings['tunStack'],
     routeFinal: String(config.route?.final ?? 'proxy'),
     routeAutoDetectInterface: config.route?.auto_detect_interface !== false,
-    routeDefaultDomainResolver: String(config.route?.default_domain_resolver ?? 'dns_direct'),
-    dnsFinal: String(config.dns?.final ?? 'dns_direct'),
+    routeDefaultDomainResolver: routeFinalTag,
+    dnsFinal: dnsFinalTag,
     dnsIndependentCache: config.dns?.independent_cache !== false,
     dnsStrategy: (config.dns?.strategy ?? 'prefer_ipv4') as CoreSettings['dnsStrategy'],
   };
@@ -1857,17 +1883,20 @@ export const mockApi = {
     await sleep(160);
     const config = await loadConfig();
     const nextConfig = applyCoreSettings(config, payload);
+    const dnsSection = (nextConfig.dns as JsonObject) ?? {};
+    const dnsFinal = pickDNSRefTag(dnsSection, nextConfig.dns?.final, '');
+    const routeDefaultDomainResolver = pickDNSRefTag(dnsSection, nextConfig.route?.default_domain_resolver, dnsFinal);
     await replaceMetaRow('meta.log', nextConfig.log ?? {});
     await replaceMetaRow('meta.ntp', nextConfig.ntp ?? {});
     await replaceMetaRow('meta.dns', {
-      final: nextConfig.dns?.final ?? 'dns_direct',
+      final: dnsFinal,
       independent_cache: nextConfig.dns?.independent_cache ?? false,
       strategy: nextConfig.dns?.strategy ?? 'prefer_ipv4',
     });
     await replaceMetaRow('meta.route', {
       final: nextConfig.route?.final ?? 'proxy',
       auto_detect_interface: nextConfig.route?.auto_detect_interface ?? true,
-      default_domain_resolver: nextConfig.route?.default_domain_resolver ?? 'dns_direct',
+      default_domain_resolver: routeDefaultDomainResolver,
     });
     await replaceModuleRows('inbounds', Array.isArray(nextConfig.inbounds) ? nextConfig.inbounds : [], 'tag');
     const synced = await loadConfig();
@@ -1885,9 +1914,11 @@ export const mockApi = {
     await sleep(180);
     const config = await loadConfig();
     const nextConfig = upsertDnsServerInConfig(config, payload);
+    const dnsSection = (nextConfig.dns as JsonObject) ?? {};
+    const dnsFinal = pickDNSRefTag(dnsSection, nextConfig.dns?.final, '');
     await replaceModuleRows('dns.servers', Array.isArray(nextConfig.dns?.servers) ? nextConfig.dns.servers : [], 'tag');
     await replaceMetaRow('meta.dns', {
-      final: nextConfig.dns?.final ?? 'dns_direct',
+      final: dnsFinal,
       independent_cache: nextConfig.dns?.independent_cache ?? false,
       strategy: nextConfig.dns?.strategy ?? 'prefer_ipv4',
     });
@@ -1899,10 +1930,12 @@ export const mockApi = {
     await sleep(140);
     const config = await loadConfig();
     const nextConfig = deleteDnsServerInConfig(config, id);
+    const dnsSection = (nextConfig.dns as JsonObject) ?? {};
+    const dnsFinal = pickDNSRefTag(dnsSection, nextConfig.dns?.final, '');
     await replaceModuleRows('dns.servers', Array.isArray(nextConfig.dns?.servers) ? nextConfig.dns.servers : [], 'tag');
     await replaceModuleRows('dns.rules', Array.isArray(nextConfig.dns?.rules) ? nextConfig.dns.rules : []);
     await replaceMetaRow('meta.dns', {
-      final: nextConfig.dns?.final ?? 'dns_direct',
+      final: dnsFinal,
       independent_cache: nextConfig.dns?.independent_cache ?? false,
       strategy: nextConfig.dns?.strategy ?? 'prefer_ipv4',
     });
