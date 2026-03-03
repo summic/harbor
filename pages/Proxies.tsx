@@ -1,19 +1,8 @@
 import React from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import {
-  Plus,
-  RefreshCw,
-  Zap,
-  Server,
-  Activity,
-  Shuffle,
-  Edit3,
-  Trash2,
-  X,
-  Save,
-} from 'lucide-react';
+import { Plus, RefreshCw, Edit3, X, Save } from 'lucide-react';
 import { mockApi } from '../api';
-import { SectionCard, StatusBadge, LoadingOverlay } from '../components/Common';
+import { SectionCard, LoadingOverlay } from '../components/Common';
 import { ProtocolType, ProxyGroup, ProxyNode } from '../types';
 
 type NodeModalProps = {
@@ -28,9 +17,10 @@ type NodeModalProps = {
   }) => void;
   initial?: ProxyNode | null;
   saving?: boolean;
+  onDelete?: (id: string) => void;
 };
 
-const NodeModal: React.FC<NodeModalProps> = ({ isOpen, onClose, onSave, initial, saving }) => {
+const NodeModal: React.FC<NodeModalProps> = ({ isOpen, onClose, onSave, initial, saving, onDelete }) => {
   const isEdit = !!initial;
   const [name, setName] = React.useState('');
   const [protocol, setProtocol] = React.useState<ProtocolType>('Shadowsocks');
@@ -125,7 +115,19 @@ const NodeModal: React.FC<NodeModalProps> = ({ isOpen, onClose, onSave, initial,
           </div>
           {error ? <p className="text-sm text-rose-600">{error}</p> : null}
         </div>
-        <div className="p-6 border-t border-slate-100 bg-slate-50/50 flex items-center justify-end gap-3">
+        <div className="p-6 border-t border-slate-100 bg-slate-50/50 flex items-center justify-between gap-3">
+          {isEdit && onDelete ? (
+            <button
+              onClick={() => {
+                if (!initial?.id) return;
+                onDelete(initial.id);
+              }}
+              className="px-5 py-2.5 text-sm font-semibold text-rose-600 hover:bg-rose-50 rounded-lg transition-colors"
+            >
+              Delete Node
+            </button>
+          ) : <span />}
+          <div className="flex items-center gap-3 ml-auto">
           <button
             onClick={onClose}
             className="px-5 py-2.5 text-slate-600 font-semibold text-sm hover:bg-slate-100 rounded-lg transition-colors"
@@ -140,6 +142,7 @@ const NodeModal: React.FC<NodeModalProps> = ({ isOpen, onClose, onSave, initial,
             <Save size={16} className="mr-2" />
             {saving ? 'Saving...' : isEdit ? 'Save Node' : 'Create Node'}
           </button>
+          </div>
         </div>
       </div>
     </div>
@@ -359,6 +362,7 @@ export const ProxiesPage: React.FC = () => {
   const [groupModalOpen, setGroupModalOpen] = React.useState(false);
   const [editingNode, setEditingNode] = React.useState<ProxyNode | null>(null);
   const [editingGroup, setEditingGroup] = React.useState<ProxyGroup | null>(null);
+  const [groupTypeFilter] = React.useState<'all' | ProxyGroup['type']>('all');
 
   const refreshLinked = () => {
     queryClient.invalidateQueries({ queryKey: ['proxies'] });
@@ -392,11 +396,15 @@ export const ProxiesPage: React.FC = () => {
     },
   });
   const totalNodes = proxies?.length ?? 0;
-  const activeNodes = proxies?.filter((item) => item.enabled).length ?? 0;
-  const latencyValues = (proxies ?? []).map((item) => item.latency).filter((v): v is number => typeof v === 'number');
-  const avgLatency = latencyValues.length
-    ? `${Math.round(latencyValues.reduce((sum, v) => sum + v, 0) / latencyValues.length)}ms`
-    : '--';
+  const visibleAutoGroups = React.useMemo(() => {
+    const all = groups ?? [];
+    return all.filter((group) => {
+      const matchType = groupTypeFilter === 'all' || group.type === groupTypeFilter;
+      if (!matchType) return false;
+      return true;
+    });
+  }, [groups, groupTypeFilter]);
+  const visibleNodes = React.useMemo(() => proxies ?? [], [proxies]);
 
   return (
     <div className="space-y-6">
@@ -405,175 +413,149 @@ export const ProxiesPage: React.FC = () => {
           <h1 className="text-2xl font-bold tracking-tight">Proxies & Groups</h1>
           <p className="text-slate-500">Manage outbound nodes and logical selection groups.</p>
         </div>
-        <div className="flex items-center gap-2">
-          <button
-            onClick={() => checkLatencyMutation.mutate()}
-            disabled={isLoading || checkLatencyMutation.isPending || totalNodes === 0}
-            className="inline-flex items-center px-4 py-2 bg-white text-slate-700 text-sm font-semibold rounded-lg border border-slate-200 hover:bg-slate-50 active:scale-95 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            <RefreshCw size={14} className={`mr-2 ${checkLatencyMutation.isPending ? 'animate-spin' : ''}`} />
-            Check Latency
-          </button>
-          <button
-            onClick={() => {
-              setEditingGroup(null);
-              setGroupModalOpen(true);
-            }}
-            className="inline-flex items-center px-4 py-2 bg-white text-slate-700 text-sm font-semibold rounded-lg border border-slate-200 hover:bg-slate-50 active:scale-95 transition-all"
-          >
-            <Plus size={16} className="mr-2" />
-            Add Group
-          </button>
-          <button
-            onClick={() => {
-              setEditingNode(null);
-              setNodeModalOpen(true);
-            }}
-            className="inline-flex items-center px-4 py-2 bg-blue-600 text-white text-sm font-semibold rounded-lg hover:bg-blue-700 active:scale-95 transition-all"
-          >
-            <Plus size={16} className="mr-2" />
-            Add Node
-          </button>
-        </div>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        <div className="lg:col-span-2 space-y-6">
-          <SectionCard title="Nodes List">
-            <div className="relative overflow-hidden -mx-6 -my-6">
-              {isLoading && <LoadingOverlay />}
-              <div className="overflow-x-auto">
-                <table className="w-full text-sm text-left">
-                  <thead className="bg-slate-50 text-slate-500 font-medium">
-                    <tr>
-                      <th className="px-6 py-4">Name</th>
-                      <th className="px-6 py-4">Protocol</th>
-                      <th className="px-6 py-4">Endpoint</th>
-                      <th className="px-6 py-4">Latency</th>
-                      <th className="px-6 py-4">Status</th>
-                      <th className="px-6 py-4 text-right">Action</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-100">
-                    {proxies?.map((node) => (
-                      <tr key={node.id} className="hover:bg-slate-50/50 group">
-                        <td className="px-6 py-4">
-                          <div className="flex items-center">
-                            <Server size={14} className="mr-3 text-slate-400" />
-                            <span className="font-medium">{node.name}</span>
-                          </div>
-                        </td>
-                        <td className="px-6 py-4">
-                          <span className="text-xs bg-slate-100 text-slate-600 px-2 py-0.5 rounded font-mono uppercase">{node.protocol}</span>
-                        </td>
-                        <td className="px-6 py-4 text-slate-500 font-mono text-xs">
-                          {node.address}:{node.port}
-                        </td>
-                        <td className="px-6 py-4">
-                          <div className="flex items-center text-xs tabular-nums">
-                            <Activity size={12} className={`mr-1 ${node.latency && node.latency < 80 ? 'text-emerald-500' : 'text-amber-500'}`} />
-                            <span className={node.latency && node.latency < 80 ? 'text-emerald-600 font-semibold' : 'text-slate-600'}>
-                              {node.latency ? `${node.latency}ms` : '--'}
-                            </span>
-                            {node.lastChecked ? (
-                              <span className="ml-2 text-[10px] text-slate-400">({node.lastChecked})</span>
-                            ) : null}
-                          </div>
-                        </td>
-                        <td className="px-6 py-4">
-                          <StatusBadge active={node.enabled} />
-                        </td>
-                        <td className="px-6 py-4 text-right">
-                          <div className="inline-flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+      <div className="space-y-6">
+        <div className="space-y-6">
+          <SectionCard title="Proxy Group">
+	            <div className="space-y-3">
+	              <div />
+
+                <div className="grid gap-3 grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6">
+                {visibleAutoGroups.length === 0 ? (
+                  <p className="text-sm text-slate-500">No proxy group</p>
+                ) : null}
+                  {visibleAutoGroups.map((group) => {
+                    return (
+                      <div
+                        key={group.id}
+                        onClick={() => {
+                          setEditingGroup(group);
+                          setGroupModalOpen(true);
+                        }}
+                        className="min-h-[92px] pl-3 pt-3.5 pr-2 pb-2 rounded-xl border border-slate-200 bg-slate-50 hover:bg-slate-100/80 hover:border-slate-300 hover:shadow-sm transition-all flex flex-col cursor-pointer"
+                    >
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="flex items-start min-w-0">
+                            <div className="min-w-0">
+                              <h3 className="text-sm font-semibold text-slate-900 truncate leading-tight">{group.name}</h3>
+                            </div>
+                        </div>
                             <button
-                              onClick={() => {
-                                setEditingNode(node);
-                                setNodeModalOpen(true);
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setEditingGroup(group);
+                                setGroupModalOpen(true);
                               }}
-                              className="p-1.5 text-slate-400 hover:text-slate-900 rounded"
+                              className="p-0.5 text-slate-400 hover:text-slate-900 rounded"
+                              aria-label={`Edit group ${group.name}`}
+                              type="button"
                             >
-                              <Edit3 size={14} />
-                            </button>
-                            <button
-                              onClick={() => {
-                                if (!window.confirm(`Delete node ${node.name}?`)) return;
-                                deleteMutation.mutate(node.id);
-                              }}
-                              className="p-1.5 text-slate-400 hover:text-rose-600 rounded"
-                            >
-                              <Trash2 size={14} />
+                              <Edit3 size={12} />
                             </button>
                           </div>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+                        <div className="mt-auto text-xs text-slate-500 leading-tight">
+                          {group.defaultOutbound ? <div>Default: {group.defaultOutbound}</div> : null}
+                          {group.url ? <div className="font-mono truncate">{group.url}</div> : null}
+                        </div>
+                      </div>
+                    );
+                  })}
+                <button
+                  type="button"
+                  onClick={() => {
+                    setEditingGroup(null);
+                    setGroupModalOpen(true);
+                  }}
+                  className="min-h-[92px] pl-3 pt-3.5 pr-2 pb-2 rounded-xl border border-dashed border-slate-300 bg-slate-50 hover:bg-slate-100/80 text-slate-400 hover:text-slate-600 flex items-center justify-center transition-all"
+                >
+                  <Plus size={20} />
+                </button>
               </div>
             </div>
           </SectionCard>
         </div>
 
         <div className="space-y-6">
-          <SectionCard title="Auto Select Groups">
-            <div className="space-y-4">
-              {(groups ?? []).map((group) => (
-                <div key={group.id} className="p-4 border border-slate-200 rounded-xl hover:border-slate-300 transition-colors">
-                  <div className="flex items-center justify-between mb-3">
-                    <div className="flex items-center">
-                      {group.type === 'urltest' ? (
-                        <Zap size={16} className="text-blue-600 mr-2" />
-                      ) : (
-                        <Shuffle size={16} className="text-slate-600 mr-2" />
-                      )}
-                      <h3 className="text-sm font-semibold text-slate-900">{group.name}</h3>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <span className="text-[10px] bg-slate-100 text-slate-600 px-1.5 py-0.5 rounded font-bold uppercase">
-                        {group.type}
-                      </span>
-                      <button
-                        onClick={() => {
-                          setEditingGroup(group);
-                          setGroupModalOpen(true);
-                        }}
-                        className="p-1.5 text-slate-400 hover:text-slate-900 rounded"
+          <SectionCard title="Nodes List">
+            <div className="space-y-3">
+              <div className="flex justify-end">
+                <button
+                  onClick={() => checkLatencyMutation.mutate()}
+                  disabled={isLoading || checkLatencyMutation.isPending || totalNodes === 0}
+                  className={`inline-flex items-center px-4 py-2 bg-white text-blue-600 text-sm font-semibold rounded-lg border ${checkLatencyMutation.isPending ? 'border-blue-500/70 bg-blue-50 motion-safe:animate-pulse' : 'border-blue-500'} hover:bg-blue-50 active:scale-95 transition-all disabled:opacity-50 disabled:cursor-not-allowed`}
+                >
+                  <RefreshCw size={14} className={`mr-2 ${checkLatencyMutation.isPending ? 'animate-spin' : ''}`} />
+                  Check Latency
+                </button>
+              </div>
+              <div className="relative">
+                {isLoading && <LoadingOverlay />}
+                <div className="grid gap-3 grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6">
+                  {visibleNodes.length === 0 ? (
+                    <p className="text-sm text-slate-500 px-2 py-10 text-center">No nodes</p>
+                  ) : null}
+                  {visibleNodes.map((node) => {
+                    return (
+                      <div
+                            key={node.id}
+                            onClick={() => {
+                              setEditingNode(node);
+                              setNodeModalOpen(true);
+                            }}
+                            className="min-h-[92px] pl-3 pt-3.5 pr-2 pb-2 rounded-xl border border-slate-200 bg-slate-50 hover:bg-slate-100/80 hover:border-slate-300 hover:shadow-sm transition-all flex flex-col cursor-pointer"
                       >
-                        <Edit3 size={14} />
-                      </button>
-                    </div>
-                  </div>
-                  <div className="text-xs text-slate-500 mb-2">
-                    {group.outbounds.length > 0 ? `Members: ${group.outbounds.join(', ')}` : 'No members'}
-                  </div>
-                  {group.defaultOutbound ? (
-                    <div className="text-xs text-slate-500 mb-2">Default: {group.defaultOutbound}</div>
-                  ) : null}
-                  {group.url ? (
-                    <div className="text-[10px] text-slate-400 font-mono truncate">{group.url}</div>
-                  ) : null}
+                        <div className="flex items-start justify-between gap-1.5">
+                          <div className="flex items-start min-w-0">
+                            <div className="min-w-0">
+                              <h3 className="text-sm font-semibold text-slate-900 truncate leading-tight">{node.name}</h3>
+                            </div>
+                          </div>
+                            <button
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setEditingNode(node);
+                              setNodeModalOpen(true);
+                            }}
+                              className="p-0.5 text-slate-400 hover:text-slate-900 rounded"
+                              aria-label={`Edit node ${node.name}`}
+                              type="button"
+                            >
+                            <Edit3 size={12} />
+                          </button>
+                        </div>
+                        <div className="mt-auto flex items-center justify-between gap-2">
+                          <span
+                            className={`text-xs leading-none ${
+                              node.latencyStatus === 'failed'
+                                ? 'text-rose-500'
+                                : typeof node.latency === 'number'
+                                  ? 'text-emerald-500'
+                                  : 'text-slate-500'
+                            }`}
+                          >
+                            {node.latencyStatus === 'failed' ? 'failed' : typeof node.latency === 'number' ? `${node.latency}ms` : '--'}
+                          </span>
+                        </div>
+                      </div>
+                    );
+                  })}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setEditingNode(null);
+                      setNodeModalOpen(true);
+                    }}
+                    className="min-h-[92px] pl-3 pt-3.5 pr-2 pb-2 rounded-xl border border-dashed border-slate-300 bg-slate-50 hover:bg-slate-100/80 text-slate-400 hover:text-slate-600 flex items-center justify-center transition-all"
+                  >
+                    <Plus size={20} />
+                  </button>
                 </div>
-              ))}
-            </div>
-          </SectionCard>
-
-          <SectionCard title="Outbound Stats">
-            <div className="space-y-4">
-              <div className="flex items-center justify-between">
-                <span className="text-xs text-slate-500">Total Nodes</span>
-                <span className="text-sm font-semibold tabular-nums">{totalNodes}</span>
-              </div>
-              <div className="flex items-center justify-between">
-                <span className="text-xs text-slate-500">Active Nodes</span>
-                <span className="text-sm font-semibold text-emerald-600 tabular-nums">{activeNodes}</span>
-              </div>
-              <div className="flex items-center justify-between">
-                <span className="text-xs text-slate-500">Avg Latency</span>
-                <span className="text-sm font-semibold tabular-nums">{avgLatency}</span>
               </div>
             </div>
           </SectionCard>
         </div>
+
       </div>
 
       <NodeModal
@@ -585,6 +567,13 @@ export const ProxiesPage: React.FC = () => {
         initial={editingNode}
         saving={saveNodeMutation.isPending}
         onSave={(payload) => saveNodeMutation.mutate(payload)}
+        onDelete={(id) => {
+          if (window.confirm(`Delete node ${editingNode?.name ?? ''}?`)) {
+            deleteMutation.mutate(id);
+            setNodeModalOpen(false);
+            setEditingNode(null);
+          }
+        }}
       />
 
       <GroupModal

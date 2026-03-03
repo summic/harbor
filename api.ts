@@ -428,18 +428,16 @@ let mockProfileData: UnifiedProfile = {
   lastUpdated: "2023-10-27 15:30:00",
   size: "2.4 KB"
 };
-const proxyLatencyCache = new Map<string, { latency: number; lastChecked: string }>();
+type ProxyLatencyRecord = {
+  latency?: number;
+  latencyStatus: 'ok' | 'failed';
+  resolvedAddress?: string;
+  lastChecked: string;
+};
+
+const proxyLatencyCache = new Map<string, ProxyLatencyRecord>();
 
 const latencyCacheKey = (node: ProxyNode) => `${node.name}|${node.address}|${node.port}`;
-
-const pseudoHash = (value: string): number => {
-  let hash = 0;
-  for (let i = 0; i < value.length; i += 1) {
-    hash = (hash << 5) - hash + value.charCodeAt(i);
-    hash |= 0;
-  }
-  return Math.abs(hash);
-};
 
 const withLatency = (nodes: ProxyNode[]): ProxyNode[] =>
   nodes.map((node) => {
@@ -447,19 +445,14 @@ const withLatency = (nodes: ProxyNode[]): ProxyNode[] =>
     if (!cached) return node;
     return {
       ...node,
+      latencyStatus: cached.latencyStatus,
       latency: cached.latency,
       lastChecked: cached.lastChecked,
+      resolvedAddress: cached.resolvedAddress,
     };
   });
 
 const nowLabel = () => new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-
-const measureLatency = (node: ProxyNode): number => {
-  const seed = pseudoHash(latencyCacheKey(node) + String(Date.now()));
-  const base = 35 + (seed % 170);
-  const jitter = (seed % 21) - 10;
-  return Math.max(12, base + jitter);
-};
 
 const refreshUnifiedProfile = async (): Promise<UnifiedProfile> => {
   const remote = await fetchJson<UnifiedProfile>('/api/v1/client/profile');
@@ -1727,7 +1720,7 @@ export const mockApi = {
   getProxies: async (): Promise<ProxyNode[]> => {
     await sleep(220);
     const config = await loadConfig();
-    return withLatency(toProxyNodes(config));
+    return toProxyNodes(config);
   },
 
   getProxyGroups: async (): Promise<ProxyGroup[]> => {
@@ -1771,7 +1764,7 @@ export const mockApi = {
     const nextConfig = upsertProxyInConfig(config, payload);
     await replaceModuleRows('outbounds', Array.isArray(nextConfig.outbounds) ? nextConfig.outbounds : [], 'tag');
     const synced = await loadConfig();
-    return withLatency(toProxyNodes(synced));
+    return toProxyNodes(synced);
   },
 
   deleteProxyNode: async (id: string): Promise<ProxyNode[]> => {
@@ -1780,14 +1773,17 @@ export const mockApi = {
     const nextConfig = deleteProxyInConfig(config, id);
     await replaceModuleRows('outbounds', Array.isArray(nextConfig.outbounds) ? nextConfig.outbounds : [], 'tag');
     const synced = await loadConfig();
-    return withLatency(toProxyNodes(synced));
+    return toProxyNodes(synced);
   },
 
   checkProxiesLatency: async (): Promise<ProxyNode[]> => {
     const config = await loadConfig();
     const nodes = toProxyNodes(config);
+    const checkedAt = nowLabel();
     try {
-      const response = await fetchJson<Array<{ id: string; latency: number | null; checkedAt: string }>>(PROXY_LATENCY_PATH, {
+      const response = await fetchJson<
+        Array<{ id: string; latency: number | null; checkedAt: string; targetIp?: string }>
+      >(PROXY_LATENCY_PATH, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -1799,20 +1795,46 @@ export const mockApi = {
           timeoutMs: 2000,
         }),
       });
+      const responseById = new Map(response.map((item) => [item.id, item] as const));
       for (const item of response) {
-        if (item.latency == null) continue;
         const node = nodes.find((candidate) => candidate.id === item.id);
         if (!node) continue;
+        if (item.latency == null) {
+          proxyLatencyCache.set(latencyCacheKey(node), {
+            latencyStatus: 'failed',
+            lastChecked: item.checkedAt || checkedAt,
+            resolvedAddress: item.targetIp,
+          });
+          continue;
+        }
         proxyLatencyCache.set(latencyCacheKey(node), {
           latency: item.latency,
-          lastChecked: item.checkedAt || nowLabel(),
+          latencyStatus: 'ok',
+          lastChecked: item.checkedAt || checkedAt,
+          resolvedAddress: item.targetIp,
         });
       }
+
+      for (const node of nodes) {
+        const result = responseById.get(node.id);
+        if (!result) {
+          proxyLatencyCache.set(latencyCacheKey(node), {
+            latencyStatus: 'failed',
+            lastChecked: checkedAt,
+          });
+          continue;
+        }
+        if (result.latency == null) {
+          proxyLatencyCache.set(latencyCacheKey(node), {
+            latencyStatus: 'failed',
+            lastChecked: result.checkedAt || checkedAt,
+          });
+        }
+      }
     } catch {
-      const checkedAt = nowLabel();
       for (const node of nodes) {
         proxyLatencyCache.set(latencyCacheKey(node), {
-          latency: measureLatency(node),
+          latencyStatus: 'failed',
           lastChecked: checkedAt,
         });
       }

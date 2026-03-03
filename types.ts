@@ -28,8 +28,10 @@ export interface ProxyNode {
   name: string;
   protocol: ProtocolType;
   address: string;
+  resolvedAddress?: string;
   port: number;
   tags: string[];
+  latencyStatus?: 'ok' | 'failed';
   latency?: number;
   lastChecked?: string;
   enabled: boolean;
