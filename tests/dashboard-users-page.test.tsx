@@ -108,6 +108,7 @@ describe('Dashboard and Users pages', () => {
     expect(html).toContain('Top Domains (All Requests)');
     expect(html).toContain('Proxy Failures');
     expect(html).toContain('Failed Domains');
+    expect(html).toContain('max-w-[1800px]');
     expect(html).toContain('google.com');
     expect(html).toContain('twitter.com');
   });

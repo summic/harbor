@@ -229,10 +229,10 @@ export const AppShell: React.FC<{ children: React.ReactNode }> = ({ children }) 
         </header>
 
         <main className="flex-1 overflow-y-auto p-6 relative">
-          <div className="max-w-7xl mx-auto space-y-6 pb-10">
+          <div className="max-w-[1800px] mx-auto w-full space-y-6 pb-10">
             {children}
           </div>
-          <footer className="max-w-7xl mx-auto pt-6 pb-4 text-[11px] text-slate-400 border-t border-slate-100 mt-4">
+          <footer className="max-w-[1800px] mx-auto w-full pt-6 pb-4 text-[11px] text-slate-400 border-t border-slate-100 mt-4">
             <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
               <span>{buildInfo.copyrightText}</span>
               <span>Version v{buildInfo.appVersion}</span>
