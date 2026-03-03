@@ -320,7 +320,7 @@ export const RoutingPage: React.FC = () => {
             <div className="mb-3 text-[11px] font-semibold uppercase tracking-[0.18em] text-sky-700/80">
               Policy Group
             </div>
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
               {policyNodes.map((policy) => {
                 const rule = policy.rule;
                 return (

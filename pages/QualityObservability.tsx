@@ -242,7 +242,7 @@ export const QualityObservabilityPage: React.FC = () => {
           <ShieldAlert size={16} className="text-blue-600" /> Sail 服务质量体系 · 24h 观测
         </div>
         <h1 className="text-3xl font-bold text-slate-900">Quality Observability</h1>
-        <p className="text-sm text-slate-500 max-w-2xl">
+        <p className="text-sm text-slate-500 max-w-4xl">
           Real-time stability, key domains, and standardized failure reasons from the production backend.
         </p>
       </div>

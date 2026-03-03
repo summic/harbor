@@ -126,6 +126,7 @@ describe('Policy related pages render', () => {
     const html = renderToStaticMarkup(<RoutingPage />);
     expect(html).toContain('Routing Policies');
     expect(html).toContain('Add Policy');
+    expect(html).toContain('2xl:grid-cols-4');
     expect(html).toContain('kn-system');
   });
 

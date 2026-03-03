@@ -165,7 +165,7 @@ export const DashboardPage: React.FC = () => {
   };
 
   return (
-    <div className="space-y-6 max-w-[1600px] mx-auto animate-fade-in">
+    <div className="space-y-6 max-w-[1800px] mx-auto w-full animate-fade-in">
       <div className="relative">
         {isLoading ? <LoadingOverlay /> : null}
 

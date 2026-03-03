@@ -91,6 +91,7 @@ describe('tsx page rendering', () => {
     expect(html).toContain('Dashboard');
     expect(html).toContain('Unified Profile');
     expect(html).toContain('Version v0.1.1');
+    expect(html).toContain('max-w-[1800px]');
     expect(html).toContain('Page Content');
   });
 

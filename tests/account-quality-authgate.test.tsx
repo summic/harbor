@@ -176,6 +176,7 @@ describe('Account settings, quality observability and auth gate pages', () => {
     const html = renderToStaticMarkup(<QualityObservabilityPage />);
     expect(html).toContain('Quality Observability');
     expect(html).toContain('24h Stability Overview');
+    expect(html).toContain('max-w-4xl');
     expect(html).toContain('google.com');
     expect(html).toContain('Policy Hit Map');
     expect(html).toContain('outbound: proxy');
