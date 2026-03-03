@@ -2688,7 +2688,7 @@ const simulateTrafficInternal = (profile: Record<string, any>, input: Simulation
   const dnsTags = collectDnsTags(dnsSection);
   const dnsTagSet = new Set(dnsTags);
   const dnsFinalCandidate = typeof profile.dns?.final === 'string' ? profile.dns.final : '';
-  const selectedDnsServer =
+  let selectedDnsServer =
     dnsTagSet.has(dnsFinalCandidate) ? dnsFinalCandidate : dnsTags.length > 0 ? dnsTags[0] : '';
   let matchedDnsRule: string | undefined;
   for (let i = 0; i < dnsRules.length; i += 1) {
