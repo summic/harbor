@@ -220,4 +220,32 @@ describe('api client auth and retry flow', () => {
       message: expect.stringContaining('/api/v1/users'),
     });
   });
+
+  it('does not fall back to mock data when backend returns unauthorized', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          title: 'Authentication failed',
+          detail: 'Session expired',
+          code: 'invalid_access_token',
+        }),
+        { status: 401, headers: { 'Content-Type': 'application/problem+json' } },
+      ),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+    authMocks.resolveActiveSession.mockResolvedValue({
+      accessToken: 'token-1',
+      tokenType: 'Bearer',
+      user: { sub: 'u1' },
+    });
+
+    const { mockApi } = await import('../api');
+    const promise = mockApi.getUsers();
+
+    await expect(promise).rejects.toBeInstanceOf(ApiError);
+    await expect(promise).rejects.toMatchObject({
+      status: 401,
+      code: 'invalid_access_token',
+    });
+  });
 });
