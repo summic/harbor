@@ -35,7 +35,24 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const ssoEnabled = oidcConfig.enabled;
   const ssoConfigured = isSsoConfigured();
   const isAdmin = (session?.user?.sub ?? '') === ADMIN_SUB;
-  const invalidateSession = React.useCallback((message = 'Session expired, please sign in again.') => {
+
+  const authErrorMessage = React.useCallback((code?: string, detail?: string) => {
+    const normalizedCode = (code || '').toLowerCase();
+    const normalizedDetail = detail?.trim();
+    const withDetail = (message: string) => (normalizedDetail ? `${message}（${normalizedDetail}）` : message);
+    switch (normalizedCode) {
+      case 'invalid_access_token':
+      case 'invalid_token':
+      case 'authentication_required':
+        return withDetail('登录凭证已失效');
+      case 'missing_bearer_token':
+        return '未检测到登录凭证';
+      default:
+        return normalizedDetail ? normalizedDetail : '鉴权失败';
+    }
+  }, []);
+
+  const invalidateSession = React.useCallback((message = '会话已过期，请重新登录。') => {
     clearSession();
     setSession(null);
     setError(message);
@@ -47,16 +64,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       return true;
     } catch (error) {
       if (error instanceof ApiError && error.status === 401) {
-        const message =
-          error.code === 'invalid_access_token'
-            ? `Your login token is invalid (${error.message || 'invalid access token'}). Please sign in again.`
-            : `Authentication failed (${error.code || 'authentication_failed'}). Please sign in again.`;
+        const message = `${authErrorMessage(error.code, error.message)}，请重新登录。`;
         invalidateSession(message);
         return false;
       }
       return true;
     }
-  }, [invalidateSession]);
+  }, [authErrorMessage, invalidateSession]);
 
   React.useEffect(() => {
     let cancelled = false;
@@ -69,12 +83,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           }
         | undefined;
       const code = (detail?.code || '').toLowerCase();
-      const reason =
-        code === 'invalid_access_token'
-          ? `Your login token is invalid (${detail?.detail || 'invalid access token'}). Please sign in again.`
-          : code === 'missing_bearer_token'
-            ? 'No valid login token found. Please sign in again.'
-            : 'Authentication failed. Please sign in again.';
+      const reason = `${authErrorMessage(code, detail?.detail)}，请重新登录。`;
       if (!cancelled) {
         invalidateSession(reason);
       }
@@ -121,7 +130,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       cancelled = true;
       window.removeEventListener('harbor:auth-invalid', handleAuthInvalidation);
     };
-  }, [ssoEnabled, invalidateSession, refreshSessionAfterLogin]);
+  }, [authErrorMessage, ssoEnabled, invalidateSession, refreshSessionAfterLogin]);
 
   const login = React.useCallback(async () => {
     setError(null);

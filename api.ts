@@ -116,6 +116,24 @@ const emitAuthInvalidation = (detail: AuthInvalidationDetail) => {
   window.dispatchEvent(new CustomEvent('harbor:auth-invalid', { detail }));
 };
 
+const isAuthFailureError = (error: unknown): error is ApiError => {
+  return error instanceof ApiError && error.status === 401;
+};
+
+const fallbackUnlessAuthError = async <T>(
+  operation: () => Promise<T>,
+  fallback: () => Promise<T> | T,
+): Promise<T> => {
+  try {
+    return await operation();
+  } catch (error) {
+    if (isAuthFailureError(error)) {
+      throw error;
+    }
+    return await fallback();
+  }
+};
+
 const fetchJson = async <T>(path: string, init?: RequestInit): Promise<T> => {
   const session = await resolveActiveSession();
   const token = session?.accessToken;
@@ -216,6 +234,26 @@ const fetchJson = async <T>(path: string, init?: RequestInit): Promise<T> => {
         status: response.status,
         detail: parsed.detail,
       });
+    }
+
+    if (response.status === 401) {
+      const authCode = parsed.code || 'authentication_required';
+      const authError = new ApiError(parsed.detail || `Request failed with ${response.status}`, {
+        status: response.status,
+        title: parsed.title,
+        code: authCode,
+        instance: parsed.instance,
+        type: parsed.type,
+        errors: parsed.errors,
+      });
+      clearSession();
+      emitAuthInvalidation({
+        code: authCode,
+        path,
+        status: response.status,
+        detail: parsed.detail,
+      });
+      throw authError;
     }
     throw new ApiError(parsed.detail || `Request failed with ${response.status}`, {
       status: response.status,
@@ -2102,18 +2140,17 @@ export const mockApi = {
 
   getUsers: async (): Promise<User[]> => {
     await sleep(240);
-    try {
-      return await fetchJson<User[]>(USERS_PATH);
-    } catch {
-      return [...mockUsers];
-    }
+    return fallbackUnlessAuthError(
+      () => fetchJson<User[]>(USERS_PATH),
+      () => [...mockUsers],
+    );
   },
 
   getDashboardSummary: async (): Promise<DashboardSummary> => {
     await sleep(120);
-    try {
-      return await fetchJson<DashboardSummary>(DASHBOARD_PATH);
-    } catch {
+    return fallbackUnlessAuthError(
+      () => fetchJson<DashboardSummary>(DASHBOARD_PATH),
+      async () => {
       const users = await mockApi.getUsers();
       const activeUsers = users.filter((user) => user.status === 'active').length;
       const upload = users.reduce((sum, user) => sum + user.traffic.upload, 0);
@@ -2137,7 +2174,8 @@ export const mockApi = {
         },
         auditLogs: [],
       };
-    }
+      },
+    );
   },
 
   getFailedDomains: async (input?: {
@@ -2158,29 +2196,26 @@ export const mockApi = {
 
   getUser: async (id: string): Promise<User | undefined> => {
     await sleep(180);
-    try {
-      return await fetchJson<User>(`${USERS_PATH}/${encodeURIComponent(id)}`);
-    } catch {
-      return mockUsers.find(u => u.id === id);
-    }
+    return fallbackUnlessAuthError(
+      () => fetchJson<User>(`${USERS_PATH}/${encodeURIComponent(id)}`),
+      () => mockUsers.find((u) => u.id === id),
+    );
   },
 
   getUserTargets: async (id: string, limit = 200): Promise<UserTargetAggregate[]> => {
     await sleep(160);
-    try {
-      return await fetchJson<UserTargetAggregate[]>(`${userTargetsPath(id)}?limit=${Math.max(1, Math.min(500, limit))}`);
-    } catch {
-      return [];
-    }
+    return fallbackUnlessAuthError(
+      () => fetchJson<UserTargetAggregate[]>(`${userTargetsPath(id)}?limit=${Math.max(1, Math.min(500, limit))}`),
+      () => [],
+    );
   },
 
   getUserTargetDetail: async (id: string, target: string): Promise<UserTargetDetail | undefined> => {
     await sleep(120);
-    try {
-      return await fetchJson<UserTargetDetail>(userTargetDetailPath(id, target));
-    } catch {
-      return undefined;
-    }
+    return fallbackUnlessAuthError(
+      () => fetchJson<UserTargetDetail>(userTargetDetailPath(id, target)),
+      () => undefined,
+    );
   },
 
   reportClientConnect: async (payload: ClientDeviceReportPayload): Promise<User | undefined> => {
@@ -2231,6 +2266,9 @@ export const qualityApi = {
       const payload = await fetchJson<unknown>(`${QUALITY_OBSERVABILITY_PATH}${query ? `?${query}` : ''}`);
       return normalizeObservabilityResponse(payload);
     } catch (error) {
+      if (isAuthFailureError(error)) {
+        throw error;
+      }
       if (QUALITY_MOCK_FALLBACK) {
         console.warn('[qualityApi] falling back to mock observability payload:', error);
         return normalizeObservabilityResponse(mockQualityObservabilityPayload);
