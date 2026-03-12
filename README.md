@@ -1,6 +1,6 @@
 # Harbor
 
-Harbor is a web console for managing Sail routing data, proxy nodes, DNS hosts, unified client profiles, and user-level access data from one place.
+Harbor is an open-source Sing-box control plane for managing routing data, proxy nodes, DNS hosts, unified client profiles, and user-level access data from one place.
 
 It is built for teams that want a simple control plane instead of editing `sing-box`-style configuration by hand across multiple files and environments.
 

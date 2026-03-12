@@ -106,7 +106,7 @@ export const AppShell: React.FC<{ children: React.ReactNode }> = ({ children }) 
               <Anchor className="h-6 w-6 text-blue-600 mr-2" />
               <div className="leading-tight">
                 <div className="font-bold text-lg tracking-tight">Harbor</div>
-                <div className="text-[10px] text-slate-500 font-medium">for Sail</div>
+                <div className="text-[10px] text-slate-500 font-medium">Sing-box control plane</div>
               </div>
             </Link>
 
