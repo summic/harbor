@@ -295,7 +295,7 @@ export const AccountSettingsPage: React.FC = () => {
               value={dnsHostsText}
               onChange={(e) => setDnsHostsText(e.target.value)}
               className="w-full h-24 rounded-lg border border-slate-300 px-3 py-2 text-xs font-mono leading-5"
-              placeholder="192.168.1.123 chat-staging.beforeve.com"
+              placeholder="192.168.1.123 chat-staging.example.com"
               spellCheck={false}
             />
           </div>

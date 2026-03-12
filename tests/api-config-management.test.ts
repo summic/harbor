@@ -42,7 +42,7 @@ const profilePayload = () => ({
       strategy: 'prefer_ipv4',
       independent_cache: true,
       servers: [
-        { type: 'hosts', tag: 'dns_hosts', predefined: { 'chat-staging.beforeve.com': '192.168.1.123' } },
+        { type: 'hosts', tag: 'dns_hosts', predefined: { 'chat-staging.example.com': '192.168.1.123' } },
         { type: 'tls', tag: 'dns_proxy', server: '8.8.8.8', server_port: 853, detour: 'proxy' },
         { type: 'local', tag: 'dns_direct' },
       ],
@@ -163,7 +163,7 @@ describe('api config management flows', () => {
     expect(routing.length).toBeGreaterThan(0);
     expect(dns.length).toBeGreaterThan(0);
     expect(dns.find((s) => s.name === 'dns_proxy')?.detour).toBe('proxy');
-    expect(hosts.some((h) => h.hostname === 'chat-staging.beforeve.com')).toBe(true);
+    expect(hosts.some((h) => h.hostname === 'chat-staging.example.com')).toBe(true);
     expect(settings.routeFinal).toBe('proxy');
     expect(settings.dnsFinal).toBe('dns_proxy');
     expect(tags).toContain('direct');
@@ -189,8 +189,8 @@ describe('api config management flows', () => {
     await mockApi.saveDnsServer({ name: 'dns_new', type: 'dot', address: '1.1.1.1:853', detour: 'proxy' });
     await mockApi.saveDnsServer({ name: 'dns_new', type: 'dot', address: '1.1.1.1:853', detour: '   ' });
     await mockApi.deleteDnsServer('dns:dns_new');
-    await mockApi.saveHostEntry({ hostname: 'api.beforeve.com', ip: '192.168.1.2', group: 'dns_hosts' });
-    await mockApi.deleteHostEntry('host:dns_hosts:api.beforeve.com');
+    await mockApi.saveHostEntry({ hostname: 'api.example.com', ip: '192.168.1.2', group: 'dns_hosts' });
+    await mockApi.deleteHostEntry('host:dns_hosts:api.example.com');
     await mockApi.batchImportHosts('192.168.1.3 foo.local\n192.168.1.4 bar.local');
     await mockApi.saveSettings({
       logDisabled: false,

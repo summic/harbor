@@ -29,7 +29,7 @@ const resolveSubscriptionUrl = () => {
   if (typeof window !== 'undefined' && window.location?.origin) {
     return `${window.location.origin}${DEFAULT_SUBSCRIPTION_PATH}`;
   }
-  return `https://beforeve.com${DEFAULT_SUBSCRIPTION_PATH}`;
+  return `https://example.com${DEFAULT_SUBSCRIPTION_PATH}`;
 };
 
 export class ApiError extends Error {
@@ -1547,10 +1547,10 @@ const mockQualityObservabilityPayload = {
     avgSuccessRate: 98.4,
   },
   topDomains: [
-    { domain: 'api.beforeve.com', count: 4321, category: 'key' },
-    { domain: 'chat.beforeve.com', count: 3210, category: 'key' },
-    { domain: 'cdn.beforeve.com', count: 2890, category: 'key' },
-    { domain: 'updates.beforeve.com', count: 1880, category: 'key' },
+    { domain: 'api.example.com', count: 4321, category: 'key' },
+    { domain: 'chat.example.com', count: 3210, category: 'key' },
+    { domain: 'cdn.example.com', count: 2890, category: 'key' },
+    { domain: 'updates.example.com', count: 1880, category: 'key' },
   ],
   failureReasons: [
     { code: 'DNS_TIMEOUT', count: 38, ratio: 0.22 },

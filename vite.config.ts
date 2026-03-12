@@ -34,13 +34,13 @@ const PROFILE_AUDITS_PATH = '/api/v1/client/profile/audits';
 const ADMIN_SUB = 'deeed4b7-748b-4301-8c9e-dfe0893a80cf';
 const TRUST_PROXY_HEADERS = (process.env.SAIL_TRUST_PROXY_HEADERS || '').trim().toLowerCase() === 'true';
 const TRUSTED_ORIGIN_HOSTS = new Set(
-  (process.env.SAIL_TRUSTED_ORIGINS || 'harbor.beforeve.com,localhost,127.0.0.1')
+  (process.env.SAIL_TRUSTED_ORIGINS || 'localhost,127.0.0.1')
     .split(',')
     .map((item) => item.trim().toLowerCase())
     .filter(Boolean),
 );
 const ALLOWED_USERINFO_HOSTS = new Set(
-  (process.env.SAIL_ALLOWED_USERINFO_HOSTS || 'auth0.kylith.com,id.kylith.com')
+  (process.env.SAIL_ALLOWED_USERINFO_HOSTS || '')
     .split(',')
     .map((item) => item.trim().toLowerCase())
     .filter(Boolean),
@@ -63,12 +63,7 @@ const OIDC_INTROSPECTION_CLIENT_SECRET = (
   process.env.VITE_OAUTH_CLIENT_SECRET ||
   ''
 ).trim();
-const STATIC_USERINFO_URLS = [
-  'https://auth0.kylith.com/userinfo',
-  'https://id.kylith.com/userinfo',
-  'https://auth0.kylith.com/oauth2/userinfo',
-  'https://id.kylith.com/oauth2/userinfo',
-];
+const STATIC_USERINFO_URLS: string[] = [];
 const SUBSCRIBE_TOKEN_COMPAT =
   (process.env.SAIL_SUBSCRIBE_TOKEN_COMPAT || '').trim().toLowerCase() === 'true';
 
@@ -279,7 +274,7 @@ const sendProblem = (
     detail,
     instance,
     code,
-    type = `https://harbor.beforeve.com/problems/${code || 'internal-error'}`,
+    type = `https://harbor.example.com/problems/${code || 'internal-error'}`,
     errors,
   } = params;
   res.statusCode = status;
@@ -339,7 +334,7 @@ const buildUserInfoCandidates = (): string[] => {
       const host = url.hostname.toLowerCase();
       return (
         ['http:', 'https:'].includes(url.protocol) &&
-        (ALLOWED_USERINFO_HOSTS.has(host) || host.endsWith('.kylith.com'))
+        ALLOWED_USERINFO_HOSTS.has(host)
       );
     } catch {
       return false;
@@ -1595,7 +1590,7 @@ export default defineConfig(({ mode }) => {
       SUBSCRIBE_TOKEN_COMPAT ? 'bearer + legacy token compatibility' : 'bearer-only'
     }`,
   );
-  const allowedHosts = ['harbor.beforeve.com', 'localhost', '127.0.0.1'];
+  const allowedHosts = ['harbor.example.com', 'localhost', '127.0.0.1'];
   return {
     server: {
       port: 5173,

@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-const STORAGE_KEY = 'kylith_sso_session_v1';
+const STORAGE_KEY = 'sso_session_v1';
 
 type StorageLike = {
   getItem: (key: string) => string | null;
@@ -84,7 +84,7 @@ describe('auth session lifecycle', () => {
       ),
     );
     vi.stubGlobal('fetch', fetchMock);
-    vi.stubEnv('VITE_SSO_TOKEN_URL', 'https://id.kylith.com/oauth/token');
+    vi.stubEnv('VITE_SSO_TOKEN_URL', 'https://id.example.com/oauth/token');
     vi.stubEnv('VITE_SSO_CLIENT_ID', 'cid');
 
     const { resolveActiveSession } = await import('../auth');
@@ -114,7 +114,7 @@ describe('auth session lifecycle', () => {
       new Response('unauthorized', { status: 401, headers: { 'Content-Type': 'text/plain' } }),
     );
     vi.stubGlobal('fetch', fetchMock);
-    vi.stubEnv('VITE_SSO_TOKEN_URL', 'https://id.kylith.com/oauth/token');
+    vi.stubEnv('VITE_SSO_TOKEN_URL', 'https://id.example.com/oauth/token');
     vi.stubEnv('VITE_SSO_CLIENT_ID', 'cid');
 
     const { resolveActiveSession } = await import('../auth');

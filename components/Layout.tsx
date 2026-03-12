@@ -54,7 +54,7 @@ export const AppShell: React.FC<{ children: React.ReactNode }> = ({ children }) 
     ([user?.given_name, user?.family_name].filter(Boolean).join(' ').trim() || undefined) ||
     (user?.email as string | undefined) ||
     (user?.sub as string | undefined) ||
-    'Kylith User';
+    'SSO User';
   const email =
     (user?.email as string | undefined) ||
     (user?.upn as string | undefined) ||
@@ -63,10 +63,13 @@ export const AppShell: React.FC<{ children: React.ReactNode }> = ({ children }) 
   const roleFromList = Array.isArray(user?.roles)
     ? user?.roles.find((item): item is string => typeof item === 'string')
     : undefined;
+  const namespacedRole = Object.entries(user ?? {}).find(([key, value]) =>
+    typeof value === 'string' && /^https?:\/\/.+\/role$/i.test(key),
+  )?.[1] as string | undefined;
   const role =
     (user?.role as string | undefined) ||
     roleFromList ||
-    (user?.['https://kylith.com/claims/role'] as string | undefined) ||
+    namespacedRole ||
     'Authenticated';
   const sub = (user?.sub as string | undefined) || '';
   const avatarUrl = (user?.picture as string | undefined) || (user?.avatar_url as string | undefined) || '';
@@ -75,7 +78,7 @@ export const AppShell: React.FC<{ children: React.ReactNode }> = ({ children }) 
     .filter(Boolean)
     .slice(0, 2)
     .map((part) => part[0]?.toUpperCase() || '')
-    .join('') || 'KU';
+    .join('') || 'SU';
 
   const closeSidebarOnMobile = () => {
     if (typeof window === 'undefined') return;

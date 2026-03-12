@@ -73,7 +73,7 @@ describe('Policy related pages render', () => {
   beforeEach(() => {
     routeState.groupName = 'kn-system';
     queryState.domains = [
-      { id: 'd1', type: 'domain_suffix', value: 'kylith.com', group: 'kn-system', action: 'PROXY', priority: 10, enabled: true },
+      { id: 'd1', type: 'domain_suffix', value: 'sso.example.com', group: 'kn-system', action: 'PROXY', priority: 10, enabled: true },
     ];
     queryState.proxies = [
       { id: 'p1', name: 'GZ-Ucloud', protocol: 'Shadowsocks', address: '1.1.1.1', port: 443, enabled: true, latency: 88, lastChecked: '10:00' },
@@ -88,7 +88,7 @@ describe('Policy related pages render', () => {
       { id: 'dns:dns_proxy', name: 'dns_proxy', type: 'dot', address: '8.8.8.8:853', enabled: true },
     ];
     queryState.hosts = [
-      { id: 'host:dns_hosts:chat-staging.beforeve.com', hostname: 'chat-staging.beforeve.com', ip: '192.168.1.123', group: 'dns_hosts', enabled: true },
+      { id: 'host:dns_hosts:chat-staging.example.com', hostname: 'chat-staging.example.com', ip: '192.168.1.123', group: 'dns_hosts', enabled: true },
     ];
   });
 
@@ -97,7 +97,7 @@ describe('Policy related pages render', () => {
     const html = renderToStaticMarkup(<DomainsPage />);
     expect(html).toContain('Policy Rules');
     expect(html).toContain('Add Rule');
-    expect(html).toContain('kylith.com');
+    expect(html).toContain('sso.example.com');
   });
 
   it('renders domains empty state and redirect branch', async () => {
@@ -116,7 +116,7 @@ describe('Policy related pages render', () => {
     const html = renderToStaticMarkup(<ProxiesPage />);
     expect(html).toContain('Proxies &amp; Groups');
     expect(html).toContain('Nodes List');
-    expect(html).toContain('Auto Select Groups');
+    expect(html).toContain('Proxy Group');
     expect(html).toContain('GZ-Ucloud');
     expect(html).toContain('Outbound Stats');
   });
@@ -137,6 +137,6 @@ describe('Policy related pages render', () => {
     expect(html).toContain('DNS Servers');
     expect(html).toContain('Local Hosts');
     expect(html).toContain('Batch Import Hosts');
-    expect(html).toContain('chat-staging.beforeve.com');
+    expect(html).toContain('chat-staging.example.com');
   });
 });

@@ -3,7 +3,7 @@ import { test, expect } from '@playwright/test';
 test('routing simulator returns dns and final outbound decisions', async ({ page }) => {
   await page.addInitScript(() => {
     localStorage.setItem(
-      'kylith_sso_session_v1',
+      'sso_session_v1',
       JSON.stringify({ accessToken: 'mock-token', tokenType: 'Bearer' }),
     );
   });

@@ -119,7 +119,7 @@ describe('AccountSettings page interactions', () => {
 
     const suffixEditor = root.findByProps({ placeholder: 'example.com' });
     expect(suffixEditor.props.value).toContain('foo.com');
-    const hostsEditor = root.findByProps({ placeholder: '192.168.1.123 chat-staging.beforeve.com' });
+    const hostsEditor = root.findByProps({ placeholder: '192.168.1.123 chat-staging.example.com' });
     expect(hostsEditor.props.value).toContain('192.168.1.123 foo.com');
     expect(JSON.stringify((renderer as TestRenderer.ReactTestRenderer).toJSON())).toContain('saved');
   });
@@ -134,7 +134,7 @@ describe('AccountSettings page interactions', () => {
     const root = (renderer as TestRenderer.ReactTestRenderer).root;
 
     const suffixEditor = root.findByProps({ placeholder: 'example.com' });
-    const hostsEditor = root.findByProps({ placeholder: '192.168.1.123 chat-staging.beforeve.com' });
+    const hostsEditor = root.findByProps({ placeholder: '192.168.1.123 chat-staging.example.com' });
     const outboundSelect = root.findByType('select');
     const applyButton = findButtonByText(root, 'Apply to JSON');
     const savePersonalButton = findButtonByText(root, 'Save Personal Config');

@@ -1,7 +1,7 @@
-const STORAGE_KEY = 'kylith_sso_session_v1';
-const PKCE_VERIFIER_KEY = 'kylith_sso_pkce_verifier';
-const OAUTH_STATE_KEY = 'kylith_sso_state';
-const RETURN_PATH_KEY = 'kylith_sso_return_path';
+const STORAGE_KEY = 'sso_session_v1';
+const PKCE_VERIFIER_KEY = 'sso_pkce_verifier';
+const OAUTH_STATE_KEY = 'sso_state';
+const RETURN_PATH_KEY = 'sso_return_path';
 
 type Nullable<T> = T | null;
 

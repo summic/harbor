@@ -15,7 +15,7 @@
 ## Commands
 
 ```bash
-cd /Users/allen/Workspace/sail/singbox-console
+cd /Users/allen/Workspace/sail/harbor
 
 # Sync main
 git checkout main
@@ -37,4 +37,3 @@ git checkout main
 - Trigger: `push` on branch `release`
 - Output path on server: `/var/www/sail/releases/<run-id>-<sha>`
 - Active symlink: `/var/www/sail/current`
-
